@@ -3,7 +3,7 @@ using UnityEngine;
 using System.Collections.Generic; // List 사용을 위해 추가
 
 [CreateAssetMenu(fileName = "New SkillData", menuName = "Game/Skill Data")]
-public class SkillData : ScriptableObject
+public class SkillData : ScriptableObject, IStableContentIdentity
 {
     [Header("기본 정보")]
     [SerializeField, Tooltip("Immutable gameplay identity. Never change this after the content ships.")]

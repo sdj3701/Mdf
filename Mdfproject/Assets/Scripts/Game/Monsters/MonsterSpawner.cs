@@ -956,15 +956,26 @@ public class MonsterSpawner : MonoBehaviour
 
         foreach (var augment in _playerManager.opponentManager.chosenAugments)
         {
-            if (augment.targetType == TargetType.Opponent)
+            if (augment == null)
             {
-                switch(augment.effectType)
+                continue;
+            }
+
+            for (int effectIndex = 0; effectIndex < augment.EffectCount; effectIndex++)
+            {
+                AugmentEffectData effect = augment.GetEffect(effectIndex);
+                if (effect == null || effect.targetType != TargetType.Opponent)
+                {
+                    continue;
+                }
+
+                switch(effect.effectType)
                 {
                     case EffectType.IncreaseEnemyHealth:
-                        healthMultiplier += augment.value;
+                        healthMultiplier += effect.value;
                         break;
                     case EffectType.IncreaseEnemyMoveSpeed:
-                        speedMultiplier += augment.value;
+                        speedMultiplier += effect.value;
                         break;
                 }
             }
@@ -995,28 +1006,37 @@ public class MonsterSpawner : MonoBehaviour
                 continue;
             }
 
-            if (augment.effectType == EffectType.StrengthenMonsterType
-                && augment.strengthenedMonsterData != null
-                && augment.strengthenedMonsterData == monster.Data)
+            for (int effectIndex = 0; effectIndex < augment.EffectCount; effectIndex++)
             {
-                healthMultiplier += Mathf.Max(0f, augment.monsterHealthBonusPercent);
-                speedMultiplier += Mathf.Max(0f, augment.monsterMoveSpeedBonusPercent);
-                damageMultiplier += Mathf.Max(0f, augment.monsterDamageBonusPercent);
-                continue;
-            }
-
-            // 상대 필드에 적용되는 몬스터 강화 증강체
-            if (augment.targetType == TargetType.Opponent)
-            {
-                switch(augment.effectType)
+                AugmentEffectData effect = augment.GetEffect(effectIndex);
+                if (effect == null)
                 {
-                    case EffectType.IncreaseEnemyHealth:
-                        healthMultiplier += augment.value;
-                        break;
-                    case EffectType.IncreaseEnemyMoveSpeed:
-                        speedMultiplier += augment.value;
-                        break;
-                    // 추가 가능한 효과들...
+                    continue;
+                }
+
+                if (effect.effectType == EffectType.StrengthenMonsterType
+                    && effect.strengthenedMonsterData != null
+                    && effect.strengthenedMonsterData == monster.Data)
+                {
+                    healthMultiplier += Mathf.Max(0f, effect.monsterHealthBonusPercent);
+                    speedMultiplier += Mathf.Max(0f, effect.monsterMoveSpeedBonusPercent);
+                    damageMultiplier += Mathf.Max(0f, effect.monsterDamageBonusPercent);
+                    continue;
+                }
+
+                // 상대 필드에 적용되는 몬스터 강화 증강체
+                if (effect.targetType == TargetType.Opponent)
+                {
+                    switch(effect.effectType)
+                    {
+                        case EffectType.IncreaseEnemyHealth:
+                            healthMultiplier += effect.value;
+                            break;
+                        case EffectType.IncreaseEnemyMoveSpeed:
+                            speedMultiplier += effect.value;
+                            break;
+                        // 추가 가능한 효과들...
+                    }
                 }
             }
         }

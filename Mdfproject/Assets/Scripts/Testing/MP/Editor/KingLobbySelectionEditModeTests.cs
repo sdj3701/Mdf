@@ -22,11 +22,15 @@ public sealed class KingLobbySelectionEditModeTests
         KingSelectionCatalog.Entry[] entries = KingSelectionCatalog.Entries.ToArray();
 
         NUnitAssert.That(entries, Has.Length.EqualTo(7));
+        NUnitAssert.That(entries.Select(entry => entry.ContentId), Is.Unique);
         NUnitAssert.That(entries.Select(entry => entry.KingUnitKey), Is.Unique);
         NUnitAssert.That(entries.Select(entry => entry.KeyHash), Is.Unique);
+        NUnitAssert.That(entries.Select(entry => entry.LegacyKeyHash), Is.Unique);
         NUnitAssert.That(entries.All(entry => entry.KingUnitKey.StartsWith("UnitData_King_", StringComparison.Ordinal)),
             Is.True);
-        NUnitAssert.That(entries.All(entry => entry.KeyHash == StableDataKeyUtility.StableKeyHash(entry.KingUnitKey)),
+        NUnitAssert.That(entries.All(entry => entry.KeyHash == StableDataKeyUtility.StableContentIdHash(entry.ContentId)),
+            Is.True);
+        NUnitAssert.That(entries.All(entry => entry.LegacyKeyHash == StableDataKeyUtility.StableKeyHash(entry.KingUnitKey)),
             Is.True);
         NUnitAssert.That(KingSelectionCatalog.DefaultKey, Is.EqualTo("UnitData_King_Archer"));
         NUnitAssert.That(KingSelectionCatalog.IsAllowedHash(KingSelectionCatalog.DefaultKeyHash), Is.True);
@@ -34,6 +38,18 @@ public sealed class KingLobbySelectionEditModeTests
             Is.EqualTo(KingSelectionCatalog.DefaultKeyHash));
         NUnitAssert.That(KingSelectionCatalog.GetAssetKey(KingSelectionCatalog.DefaultKeyHash),
             Is.EqualTo(KingSelectionCatalog.DefaultKey));
+        NUnitAssert.That(KingSelectionCatalog.IsAllowedHash(KingSelectionCatalog.DefaultLegacyKeyHash), Is.True);
+        NUnitAssert.That(KingSelectionCatalog.NormalizeOrDefaultHash(KingSelectionCatalog.DefaultLegacyKeyHash),
+            Is.EqualTo(KingSelectionCatalog.DefaultKeyHash),
+            "old PlayerPrefs/network values must be accepted and upgraded to the durable contentId hash");
+        NUnitAssert.That(KingSelectionCatalog.GetAssetKey(KingSelectionCatalog.DefaultLegacyKeyHash),
+            Is.EqualTo(KingSelectionCatalog.DefaultKey));
+        NUnitAssert.That(entries.All(entry =>
+        {
+            KingUnitData data = AssetDatabase.LoadAssetAtPath<KingUnitData>(
+                $"Assets/GameData/Units/{entry.KingUnitKey}.asset");
+            return data != null && data.ContentId == entry.ContentId && data.ContentIdHash == entry.KeyHash;
+        }), Is.True, "catalog identities must be sourced from the authored KingUnitData.contentId values");
         NUnitAssert.That(KingSelectionCatalog.IsAllowedHash(0), Is.False);
         NUnitAssert.That(KingSelectionCatalog.IsAllowedHash(int.MinValue), Is.False);
     }

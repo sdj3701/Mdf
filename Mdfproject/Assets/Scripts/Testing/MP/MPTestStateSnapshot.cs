@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -845,47 +846,68 @@ public static class MPTestStateSnapshot
     private static string BuildAugmentEffectPart(AugmentData augment)
     {
         string contentId = SafeString(() => augment.ContentId, string.Empty);
-        int valuePermille = Mathf.RoundToInt(SafeFloat(() => augment.value, 0f) * 1000f);
-        return $"contentId={contentId};tier={SafeString(() => augment.tier.ToString(), Unknown)};effect={SafeString(() => augment.effectType.ToString(), Unknown)};targetType={SafeString(() => augment.targetType.ToString(), Unknown)};valuePermille={valuePermille};payload={BuildAugmentPayloadPart(augment)}";
+        var parts = new List<string>(augment.EffectCount);
+        for (int index = 0; index < augment.EffectCount; index++)
+        {
+            AugmentEffectData effect = augment.GetEffect(index);
+            parts.Add(effect == null ? $"{index}:null" : $"{index}:{BuildAugmentEffectPayloadPart(effect)}");
+        }
+
+        return $"contentId={contentId};tier={SafeString(() => augment.tier.ToString(), Unknown)};effects=[{string.Join("|", parts)}]";
     }
 
-    private static string BuildAugmentPayloadPart(AugmentData augment)
+    private static string BuildAugmentEffectPayloadPart(AugmentEffectData effect)
     {
-        if (augment == null)
+        if (effect == null)
         {
             return "null";
         }
 
-        if (augment.effectType == EffectType.SpawnMonsterOnEnemyField)
+        int valuePermille = Mathf.RoundToInt(SafeFloat(() => effect.value, 0f) * 1000f);
+        string payload = BuildAugmentPayloadPart(effect);
+        return $"effect={SafeString(() => effect.effectType.ToString(), Unknown)};targetType={SafeString(() => effect.targetType.ToString(), Unknown)};valuePermille={valuePermille};payload={payload}";
+    }
+
+    private static string BuildAugmentPayloadPart(AugmentEffectData effect)
+    {
+        if (effect.effectType == EffectType.SpawnMonsterOnEnemyField)
         {
-            if (augment.isBossSummon)
+            if (effect.isBossSummon)
             {
-                return "boss=" + BuildMonsterDataKey(augment.bossMonsterData);
+                return "boss=" + BuildMonsterDataKey(effect.bossMonsterData);
             }
 
-            var entries = augment.monsterSpawnEntries ?? new List<MonsterSpawnEntry>();
+            var entries = effect.monsterSpawnEntries ?? new List<MonsterSpawnEntry>();
             return "monsters=" + string.Join(",", entries
                 .Where(entry => entry != null && entry.monsterData != null && entry.count > 0)
                 .Select(entry => $"{BuildMonsterDataKey(entry.monsterData)}x{entry.count}")
                 .OrderBy(part => part, StringComparer.Ordinal));
         }
 
-        if (augment.effectType == EffectType.GrantMagicScroll)
+        if (effect.effectType == EffectType.GrantMagicScroll)
         {
-            return "scroll=" + BuildScriptableObjectKey(augment.magicScrollData, augment.magicScrollData != null ? augment.magicScrollData.scrollName : string.Empty);
+            return "scroll=" + BuildScriptableObjectKey(effect.magicScrollData, effect.magicScrollData != null ? effect.magicScrollData.scrollName : string.Empty);
         }
 
-        if (augment.effectType == EffectType.StrengthenMonsterType)
+        if (effect.effectType == EffectType.StrengthenMonsterType)
         {
-            int healthPermille = Mathf.RoundToInt(SafeFloat(() => augment.monsterHealthBonusPercent, 0f) * 1000f);
-            int damagePermille = Mathf.RoundToInt(SafeFloat(() => augment.monsterDamageBonusPercent, 0f) * 1000f);
-            int moveSpeedPermille = Mathf.RoundToInt(SafeFloat(() => augment.monsterMoveSpeedBonusPercent, 0f) * 1000f);
-            return $"monster={BuildMonsterDataKey(augment.strengthenedMonsterData)};healthPermille={healthPermille};damagePermille={damagePermille};moveSpeedPermille={moveSpeedPermille}";
+            int healthPermille = Mathf.RoundToInt(SafeFloat(() => effect.monsterHealthBonusPercent, 0f) * 1000f);
+            int damagePermille = Mathf.RoundToInt(SafeFloat(() => effect.monsterDamageBonusPercent, 0f) * 1000f);
+            int moveSpeedPermille = Mathf.RoundToInt(SafeFloat(() => effect.monsterMoveSpeedBonusPercent, 0f) * 1000f);
+            return $"monster={BuildMonsterDataKey(effect.strengthenedMonsterData)};healthPermille={healthPermille};damagePermille={damagePermille};moveSpeedPermille={moveSpeedPermille}";
         }
 
-        if (augment.effectType == EffectType.IncreaseBlackMagicMaximum)
+        if (effect.effectType == EffectType.StrengthenKing)
         {
-            return $"blackMagicMaximumDelta={Mathf.RoundToInt(SafeFloat(() => augment.value, 0f))}";
+            int damagePermille = Mathf.RoundToInt(SafeFloat(() => effect.kingDamageBonusPercent, 0f) * 1000f);
+            int speedPermille = Mathf.RoundToInt(SafeFloat(() => effect.kingAttackSpeedBonusPercent, 0f) * 1000f);
+            int skillPermille = Mathf.RoundToInt(SafeFloat(() => effect.kingSkillPowerBonusPercent, 0f) * 1000f);
+            return $"kingDamagePermille={damagePermille};kingSpeedPermille={speedPermille};kingSkillPermille={skillPermille}";
+        }
+
+        if (effect.effectType == EffectType.IncreaseBlackMagicMaximum)
+        {
+            return $"blackMagicMaximumDelta={Mathf.RoundToInt(SafeFloat(() => effect.value, 0f))}";
         }
 
         return "none";
@@ -898,7 +920,21 @@ public static class MPTestStateSnapshot
             return "unknown";
         }
 
-        if (augment.targetType == TargetType.Player)
+        bool targetsPlayer = false;
+        bool targetsOpponent = false;
+        for (int index = 0; index < augment.EffectCount; index++)
+        {
+            AugmentEffectData effect = augment.GetEffect(index);
+            targetsPlayer |= effect != null && effect.targetType == TargetType.Player;
+            targetsOpponent |= effect != null && effect.targetType == TargetType.Opponent;
+        }
+
+        if (targetsPlayer && targetsOpponent)
+        {
+            return "mixed";
+        }
+
+        if (targetsPlayer)
         {
             return "player:" + SafeInt(() => player.playerId, -1);
         }
@@ -2194,3 +2230,4 @@ public static class MPTestStateSnapshot
         [JsonProperty("lastRevision")] public int? LastRevision;
     }
 }
+#endif

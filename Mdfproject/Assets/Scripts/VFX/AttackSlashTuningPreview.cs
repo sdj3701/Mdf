@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using UnityEngine;
 
 #if UNITY_EDITOR
@@ -600,3 +601,4 @@ public sealed class AttackSlashTuningPreview : MonoBehaviour
     }
 #endif
 }
+#endif

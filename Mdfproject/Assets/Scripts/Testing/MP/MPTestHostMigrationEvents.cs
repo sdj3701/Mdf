@@ -13,8 +13,11 @@ public static class MPTestHostMigrationEvents
     public static int CompleteCount { get; private set; }
     public static int FailureCount { get; private set; }
 
+    [System.Diagnostics.Conditional("UNITY_EDITOR")]
+    [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
     public static void Record(string eventName, NetworkRunner runner = null, HostMigrationToken token = null, IDictionary<string, object> fields = null)
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         string safeEvent = string.IsNullOrWhiteSpace(eventName) ? "unknown" : eventName;
         LastEvent = safeEvent;
         EventCount++;
@@ -65,5 +68,6 @@ public static class MPTestHostMigrationEvents
         payload["tokenMode"] = token != null ? token.GameMode.ToString() : "null";
 
         MPTestLogger.Log("host_migration", failed ? "fail" : "info", safeEvent, null, payload);
+#endif
     }
 }

@@ -212,10 +212,21 @@ def run(args: argparse.Namespace) -> int:
         if not ready:
             failures.append("state_ready_timeout")
 
-        host_post = dump_state(host, artifact_dir, "build-host", "post")
-        client_post = dump_state(client, artifact_dir, "build-client", "post")
+        # Do not compare two one-shot dumps that may land on opposite sides of a
+        # sequence transition. Require the replicated state to converge twice.
+        host_post, client_post, post_ready = wait_states(
+            host,
+            client,
+            artifact_dir,
+            args.state_timeout,
+            args.scene,
+        )
+        write_json(artifact_dir / "snapshots" / "build-host-post.json", host_post)
+        write_json(artifact_dir / "snapshots" / "build-client-post.json", client_post)
         comparison = compare_snapshots(host_post, client_post)
         write_json(artifact_dir / "comparison.json", comparison)
+        if not post_ready:
+            failures.append("post_state_ready_timeout")
         if not comparison["success"]:
             failures.append("snapshot_mismatch")
 

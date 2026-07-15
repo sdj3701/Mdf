@@ -1432,7 +1432,10 @@ public sealed class MPTestHarnessEditModeTests
 
         int rebuildStart = fieldSource.IndexOf("public bool RebuildUnitMapAfterMigration", System.StringComparison.Ordinal);
         int preservePendingMoves = fieldSource.IndexOf("preservedPendingNetworkMoves", rebuildStart, System.StringComparison.Ordinal);
-        int unitMapAssigned = fieldSource.IndexOf("placedUnits = rebuiltUnits;", rebuildStart, System.StringComparison.Ordinal);
+        int unitMapAssigned = fieldSource.IndexOf(
+            "placedUnits = new GridOccupancyIndex<Unit>(rebuiltUnits);",
+            rebuildStart,
+            System.StringComparison.Ordinal);
         int restorePendingState = fieldSource.IndexOf("RestorePendingStateAfterUnitMapRebuild", unitMapAssigned, System.StringComparison.Ordinal);
         int replayPendingMoves = fieldSource.IndexOf("ProcessPendingNetworkMoves();", restorePendingState, System.StringComparison.Ordinal);
         Assert.That(rebuildStart, Is.GreaterThanOrEqualTo(0));
@@ -2182,11 +2185,10 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
-    public void LegacyHumanBotPolicyIsNotConstructedByRuntimeDriver()
+    public void RuntimeHumanBotUsesSharedPrepareDecisionPolicy()
     {
         Assert.That(typeof(MPTestHumanBotDriver).GetField("_preparePolicy", BindingFlags.Instance | BindingFlags.NonPublic)?.FieldType,
             Is.EqualTo(typeof(PrepareDecisionPolicy)));
-        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(MPTestHumanBotDriver), typeof(MPTestHumanBotPolicy), ".ctor"), Is.False);
     }
 
     [Test]
@@ -2368,7 +2370,15 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("compactRoster[2] = PlayerManager.ComputeUnitRosterFingerprint"));
         Assert.That(fieldSource, Does.Contain("compactRoster[3] = entries.Count"));
         Assert.That(fieldSource, Does.Contain("UnitDataKeyHash"));
-        Assert.That(fieldSource, Does.Contain("StableUnitDataKeyHash(GetUnitDataRegistrationKey(entry.Value))"));
+        MethodInfo registrationHash = typeof(FieldManager).GetMethod(
+            "GetUnitDataRegistrationHash",
+            members);
+        Assert.That(registrationHash, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            registrationHash,
+            typeof(UnitData),
+            "get_ContentIdHash"), Is.True,
+            "compact roster identity must prefer the immutable contentId hash");
         Assert.That(fieldSource, Does.Contain("ReconcileClientUnitMapFromWorldIfNeeded"));
         Assert.That(fieldSource, Does.Contain("ClientRoster.{context}"));
         Assert.That(fieldSource, Does.Contain("playerManager.Object.HasStateAuthority"));
@@ -2530,15 +2540,20 @@ public sealed class MPTestHarnessEditModeTests
             MethodInfo accept = typeof(PlayerManager).GetMethod("TryAcceptUnitRosterRevision", members);
             MethodInfo remember = typeof(PlayerManager).GetMethod("RememberLatestUnitRegistration", members);
             MethodInfo canUnregister = typeof(PlayerManager).GetMethod("CanApplyUnitUnregister", members);
-            MethodInfo stableKeyHash = typeof(PlayerManager).GetMethod("StableUnitDataKeyHash", members);
             FieldInfo latestField = typeof(PlayerManager).GetField("_latestUnitRegistrationById", members);
             FieldInfo retiredField = typeof(PlayerManager).GetField("_retiredUnitRegistrationIds", members);
             Assert.That(accept, Is.Not.Null);
             Assert.That(remember, Is.Not.Null);
             Assert.That(canUnregister, Is.Not.Null);
 
-            int warriorHash = (int)stableKeyHash.Invoke(null, new object[] { "UnitData_Warrior" });
-            int mageHash = (int)stableKeyHash.Invoke(null, new object[] { "UnitData_Mage" });
+            UnitData warriorData = AssetDatabase.LoadAssetAtPath<UnitData>(
+                "Assets/GameData/Units/UnitData_Warrior.asset");
+            UnitData mageData = AssetDatabase.LoadAssetAtPath<UnitData>(
+                "Assets/GameData/Units/UnitData_Mage.asset");
+            Assert.That(warriorData, Is.Not.Null);
+            Assert.That(mageData, Is.Not.Null);
+            int warriorHash = warriorData.ContentIdHash;
+            int mageHash = mageData.ContentIdHash;
             int[] ids = { 42 };
             int[] positions = { 5, 0, 0 };
             int[] stars = { 1 };

@@ -32,6 +32,8 @@ public static class MPTestLogger
         }
     }
 
+    [System.Diagnostics.Conditional("UNITY_EDITOR")]
+    [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
     public static void Log(string phase, string result = "info", string code = null, string message = null, IDictionary<string, object> fields = null)
     {
 #if !(UNITY_EDITOR || DEVELOPMENT_BUILD)
@@ -99,11 +101,15 @@ public static class MPTestLogger
 #endif
     }
 
+    [System.Diagnostics.Conditional("UNITY_EDITOR")]
+    [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
     public static void Pass(string phase, string message = null, IDictionary<string, object> fields = null)
     {
         Log(phase, "pass", null, message, fields);
     }
 
+    [System.Diagnostics.Conditional("UNITY_EDITOR")]
+    [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
     public static void Fail(string phase, string code, string message = null, IDictionary<string, object> fields = null)
     {
         Log(phase, "fail", code, message, fields);

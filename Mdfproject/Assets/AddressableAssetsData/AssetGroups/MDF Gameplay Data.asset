@@ -345,12 +345,6 @@ MonoBehaviour:
     m_SerializedLabels:
     - Scroll
     - mdf-gameplay-data
-  - m_GUID: 677b8480bf63037499a7e15aa29695ec
-    m_Address: BreakWall
-    m_ReadOnly: 0
-    m_SerializedLabels:
-    - Tile
-    - mdf-gameplay-data
   - m_GUID: b9398fc518f964043aaf2f6156de8474
     m_Address: UnitData_King_Archer
     m_ReadOnly: 0

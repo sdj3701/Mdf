@@ -480,23 +480,41 @@ public class AugmentManager : MonoBehaviour
 
         foreach (var augment in EnumerateLoadedAugments())
         {
-            if (MatchesMonsterData(augment?.bossMonsterData, monsterDataName))
+            if (augment == null)
             {
-                return augment.bossMonsterData;
+                continue;
             }
 
-            if (MatchesMonsterData(augment?.strengthenedMonsterData, monsterDataName))
+            for (int effectIndex = 0; effectIndex < augment.EffectCount; effectIndex++)
             {
-                return augment.strengthenedMonsterData;
-            }
-
-            var entries = augment?.monsterSpawnEntries;
-            if (entries == null) continue;
-            foreach (var entry in entries)
-            {
-                if (MatchesMonsterData(entry?.monsterData, monsterDataName))
+                AugmentEffectData effect = augment.GetEffect(effectIndex);
+                if (effect == null)
                 {
-                    return entry.monsterData;
+                    continue;
+                }
+
+                if (MatchesMonsterData(effect.bossMonsterData, monsterDataName))
+                {
+                    return effect.bossMonsterData;
+                }
+
+                if (MatchesMonsterData(effect.strengthenedMonsterData, monsterDataName))
+                {
+                    return effect.strengthenedMonsterData;
+                }
+
+                var entries = effect.monsterSpawnEntries;
+                if (entries == null)
+                {
+                    continue;
+                }
+
+                foreach (var entry in entries)
+                {
+                    if (MatchesMonsterData(entry?.monsterData, monsterDataName))
+                    {
+                        return entry.monsterData;
+                    }
                 }
             }
         }
@@ -615,27 +633,31 @@ public class AugmentManager : MonoBehaviour
         playerManager.ClearPresentedAugmentSnapshot();
         Debug.Log($"Player {playerManager.playerId}가 '<color=yellow>{chosenAugment.augmentName}</color>' 증강을 선택했습니다.");
 
-        PlayerManager target;
-        if (chosenAugment.targetType == TargetType.Player)
+        PlayerManager opponentTarget = null;
+        bool opponentResolved = false;
+        for (int effectIndex = 0; effectIndex < chosenAugment.EffectCount; effectIndex++)
         {
-            target = playerManager;
-        }
-        else
-        {
-            target = playerManager.opponentManager;
-            // 2인 플레이가 아니어서 opponentManager가 설정되지 않은 경우(예: 3인 이상 게임),
-            // 자신을 제외한 다른 플레이어 중 한 명을 무작위로 선택합니다.
-            if (target == null && GameManagers.Instance.AllPlayers.Count() > 1)
+            AugmentEffectData effect = chosenAugment.GetEffect(effectIndex);
+            if (effect == null)
             {
-                var otherPlayers = GameManagers.Instance.AllPlayers.Where(p => p != playerManager).ToList();
-                if (otherPlayers.Any())
-                {
-                    target = otherPlayers[(int)UnityEngine.Random.Range(0f, otherPlayers.Count)];
-                }
+                Debug.LogWarning($"[AugmentManager] '{chosenAugment.augmentName}' contains a null effect at index {effectIndex}; skipped.");
+                continue;
             }
+
+            PlayerManager target = playerManager;
+            if (effect.targetType == TargetType.Opponent)
+            {
+                if (!opponentResolved)
+                {
+                    opponentTarget = ResolveOpponentTarget();
+                    opponentResolved = true;
+                }
+
+                target = opponentTarget;
+            }
+
+            ApplyEffect(target, chosenAugment, effect);
         }
-        
-        ApplyEffect(target, chosenAugment);
         
         presentedAugments.Clear();
 
@@ -643,17 +665,33 @@ public class AugmentManager : MonoBehaviour
         GameEvents.TriggerAugmentApplied(this.playerManager, chosenAugment);
     }
 
-    private void ApplyEffect(PlayerManager target, AugmentData augment)
+    private PlayerManager ResolveOpponentTarget()
     {
-        switch (augment.effectType)
+        PlayerManager target = playerManager.opponentManager;
+        // In matches with more than two players, choose one opponent once for the entire composed augment.
+        if (target == null && GameManagers.Instance != null && GameManagers.Instance.AllPlayers.Count() > 1)
+        {
+            var otherPlayers = GameManagers.Instance.AllPlayers.Where(candidate => candidate != playerManager).ToList();
+            if (otherPlayers.Count > 0)
+            {
+                target = otherPlayers[UnityEngine.Random.Range(0, otherPlayers.Count)];
+            }
+        }
+
+        return target;
+    }
+
+    private void ApplyEffect(PlayerManager target, AugmentData augment, AugmentEffectData effect)
+    {
+        switch (effect.effectType)
         {
             case EffectType.SpawnMonsterOnEnemyField:
-                if (augment.isBossSummon)
+                if (effect.isBossSummon)
                 {
-                    if (augment.bossMonsterData != null)
+                    if (effect.bossMonsterData != null)
                     {
                         playerManager.AddOwnedBoss(augment);
-                        Debug.Log($"<color=red>[AugmentManager] 보스 증강 등록! Player {playerManager.playerId}가 보스 '{augment.bossMonsterData.monsterName}' 보유</color>");
+                        Debug.Log($"<color=red>[AugmentManager] 보스 증강 등록! Player {playerManager.playerId}가 보스 '{effect.bossMonsterData.monsterName}' 보유</color>");
                     }
                     else
                     {
@@ -666,7 +704,7 @@ public class AugmentManager : MonoBehaviour
                 }
                 return;
             case EffectType.StrengthenMonsterType:
-                if (augment.strengthenedMonsterData == null)
+                if (effect.strengthenedMonsterData == null)
                 {
                     Debug.LogWarning($"[AugmentManager] Monster strengthening augment '{augment.augmentName}' has no strengthenedMonsterData.");
                 }
@@ -679,15 +717,15 @@ public class AugmentManager : MonoBehaviour
                 }
 
                 target.ApplyKingAugment(
-                    augment.kingDamageBonusPercent,
-                    augment.kingAttackSpeedBonusPercent,
-                    augment.kingSkillPowerBonusPercent);
+                    effect.kingDamageBonusPercent,
+                    effect.kingAttackSpeedBonusPercent,
+                    effect.kingSkillPowerBonusPercent);
                 return;
             case EffectType.GrantMagicScroll:
-                if (augment.magicScrollData != null)
+                if (effect.magicScrollData != null)
                 {
-                    playerManager.AddMagicScroll(augment.magicScrollData);
-                    Debug.Log($"<color=magenta>[AugmentManager] Player {playerManager.playerId}가 마법 스크롤 '{augment.magicScrollData.scrollName}' 획득!</color>");
+                    playerManager.AddMagicScroll(effect.magicScrollData);
+                    Debug.Log($"<color=magenta>[AugmentManager] Player {playerManager.playerId}가 마법 스크롤 '{effect.magicScrollData.scrollName}' 획득!</color>");
                 }
                 else
                 {
@@ -704,13 +742,13 @@ public class AugmentManager : MonoBehaviour
             return;
         }
 
-        switch (augment.effectType)
+        switch (effect.effectType)
         {
             case EffectType.AddGold:
-                target.AddGold((int)augment.value);
+                target.AddGold((int)effect.value);
                 break;
             case EffectType.AddWallPlacementCount:
-                int addWalls = Mathf.Max(0, Mathf.RoundToInt(augment.value));
+                int addWalls = Mathf.Max(0, Mathf.RoundToInt(effect.value));
                 if (addWalls > 0)
                 {
                     target.AddWalls(addWalls);
@@ -718,7 +756,7 @@ public class AugmentManager : MonoBehaviour
                 }
                 break;
             case EffectType.GrantPermanentWallPlacementCount:
-                int permanentWalls = Mathf.Max(0, Mathf.RoundToInt(augment.value));
+                int permanentWalls = Mathf.Max(0, Mathf.RoundToInt(effect.value));
                 if (permanentWalls > 0)
                 {
                     target.AddPermanentWallPlacementCount(permanentWalls);
@@ -726,15 +764,15 @@ public class AugmentManager : MonoBehaviour
                 }
                 break;
             case EffectType.IncreaseMyUnitAttack:
-                target.AddPermanentAttackDamagePercent(augment.value);
-                Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 영구 공격력 버프 적용 (+{augment.value:P0})");
+                target.AddPermanentAttackDamagePercent(effect.value);
+                Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 영구 공격력 버프 적용 (+{effect.value:P0})");
                 break;
             case EffectType.IncreaseMyUnitAttackSpeed:
-                target.AddPermanentAttackSpeedPercent(augment.value);
-                Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 영구 공격속도 버프 적용 (+{augment.value:P0})");
+                target.AddPermanentAttackSpeedPercent(effect.value);
+                Debug.Log($"{target.playerId}의 필드에 '{augment.augmentName}' 영구 공격속도 버프 적용 (+{effect.value:P0})");
                 break;
             case EffectType.IncreaseBlackMagicMaximum:
-                int blackMagicBonus = Mathf.Max(0, Mathf.RoundToInt(augment.value));
+                int blackMagicBonus = Mathf.Max(0, Mathf.RoundToInt(effect.value));
                 if (blackMagicBonus > 0)
                 {
                     target.AddBlackMagicMaximumBonus(blackMagicBonus);

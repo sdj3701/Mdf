@@ -23,6 +23,21 @@ MonoBehaviour:
   targetType: 1
   effectType: 6
   value: 0
+  effects:
+  - targetType: 1
+    effectType: 6
+    value: 0
+    isBossSummon: 1
+    bossMonsterData: {fileID: 11400000, guid: 15d29adc601e6a44fbc4a3e009ddd7d1, type: 2}
+    monsterSpawnEntries: []
+    strengthenedMonsterData: {fileID: 0}
+    monsterHealthBonusPercent: 0
+    monsterDamageBonusPercent: 0
+    monsterMoveSpeedBonusPercent: 0
+    kingDamageBonusPercent: 0
+    kingAttackSpeedBonusPercent: 0
+    kingSkillPowerBonusPercent: 0
+    magicScrollData: {fileID: 0}
   isBossSummon: 1
   bossMonsterData: {fileID: 11400000, guid: 15d29adc601e6a44fbc4a3e009ddd7d1, type: 2}
   monsterSpawnEntries: []

@@ -133,7 +133,7 @@ public partial class FieldManager : MonoBehaviour
 
 
     private PlacementManager placementManager;
-    private Dictionary<Vector3Int, Unit> placedUnits = new Dictionary<Vector3Int, Unit>();
+    private GridOccupancyIndex<Unit> placedUnits = new GridOccupancyIndex<Unit>();
     private readonly HashSet<Vector3Int> pendingUnitPositions = new HashSet<Vector3Int>();
     private readonly Dictionary<Vector3Int, UnitData> pendingUnitDataByPosition = new Dictionary<Vector3Int, UnitData>();
     private readonly HashSet<Unit> _combinationReservedUnits = new HashSet<Unit>();
@@ -183,9 +183,9 @@ public partial class FieldManager : MonoBehaviour
     }
     private readonly List<PendingNetworkMove> pendingNetworkMoves = new List<PendingNetworkMove>();
     private readonly HashSet<uint> retiredNetworkUnitIds = new HashSet<uint>();
-    private Dictionary<Vector3Int, DestructibleWall> placedWalls = new Dictionary<Vector3Int, DestructibleWall>();
+    private GridOccupancyIndex<DestructibleWall> placedWalls = new GridOccupancyIndex<DestructibleWall>();
     // 영구(파괴 불가) 벽 관리
-    private Dictionary<Vector3Int, GameObject> placedPermanentWalls = new Dictionary<Vector3Int, GameObject>();
+    private GridOccupancyIndex<GameObject> placedPermanentWalls = new GridOccupancyIndex<GameObject>();
     private readonly HashSet<Vector3Int> authoritativePermanentWallCells = new HashSet<Vector3Int>();
     private readonly HashSet<Vector3Int> playerPlacedPermanentWallCells = new HashSet<Vector3Int>();
     private int _lastAppliedPermanentWallLayoutRevision = -1;
@@ -1504,8 +1504,8 @@ public partial class FieldManager : MonoBehaviour
             }
         }
 
-        placedWalls = rebuiltDestructible;
-        placedPermanentWalls = rebuiltPermanent;
+        placedWalls = new GridOccupancyIndex<DestructibleWall>(rebuiltDestructible);
+        placedPermanentWalls = new GridOccupancyIndex<GameObject>(rebuiltPermanent);
 
         // 로컬 플래그가 초기값(false)인 상태로 복원될 수 있으므로,
         // 재구성 결과에 영구벽이 있으면 즉시 생성 완료 상태로 승격합니다.
@@ -1731,7 +1731,7 @@ public partial class FieldManager : MonoBehaviour
         _lastUnitMapRebuildSucceeded = unresolvedGoalConflicts == 0;
         if (_lastUnitMapRebuildSucceeded)
         {
-            placedUnits = rebuiltUnits;
+            placedUnits = new GridOccupancyIndex<Unit>(rebuiltUnits);
             foreach (var relocation in plannedGoalRelocations)
             {
                 MoveUnitImmediate(relocation.Unit, GridToWorld(relocation.Cell, checkForWall: true));
@@ -5334,7 +5334,7 @@ public partial class FieldManager : MonoBehaviour
                 UnitIdRaw = unchecked((int)networkObject.Id.Raw),
                 Position = entry.Key,
                 UnitDataKey = GetUnitDataRegistrationKey(entry.Value),
-                UnitDataKeyHash = StableUnitDataKeyHash(GetUnitDataRegistrationKey(entry.Value)),
+                UnitDataKeyHash = GetUnitDataRegistrationHash(entry.Value),
                 StarLevel = entry.Value.starLevel
             });
         }
@@ -5403,6 +5403,14 @@ public partial class FieldManager : MonoBehaviour
     private static string GetUnitDataRegistrationKey(Unit unit)
     {
         return unit != null && unit.Data != null ? unit.Data.name : string.Empty;
+    }
+
+    private static int GetUnitDataRegistrationHash(Unit unit)
+    {
+        UnitData data = unit != null ? unit.Data : null;
+        return data != null && data.ContentIdHash != 0
+            ? data.ContentIdHash
+            : StableUnitDataKeyHash(GetUnitDataRegistrationKey(unit));
     }
 
     private static int StableUnitDataKeyHash(string value)

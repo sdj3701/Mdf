@@ -279,6 +279,7 @@ public sealed class HostMigrationRestoreReportEditModeTests
         {
             3,
             Array.Empty<MagicScrollData>(),
+            Array.Empty<string>(),
             new[] { "Scroll_Heal" },
             -1,
             string.Empty
@@ -287,7 +288,7 @@ public sealed class HostMigrationRestoreReportEditModeTests
         bool valid = (bool)method.Invoke(null, args);
 
         Assert.That(valid, Is.False);
-        Assert.That((string)args[4], Does.Contain("shape_mismatch"));
+        Assert.That((string)args[5], Does.Contain("shape_mismatch"));
     }
 
     [Test]
@@ -301,6 +302,7 @@ public sealed class HostMigrationRestoreReportEditModeTests
             0,
             Array.Empty<MagicScrollData>(),
             Array.Empty<string>(),
+            Array.Empty<string>(),
             -1,
             "unset"
         };
@@ -308,8 +310,44 @@ public sealed class HostMigrationRestoreReportEditModeTests
         bool valid = (bool)method.Invoke(null, args);
 
         Assert.That(valid, Is.True);
-        Assert.That((int)args[3], Is.Zero);
-        Assert.That((string)args[4], Is.Empty);
+        Assert.That((int)args[4], Is.Zero);
+        Assert.That((string)args[5], Is.Empty);
+    }
+
+    [Test]
+    public void OwnedScrollMigrationSnapshot_ContentIdSurvivesLegacyAssetRename()
+    {
+        MethodInfo method = typeof(PlayerManager).GetMethod(
+            "TryValidateOwnedMagicScrollMigrationSnapshot",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        var scroll = ScriptableObject.CreateInstance<MagicScrollData>();
+        try
+        {
+            scroll.name = "Scroll_Renamed";
+            FieldInfo contentId = typeof(MagicScrollData).GetField(
+                "contentId",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.That(contentId, Is.Not.Null);
+            contentId.SetValue(scroll, "scroll.test.durable");
+            object[] args =
+            {
+                2,
+                new[] { scroll },
+                new[] { "scroll.test.durable" },
+                new[] { "Scroll_OldName" },
+                -1,
+                "unset"
+            };
+
+            Assert.That((bool)method.Invoke(null, args), Is.True,
+                "a durable contentId must take precedence over a stale legacy asset name");
+            Assert.That((int)args[4], Is.EqualTo(1));
+            Assert.That((string)args[5], Is.Empty);
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(scroll);
+        }
     }
 
     [Test]
@@ -377,6 +415,7 @@ public sealed class HostMigrationRestoreReportEditModeTests
         Assert.That(snapshotType.GetField("HasSelectedAugmentSnapshot", BindingFlags.Instance | BindingFlags.Public), Is.Not.Null);
         Assert.That(snapshotType.GetField("HasAttackPoolSnapshot", BindingFlags.Instance | BindingFlags.Public), Is.Not.Null);
         Assert.That(snapshotType.GetField("HasOwnedScrollSnapshot", BindingFlags.Instance | BindingFlags.Public), Is.Not.Null);
+        Assert.That(snapshotType.GetField("OwnedScrollContentIds", BindingFlags.Instance | BindingFlags.Public), Is.Not.Null);
     }
 
     [Test]

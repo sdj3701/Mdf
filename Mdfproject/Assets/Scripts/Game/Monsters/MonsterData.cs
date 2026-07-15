@@ -2,8 +2,14 @@
 using UnityEngine;
 
 [CreateAssetMenu(fileName = "New MonsterData", menuName = "Game/Monster Data")]
-public class MonsterData : ScriptableObject
+public class MonsterData : ScriptableObject, IStableContentIdentity
 {
+    [SerializeField, Tooltip("Immutable gameplay identity. Do not change after release.")]
+    private string contentId;
+
+    public string ContentId => StableDataKeyUtility.NormalizeContentId(contentId);
+    public int ContentIdHash => StableDataKeyUtility.StableContentIdHash(contentId);
+
     [Header("기본 정보")]
     public string monsterName;
     public MonsterType monsterType; // 지상, 공중 구분

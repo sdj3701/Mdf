@@ -198,10 +198,22 @@ def run(args: argparse.Namespace) -> int:
         command_result = {"success": False, "skipped": True, "reason": "no safe durable command before Phase 17"}
         write_json(artifact_dir / "command-result.json", command_result)
 
-        build_post = dump_build_state(client, artifact_dir, "post")
-        editor_post = dump_editor_state(artifact_dir, "post")
+        # Capture both peers through the same convergence gate used at startup.
+        # Independent dumps can straddle a sequence transition and manufacture a
+        # transient Setup/Prepare mismatch even though replication has converged.
+        build_post, editor_post, post_ready = wait_states(
+            client,
+            artifact_dir,
+            2,
+            args.scene,
+            args.state_timeout,
+        )
+        write_json(artifact_dir / "snapshots" / "build-host-post.json", build_post)
+        write_json(artifact_dir / "snapshots" / "editor-client-post.json", editor_post)
         comparison = compare_snapshots(build_post, editor_post)
         write_json(artifact_dir / "comparison.json", comparison)
+        if not post_ready:
+            failures.append("post_state_ready_timeout")
         if not comparison["success"]:
             failures.append("snapshot_mismatch")
 

@@ -333,7 +333,16 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             return false;
         }
 
-        var matches = new HashSet<string>(StringComparer.Ordinal);
+        LoadManager loadManager = LoadManager.Instance;
+        UnitData indexedData = loadManager?.GetUnitDataByContentIdHash(unitDataKeyHash);
+        if (indexedData != null)
+        {
+            key = NormalizeShopUnitKey(indexedData.name);
+            return !string.IsNullOrEmpty(key);
+        }
+
+        var contentIdMatches = new HashSet<UnitData>();
+        var legacyMatches = new HashSet<UnitData>();
         void AppendMatches(IEnumerable<UnitData> units)
         {
             if (units == null)
@@ -348,23 +357,38 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                     continue;
                 }
 
-                if (StableUnitDataKeyHash(data.name) == unitDataKeyHash ||
-                    StableUnitDataKeyHash(data.unitName) == unitDataKeyHash)
+                if (data.ContentIdHash == unitDataKeyHash)
                 {
-                    matches.Add(NormalizeShopUnitKey(data.name));
+                    contentIdMatches.Add(data);
+                }
+                else if (StableUnitDataKeyHash(data.name) == unitDataKeyHash ||
+                         StableUnitDataKeyHash(data.unitName) == unitDataKeyHash)
+                {
+                    legacyMatches.Add(data);
                 }
             }
         }
 
-        AppendMatches(LoadManager.Instance != null ? LoadManager.Instance.GetAllUnitData() : null);
+        AppendMatches(loadManager != null ? loadManager.GetAllUnitData() : null);
         AppendMatches(Resources.FindObjectsOfTypeAll<UnitData>());
-        if (matches.Count == 1)
+        if (contentIdMatches.Count == 1)
         {
-            key = matches.First();
+            key = NormalizeShopUnitKey(contentIdMatches.First().name);
+            return !string.IsNullOrEmpty(key);
+        }
+        if (contentIdMatches.Count > 1)
+        {
+            failureReason = $"shop_unit_content_id_hash_ambiguous:{unitDataKeyHash}";
+            return false;
+        }
+
+        if (legacyMatches.Count == 1)
+        {
+            key = NormalizeShopUnitKey(legacyMatches.First().name);
             return !string.IsNullOrEmpty(key);
         }
 
-        failureReason = matches.Count > 1
+        failureReason = legacyMatches.Count > 1
             ? $"shop_unit_key_hash_ambiguous:{unitDataKeyHash}"
             : $"shop_unit_key_hash_unresolved:{unitDataKeyHash}";
         return false;
@@ -545,7 +569,9 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
             ShopSnapshotSlots.Set(i, new ShopSnapshotSlot
             {
-                UnitKeyHash = StableUnitDataKeyHash(unitKey),
+                UnitKeyHash = item.UnitData.ContentIdHash != 0
+                    ? item.UnitData.ContentIdHash
+                    : StableUnitDataKeyHash(unitKey),
                 PackedMeta = PackShopSnapshotMeta(starLevel, sold)
             });
         }
@@ -2355,7 +2381,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             int[] unitDataKeyHashes = new int[unitIdRaws.Length];
             for (int i = 0; i < unitDataKeyHashes.Length; i++)
             {
-                unitDataKeyHashes[i] = StableUnitDataKeyHash(unitDataKeys[i]);
+                unitDataKeyHashes[i] = StableUnitDataIdentityHash(unitDataKeys[i]);
             }
 
             int fingerprint = ComputeUnitRosterFingerprint(
@@ -2802,26 +2828,59 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             await LoadManager.Instance.WaitUntilReady();
         }
 
-        var allUnits = LoadManager.Instance.GetAllUnitData();
-        if (allUnits == null)
-        {
-            return string.Empty;
-        }
-
-        foreach (var data in allUnits)
-        {
-            if (data != null && StableUnitDataKeyHash(data.name) == unitDataKeyHash)
-            {
-                return data.name;
-            }
-        }
-
-        return string.Empty;
+        return TryResolveLoadedUnitDataKeyByStableHash(
+                unitDataKeyHash,
+                out string unitDataKey,
+                out _)
+            ? unitDataKey
+            : string.Empty;
     }
 
     private static int StableUnitDataKeyHash(string value)
     {
         return StableDataKeyHash(NormalizeShopUnitKey(value));
+    }
+
+    private static int StableUnitDataIdentityHash(string value)
+    {
+        string normalizedKey = NormalizeShopUnitKey(value);
+        if (string.IsNullOrEmpty(normalizedKey))
+        {
+            return 0;
+        }
+
+        var matches = new HashSet<UnitData>();
+        void AppendMatches(IEnumerable<UnitData> units)
+        {
+            if (units == null)
+            {
+                return;
+            }
+
+            foreach (UnitData data in units)
+            {
+                if (data != null
+                    && (string.Equals(NormalizeShopUnitKey(data.name), normalizedKey, StringComparison.Ordinal)
+                        || string.Equals(NormalizeShopUnitKey(data.unitName), normalizedKey, StringComparison.Ordinal)))
+                {
+                    matches.Add(data);
+                }
+            }
+        }
+
+        LoadManager loadManager = LoadManager.Instance;
+        AppendMatches(loadManager != null ? loadManager.GetAllUnitData() : null);
+        AppendMatches(Resources.FindObjectsOfTypeAll<UnitData>());
+        if (matches.Count == 1)
+        {
+            UnitData data = matches.First();
+            if (data.ContentIdHash != 0)
+            {
+                return data.ContentIdHash;
+            }
+        }
+
+        return StableUnitDataKeyHash(normalizedKey);
     }
 
     public static int ComputeUnitRosterFingerprint(
@@ -2975,7 +3034,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         registration = default;
         rosterRevision = Mathf.Max(0, rosterRevision);
         string normalizedUnitDataKey = unitDataKey ?? string.Empty;
-        int unitDataKeyHash = StableUnitDataKeyHash(normalizedUnitDataKey);
+        int unitDataKeyHash = StableUnitDataIdentityHash(normalizedUnitDataKey);
         if (rosterRevision != _latestAcceptedUnitRosterRevision ||
             !_desiredUnitRosterById.TryGetValue(unitIdRaw, out DesiredUnitRosterEntry desired) ||
             desired.X != x ||
@@ -3064,7 +3123,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         }
         if (!string.IsNullOrEmpty(unitDataKey))
         {
-            if (StableUnitDataKeyHash(unitDataKey) != expected.unitDataKeyHash)
+            if (StableUnitDataIdentityHash(unitDataKey) != expected.unitDataKeyHash)
             {
                 return false;
             }
@@ -3524,7 +3583,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         {
             ShopSnapshotSlots.Set(i, new ShopSnapshotSlot
             {
-                UnitKeyHash = StableUnitDataKeyHash(resolvedShopUnitKeys[i]),
+                UnitKeyHash = StableUnitDataIdentityHash(resolvedShopUnitKeys[i]),
                 PackedMeta = PackShopSnapshotMeta(shopStarLevels[i], shopSoldFlags[i] ? 1 : 0)
             });
         }
@@ -3769,7 +3828,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                 failureReason = $"shop_slot_{i}:unit_key_empty";
                 return false;
             }
-            int unitKeyHash = StableUnitDataKeyHash(normalizedUnitKey);
+            int unitKeyHash = StableUnitDataIdentityHash(normalizedUnitKey);
             if (!TryResolveLoadedUnitDataKeyByStableHash(
                     unitKeyHash,
                     out string resolvedUnitKey,
@@ -3819,7 +3878,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     #region 보유 보스 관리
     public void AddOwnedBoss(AugmentData augment)
     {
-        if (augment?.bossMonsterData != null)
+        if (augment != null && augment.TryGetBossMonster(out _))
         {
             _ownedBossAugments.Add(augment);
             PublishAugmentRuntimeMigrationStateFromAuthority("add_owned_boss");
@@ -3831,7 +3890,10 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
     public bool ConsumeOwnedBoss(MonsterData bossData)
     {
-        var augment = _ownedBossAugments.FirstOrDefault(a => a.bossMonsterData == bossData);
+        var augment = _ownedBossAugments.FirstOrDefault(candidate =>
+            candidate != null &&
+            candidate.TryGetBossMonster(out MonsterData ownedBoss) &&
+            ownedBoss == bossData);
         if (augment != null)
         {
             _ownedBossAugments.Remove(augment);
@@ -3863,8 +3925,8 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     {
         int matchingIndex = _ownedBossAugments.FindIndex(augment =>
             augment != null &&
-            augment.bossMonsterData != null &&
-            augment.bossMonsterData.name == bossMonsterDataName);
+            augment.TryGetBossMonster(out MonsterData ownedBoss) &&
+            ownedBoss.name == bossMonsterDataName);
         if (matchingIndex < 0)
         {
             return false;
@@ -4067,21 +4129,25 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     public bool TryGetOwnedMagicScrollSnapshot(
         out int revision,
         out MagicScrollData[] scrollDataRefs,
+        out string[] scrollContentIds,
         out string[] scrollDataNames)
     {
         revision = OwnedMagicScrollRevision;
         scrollDataRefs = System.Array.Empty<MagicScrollData>();
+        scrollContentIds = System.Array.Empty<string>();
         scrollDataNames = System.Array.Empty<string>();
 
         var validScrolls = _scrollInventory.BuildValidSnapshot();
         scrollDataRefs = validScrolls;
-        scrollDataNames = validScrolls.Select(scroll => scroll.name).ToArray();
+        scrollContentIds = _scrollInventory.BuildContentIds();
+        scrollDataNames = _scrollInventory.BuildAssetNames();
         return true;
     }
 
     public async UniTask<MigrationRestoreReport> RestoreOwnedMagicScrollsFromMigrationSnapshotAsync(
         int revision,
         MagicScrollData[] scrollDataRefs,
+        string[] scrollContentIds,
         string[] scrollDataNames,
         string context,
         NetworkRunner expectedMigrationRunner,
@@ -4091,6 +4157,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         if (!TryValidateOwnedMagicScrollMigrationSnapshot(
                 revision,
                 scrollDataRefs,
+                scrollContentIds,
                 scrollDataNames,
                 out int count,
                 out string validationError))
@@ -4123,10 +4190,39 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         for (int i = 0; i < count; i++)
         {
             MagicScrollData data = scrollDataRefs[i];
+            string expectedContentId = scrollContentIds != null
+                ? StableDataKeyUtility.NormalizeContentId(scrollContentIds[i])
+                : string.Empty;
             string expectedName = scrollDataNames[i];
             if (data == null)
             {
-                data = await AssetLoader.LoadAssetAsync<MagicScrollData>(expectedName, _assetOwner);
+                IEnumerable<MagicScrollData> candidates = GetLoadedMagicScrollCandidates();
+                if (!PlayerMagicScrollInventory.TryResolveSnapshotIdentity(
+                        candidates,
+                        expectedContentId,
+                        expectedName,
+                        out data,
+                        out string resolutionFailure))
+                {
+                    if (resolutionFailure.IndexOf("ambiguous", StringComparison.Ordinal) >= 0)
+                    {
+                        return MigrationRestoreReport.FailedScope(
+                            scope,
+                            Mathf.Max(1, count),
+                            $"owned_scroll_identity_ambiguous:index={i},reason={resolutionFailure}");
+                    }
+
+                    if (string.IsNullOrWhiteSpace(expectedName))
+                    {
+                        return MigrationRestoreReport.FailedScope(
+                            scope,
+                            Mathf.Max(1, count),
+                            $"owned_scroll_asset_unresolved:index={i},contentId={expectedContentId}");
+                    }
+
+                    data = await AssetLoader.LoadAssetAsync<MagicScrollData>(expectedName, _assetOwner);
+                }
+
                 if (!CanApplyOwnedMagicScrollMigration(expectedMigrationRunner, migrationCancellationToken))
                 {
                     return MigrationRestoreReport.FailedScope(
@@ -4140,17 +4236,16 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
                     return MigrationRestoreReport.FailedScope(
                         scope,
                         Mathf.Max(1, count),
-                        $"owned_scroll_asset_missing:index={i},name={expectedName}");
+                        $"owned_scroll_asset_missing:index={i},contentId={expectedContentId},name={expectedName}");
                 }
             }
 
-            if (!string.IsNullOrWhiteSpace(expectedName) &&
-                !string.Equals(data.name, expectedName, StringComparison.Ordinal))
+            if (!MatchesOwnedMagicScrollSnapshotIdentity(data, expectedContentId, expectedName))
             {
                 return MigrationRestoreReport.FailedScope(
                     scope,
                     Mathf.Max(1, count),
-                    $"owned_scroll_identity_mismatch:index={i},actual={data.name},expected={expectedName}");
+                    $"owned_scroll_identity_mismatch:index={i},actualContentId={data.ContentId},expectedContentId={expectedContentId},actualName={data.name},legacyName={expectedName}");
             }
 
             restored.Add(data);
@@ -4184,6 +4279,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         string mismatch = VerifyOwnedMagicScrollMigrationSnapshot(
             revision,
             scrollDataRefs,
+            scrollContentIds,
             scrollDataNames);
         if (!string.IsNullOrEmpty(mismatch))
         {
@@ -4200,6 +4296,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     private static bool TryValidateOwnedMagicScrollMigrationSnapshot(
         int revision,
         MagicScrollData[] scrollDataRefs,
+        string[] scrollContentIds,
         string[] scrollDataNames,
         out int count,
         out string error)
@@ -4218,26 +4315,30 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             return false;
         }
 
-        if (scrollDataNames.Length != count)
+        if (scrollDataNames.Length != count ||
+            (scrollContentIds != null && scrollContentIds.Length != count))
         {
-            error = $"shape_mismatch:refs={count},names={scrollDataNames.Length}";
+            error = $"shape_mismatch:refs={count},contentIds={scrollContentIds?.Length ?? -1},names={scrollDataNames.Length}";
             return false;
         }
 
         for (int i = 0; i < count; i++)
         {
             MagicScrollData data = scrollDataRefs[i];
+            string expectedContentId = scrollContentIds != null
+                ? StableDataKeyUtility.NormalizeContentId(scrollContentIds[i])
+                : string.Empty;
             string expectedName = scrollDataNames[i];
-            if (string.IsNullOrWhiteSpace(expectedName))
+            if (string.IsNullOrEmpty(expectedContentId) && string.IsNullOrWhiteSpace(expectedName))
             {
                 error = $"identity_missing:index={i}";
                 return false;
             }
 
             if (data != null &&
-                !string.Equals(data.name, expectedName, StringComparison.Ordinal))
+                !MatchesOwnedMagicScrollSnapshotIdentity(data, expectedContentId, expectedName))
             {
-                error = $"identity_mismatch:index={i},ref={data.name},name={expectedName}";
+                error = $"identity_mismatch:index={i},refContentId={data.ContentId},contentId={expectedContentId},refName={data.name},name={expectedName}";
                 return false;
             }
         }
@@ -4248,6 +4349,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     private string VerifyOwnedMagicScrollMigrationSnapshot(
         int revision,
         MagicScrollData[] scrollDataRefs,
+        string[] scrollContentIds,
         string[] scrollDataNames)
     {
         if (OwnedMagicScrollRevision != revision ||
@@ -4267,22 +4369,78 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         {
             MagicScrollData restored = _scrollInventory.Items[i];
             MagicScrollData expectedRef = scrollDataRefs[i];
+            string expectedContentId = scrollContentIds != null
+                ? StableDataKeyUtility.NormalizeContentId(scrollContentIds[i])
+                : string.Empty;
             string expectedName = scrollDataNames[i];
-            bool identityMatches = restored != null &&
-                ((expectedRef != null &&
-                  (ReferenceEquals(restored, expectedRef) ||
-                   string.Equals(restored.name, expectedRef.name, StringComparison.Ordinal))) ||
-                 (expectedRef == null &&
-                  string.Equals(restored.name, expectedName, StringComparison.Ordinal)));
-            if (!identityMatches ||
-                (!string.IsNullOrWhiteSpace(expectedName) &&
-                 !string.Equals(restored.name, expectedName, StringComparison.Ordinal)))
+            bool identityMatches = MatchesOwnedMagicScrollSnapshotIdentity(
+                restored,
+                expectedContentId,
+                expectedName);
+            if (identityMatches && expectedRef != null)
             {
-                return $"entry={i},identity={identityMatches},actual={restored?.name},expected={expectedName}";
+                identityMatches = MatchesOwnedMagicScrollSnapshotIdentity(
+                    expectedRef,
+                    expectedContentId,
+                    expectedName);
+            }
+
+            if (!identityMatches)
+            {
+                return $"entry={i},identity={identityMatches},actualContentId={restored?.ContentId},expectedContentId={expectedContentId},actualName={restored?.name},legacyName={expectedName}";
             }
         }
 
         return string.Empty;
+    }
+
+    private static IEnumerable<MagicScrollData> GetLoadedMagicScrollCandidates()
+    {
+        var candidates = new HashSet<MagicScrollData>();
+        LoadManager loadManager = LoadManager.Instance;
+        if (loadManager != null)
+        {
+            foreach (MagicScrollData data in loadManager.GetAllMagicScrollData())
+            {
+                if (data != null)
+                {
+                    candidates.Add(data);
+                }
+            }
+        }
+
+        foreach (MagicScrollData data in Resources.FindObjectsOfTypeAll<MagicScrollData>())
+        {
+            if (data != null)
+            {
+                candidates.Add(data);
+            }
+        }
+
+        return candidates;
+    }
+
+    private static bool MatchesOwnedMagicScrollSnapshotIdentity(
+        MagicScrollData data,
+        string expectedContentId,
+        string legacyAssetName)
+    {
+        if (data == null)
+        {
+            return false;
+        }
+
+        string normalizedContentId = StableDataKeyUtility.NormalizeContentId(expectedContentId);
+        if (!string.IsNullOrEmpty(normalizedContentId))
+        {
+            return string.Equals(data.ContentId, normalizedContentId, StringComparison.Ordinal);
+        }
+
+        return !string.IsNullOrWhiteSpace(legacyAssetName) &&
+               string.Equals(
+                   StableDataKeyUtility.NormalizeKey(data.name),
+                   StableDataKeyUtility.NormalizeKey(legacyAssetName),
+                   StringComparison.Ordinal);
     }
 
     private bool CanApplyOwnedMagicScrollMigration(
@@ -4356,8 +4514,9 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
         // 2. 보유 보스는 종류별로 합쳐 기존 증강 획득 수량만큼 표시합니다.
         foreach (var bossGroup in _ownedBossAugments
-                     .Where(augment => augment?.bossMonsterData != null)
-                     .GroupBy(augment => augment.bossMonsterData))
+                     .Select(augment => augment != null && augment.TryGetBossMonster(out MonsterData boss) ? boss : null)
+                     .Where(boss => boss != null)
+                     .GroupBy(boss => boss))
         {
             MonsterData bossData = bossGroup.Key;
             AttackMonsterPool.Add(new MonsterPoolEntry(
@@ -4543,7 +4702,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
 
         revision = AttackMonsterPoolRevision;
         BuildAttackMonsterPoolSnapshot(
-            out _,
+            out MonsterData[] monsterDataRefs,
             out monsterDataNames,
             out remainingCounts,
             out maxCounts,
@@ -4825,7 +4984,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         }
 
         BuildAttackMonsterPoolSnapshot(
-            out _,
+            out MonsterData[] monsterDataRefs,
             out string[] monsterDataNames,
             out int[] remainingCounts,
             out int[] maxCounts,
@@ -4835,6 +4994,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             out int[] originPlayerIds);
 
         PublishReplicatedAttackMonsterPoolSnapshot(
+            monsterDataRefs,
             monsterDataNames,
             remainingCounts,
             maxCounts,
@@ -4909,6 +5069,7 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
     }
 
     private void PublishReplicatedAttackMonsterPoolSnapshot(
+        MonsterData[] monsterDataRefs,
         string[] monsterDataNames,
         int[] remainingCounts,
         int[] maxCounts,
@@ -4935,10 +5096,15 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             int isBoss = ReadArrayValue(isBossValues, i, 0);
             int targetPlayerId = ReadArrayValue(targetPlayerIds, i, -1);
             int originPlayerId = ReadArrayValue(originPlayerIds, i, -1);
+            MonsterData monsterData = monsterDataRefs != null && i < monsterDataRefs.Length
+                ? monsterDataRefs[i]
+                : null;
 
             AttackMonsterPoolSnapshotSlots.Set(i, new AttackMonsterPoolSnapshotSlot
             {
-                DataId = StableMonsterDataKeyHash(monsterDataNames[i]),
+                DataId = monsterData != null && monsterData.ContentIdHash != 0
+                    ? monsterData.ContentIdHash
+                    : StableMonsterDataKeyHash(monsterDataNames[i]),
                 CountsAndFlags = PackAttackMonsterCounts(remainingCount, maxCount, isBoss),
                 BossUniqueId = ReadArrayValue(bossUniqueIds, i, -1),
                 PlayerIds = PackSnapshotPlayerIds(targetPlayerId, originPlayerId)
@@ -5307,63 +5473,127 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
             return string.Empty;
         }
 
-        MonsterData data = FindLoadedMonsterDataByStableHash(monsterDataKeyHash);
-        if (data == null)
+        if (!TryResolveMonsterDataByStableHash(monsterDataKeyHash, out MonsterData data))
         {
-            data = FindWaveMonsterDataByStableHash(monsterDataKeyHash);
+            return string.Empty;
         }
 
-        return data != null ? data.name : string.Empty;
+        return data.name;
     }
 
-    private static MonsterData FindLoadedMonsterDataByStableHash(int monsterDataKeyHash)
+    private static bool TryResolveMonsterDataByStableHash(int monsterDataKeyHash, out MonsterData resolved)
     {
-        var loaded = Resources.FindObjectsOfTypeAll<MonsterData>();
-        foreach (var data in loaded)
+        resolved = null;
+        if (monsterDataKeyHash == 0)
         {
-            if (MatchesMonsterDataHash(data, monsterDataKeyHash))
-            {
-                return data;
-            }
+            return false;
         }
 
-        return null;
-    }
-
-    private static MonsterData FindWaveMonsterDataByStableHash(int monsterDataKeyHash)
-    {
-        var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
-        if (waveDatabase == null)
+        LoadManager loadManager = LoadManager.Instance;
+        MonsterData indexedData = loadManager?.GetMonsterDataByContentIdHash(monsterDataKeyHash);
+        if (indexedData != null)
         {
-            return null;
+            resolved = indexedData;
+            return true;
         }
 
-        if (waveDatabase.attackSequenceMonsterCatalog != null)
+        var candidates = new HashSet<MonsterData>();
+        if (loadManager != null)
         {
-            foreach (var monsterData in waveDatabase.attackSequenceMonsterCatalog)
+            foreach (MonsterData data in loadManager.GetAllMonsterData())
             {
-                if (MatchesMonsterDataHash(monsterData, monsterDataKeyHash))
+                if (data != null)
                 {
-                    return monsterData;
+                    candidates.Add(data);
                 }
             }
         }
 
-        if (waveDatabase.rounds == null) return null;
-
-        foreach (var round in waveDatabase.rounds)
+        foreach (MonsterData data in Resources.FindObjectsOfTypeAll<MonsterData>())
         {
-            if (round?.monsters == null) continue;
-            foreach (var entry in round.monsters)
+            if (data != null)
             {
-                if (MatchesMonsterDataHash(entry?.monsterData, monsterDataKeyHash))
+                candidates.Add(data);
+            }
+        }
+
+        WaveDatabase waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+        if (waveDatabase != null)
+        {
+            if (waveDatabase.attackSequenceMonsterCatalog != null)
+            {
+                foreach (MonsterData data in waveDatabase.attackSequenceMonsterCatalog)
                 {
-                    return entry.monsterData;
+                    if (data != null)
+                    {
+                        candidates.Add(data);
+                    }
+                }
+            }
+
+            if (waveDatabase.rounds != null)
+            {
+                foreach (RoundWaveData round in waveDatabase.rounds)
+                {
+                    if (round?.monsters == null)
+                    {
+                        continue;
+                    }
+
+                    foreach (WaveMonsterEntry entry in round.monsters)
+                    {
+                        if (entry?.monsterData != null)
+                        {
+                            candidates.Add(entry.monsterData);
+                        }
+                    }
                 }
             }
         }
 
-        return null;
+        MonsterData contentIdMatch = null;
+        foreach (MonsterData data in candidates)
+        {
+            if (data.ContentIdHash != monsterDataKeyHash)
+            {
+                continue;
+            }
+
+            if (contentIdMatch != null && contentIdMatch != data)
+            {
+                return false;
+            }
+
+            contentIdMatch = data;
+        }
+
+        if (contentIdMatch != null)
+        {
+            resolved = contentIdMatch;
+            return true;
+        }
+
+        MonsterData legacyMatch = null;
+        foreach (MonsterData data in candidates)
+        {
+            bool matchesLegacy = StableMonsterDataKeyHash(data.name) == monsterDataKeyHash
+                || StableMonsterDataKeyHash(data.monsterName) == monsterDataKeyHash
+                || StableMonsterDataKeyHash(data.monsterPrefab) == monsterDataKeyHash;
+            if (!matchesLegacy)
+            {
+                continue;
+            }
+
+            if (legacyMatch != null && legacyMatch != data)
+            {
+                return false;
+            }
+
+            legacyMatch = data;
+        }
+
+        resolved = legacyMatch;
+        return resolved != null;
     }
 
     private static MonsterData FindLoadedMonsterDataByName(string monsterDataName)
@@ -5426,18 +5656,6 @@ public partial class PlayerManager : NetworkBehaviour // [수정] MonoBehaviour 
         return string.Equals(data.name, monsterDataName, System.StringComparison.Ordinal)
             || string.Equals(data.monsterName, monsterDataName, System.StringComparison.Ordinal)
             || string.Equals(data.monsterPrefab, monsterDataName, System.StringComparison.Ordinal);
-    }
-
-    private static bool MatchesMonsterDataHash(MonsterData data, int monsterDataKeyHash)
-    {
-        if (data == null || monsterDataKeyHash == 0)
-        {
-            return false;
-        }
-
-        return StableMonsterDataKeyHash(data.name) == monsterDataKeyHash
-            || StableMonsterDataKeyHash(data.monsterName) == monsterDataKeyHash
-            || StableMonsterDataKeyHash(data.monsterPrefab) == monsterDataKeyHash;
     }
 
     private bool TryBuildAttackMonsterPoolFromRefs(

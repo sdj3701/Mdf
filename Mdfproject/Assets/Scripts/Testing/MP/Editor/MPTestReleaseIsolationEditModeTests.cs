@@ -66,6 +66,18 @@ public sealed class MPTestReleaseIsolationEditModeTests
     }
 
     [Test]
+    public void DevelopmentDiagnosticsElideCallsAndArgumentsFromReleaseBuilds()
+    {
+        AssertConditionalCallElision(typeof(MPTestLogger), nameof(MPTestLogger.Log));
+        AssertConditionalCallElision(typeof(MPTestLogger), nameof(MPTestLogger.Pass));
+        AssertConditionalCallElision(typeof(MPTestLogger), nameof(MPTestLogger.Fail));
+        AssertConditionalCallElision(typeof(MPTestHostMigrationEvents), nameof(MPTestHostMigrationEvents.Record));
+        AssertConditionalCallElision(typeof(BuildDebugGUI), nameof(BuildDebugGUI.Log));
+        AssertConditionalCallElision(typeof(BuildDebugGUI), nameof(BuildDebugGUI.LogClient));
+        AssertConditionalCallElision(typeof(BuildDebugGUI), nameof(BuildDebugGUI.LogClientThrottled));
+    }
+
+    [Test]
     public void MatchmakingUsesExplicitWireProtocolVersion()
     {
         PhotonAppSettings settings = PhotonAppSettings.Global;
@@ -107,6 +119,21 @@ public sealed class MPTestReleaseIsolationEditModeTests
         {
             Assert.That(source, Does.Contain(contract), contract);
         }
+    }
+
+    private static void AssertConditionalCallElision(Type owner, string methodName)
+    {
+        MethodInfo method = owner.GetMethods(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)
+            .Single(candidate => candidate.Name == methodName);
+        string[] symbols = method
+            .GetCustomAttributes(typeof(System.Diagnostics.ConditionalAttribute), false)
+            .Cast<System.Diagnostics.ConditionalAttribute>()
+            .Select(attribute => attribute.ConditionString)
+            .ToArray();
+
+        Assert.That(symbols, Is.EquivalentTo(new[] { "UNITY_EDITOR", "DEVELOPMENT_BUILD" }),
+            $"{owner.Name}.{methodName} must remove the call and argument evaluation from release builds.");
     }
 }
 #endif

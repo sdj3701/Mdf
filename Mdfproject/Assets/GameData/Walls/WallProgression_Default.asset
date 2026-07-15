@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1f9bc5f323c299d41ab678a6e7d834f5, type: 3}
   m_Name: WallProgression_Default
   m_EditorClassIdentifier: 
+  contentId: wall.progression.default
   levels:
   - {fileID: 11400000, guid: 33c5ef20eebc0dc4bbe6199caf11e812, type: 2}
   - {fileID: 11400000, guid: 9bc78c064348fba4fb24b5f2ef7306f4, type: 2}

@@ -5,14 +5,6 @@ using Cysharp.Threading.Tasks;
 using System.Collections.Generic;
 using System.Threading;
 
-public enum LobbyMatchLoadingState
-{
-    Idle = 0,
-    Warming = 1,
-    Ready = 2,
-    Failed = 3
-}
-
 /// <summary>
 /// 네트워크 플레이어 오브젝트 (Fusion 2.0 ChangeDetector 방식 적용, PlayerPrefs 사용)
 /// </summary>
@@ -123,9 +115,10 @@ public class NetworkPlayer : NetworkBehaviour
             return false;
         }
 
-        PlayerPrefs.SetInt(KingSelectionCatalog.PlayerPrefsKey, requestedKingHash);
+        int canonicalHash = KingSelectionCatalog.NormalizeOrDefaultHash(requestedKingHash);
+        PlayerPrefs.SetInt(KingSelectionCatalog.PlayerPrefsKey, canonicalHash);
         PlayerPrefs.Save();
-        RPC_SetKingSelection(requestedKingHash);
+        RPC_SetKingSelection(canonicalHash);
         return true;
     }
 
@@ -155,9 +148,10 @@ public class NetworkPlayer : NetworkBehaviour
 
     public bool IsMatchContentReadyFor(int revision)
     {
-        return revision > 0
-               && MatchContentLoadRevision == revision
-               && MatchContentLoadState == LobbyMatchLoadingState.Ready;
+        return LobbyMatchLoadPolicy.IsReady(
+            revision,
+            MatchContentLoadRevision,
+            MatchContentLoadState);
     }
 
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
@@ -302,12 +296,16 @@ public class NetworkPlayer : NetworkBehaviour
         bool succeeded,
         PlayerRef source)
     {
-        if (!HasStateAuthority
-            || Object == null
-            || !Object.IsValid
-            || source != Object.InputAuthority
-            || revision != MatchContentLoadRevision
-            || MatchContentLoadState != LobbyMatchLoadingState.Warming)
+        bool objectValid = Object != null && Object.IsValid;
+        int ownerAuthorityId = objectValid ? Object.InputAuthority.PlayerId : -1;
+        if (!LobbyMatchLoadPolicy.CanRecordAcknowledgement(
+                HasStateAuthority,
+                objectValid,
+                ownerAuthorityId,
+                source.PlayerId,
+                revision,
+                MatchContentLoadRevision,
+                MatchContentLoadState))
         {
             Debug.LogWarning(
                 $"[MatchPrewarm] Rejected stale or unauthorized ACK. source={source}, revision={revision}");
@@ -344,12 +342,13 @@ public class NetworkPlayer : NetworkBehaviour
             return;
         }
 
-        if (SelectedKingUnitKeyHash == requestedKingHash)
+        int canonicalHash = KingSelectionCatalog.NormalizeOrDefaultHash(requestedKingHash);
+        if (SelectedKingUnitKeyHash == canonicalHash)
         {
             return;
         }
 
-        SelectedKingUnitKeyHash = requestedKingHash;
+        SelectedKingUnitKeyHash = canonicalHash;
         IsReady = false;
         TryRememberKingSelectionForSession();
     }

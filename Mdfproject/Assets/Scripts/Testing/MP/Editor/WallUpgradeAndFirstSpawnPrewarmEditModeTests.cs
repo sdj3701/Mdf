@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Fusion;
+using MDF.Runtime.UI;
 using NUnit.Framework;
 using Assert = NUnit.Framework.Assert;
 using TMPro;
@@ -456,10 +457,16 @@ public sealed class WallUpgradeAndFirstSpawnPrewarmEditModeTests
         Assert.That(controllerSource, Does.Contain("bool isUpgradeableWall = _currentDestructibleWall != null"),
             "permanent walls must keep demolition without exposing the destructible-wall upgrade action");
         Assert.That(controllerSource, Does.Contain("IsPointerOverActiveActionButton"));
-        Assert.That(controllerSource, Does.Contain("_lastRemoveDispatchFrame == dispatchFrame"),
-            "manual world-space fallback and Button.onClick must not dispatch removal twice in one frame");
-        Assert.That(controllerSource, Does.Contain("_lastUpgradeDispatchFrame == dispatchFrame"),
-            "a host-side completion in the same frame must not turn one click into two upgrades");
+        FieldInfo removeGate = typeof(WallRemovePanelController).GetField(
+            "_removeDispatchGate",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo upgradeGate = typeof(WallRemovePanelController).GetField(
+            "_upgradeDispatchGate",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.That(removeGate?.FieldType, Is.EqualTo(typeof(FrameDispatchGate)),
+            "manual world-space fallback and Button.onClick must share one remove dispatch gate");
+        Assert.That(upgradeGate?.FieldType, Is.EqualTo(typeof(FrameDispatchGate)),
+            "host-side synchronous completion must still share one upgrade dispatch gate");
         Assert.That(inputSource, Does.Contain("WallRemovePanelController.IsPointerOverActiveActionButton"));
     }
 

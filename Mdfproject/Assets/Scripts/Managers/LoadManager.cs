@@ -30,6 +30,7 @@ public class LoadManager : MonoBehaviour
     private bool _isUnitDataReady;
     private List<UnitData> _allUnits = new List<UnitData>();
     private Dictionary<string, UnitData> _unitByKey = new Dictionary<string, UnitData>();
+    private Dictionary<int, UnitData> _unitByContentIdHash = new Dictionary<int, UnitData>();
     private UniTaskCompletionSource<bool> _unitLoadTcs = new UniTaskCompletionSource<bool>();
     private AsyncOperationHandle<IList<UnitData>> _unitDataHandle;
     private bool _hasUnitDataHandle;
@@ -55,9 +56,12 @@ public class LoadManager : MonoBehaviour
     private NetworkRunner _matchContentPrewarmRunner;
     private CancellationTokenSource _matchContentPrewarmCancellation;
     private AsyncOperationHandle<IList<MonsterData>> _matchMonsterDataHandle;
+    private Dictionary<int, MonsterData> _monsterByContentIdHash = new Dictionary<int, MonsterData>();
     private AsyncOperationHandle<IList<AugmentData>> _matchAugmentDataHandle;
     private AsyncOperationHandle<IList<KingUnitData>> _matchKingDataHandle;
     private AsyncOperationHandle<IList<MagicScrollData>> _matchScrollDataHandle;
+    private Dictionary<int, MagicScrollData> _scrollByContentIdHash =
+        new Dictionary<int, MagicScrollData>();
     private bool _hasMatchMonsterDataHandle;
     private bool _hasMatchAugmentDataHandle;
     private bool _hasMatchKingDataHandle;
@@ -163,6 +167,7 @@ public class LoadManager : MonoBehaviour
             _unitByKey = _allUnits
                 .GroupBy(u => u.name)
                 .ToDictionary(g => g.Key, g => g.First());
+            _unitByContentIdHash = BuildContentIdentityIndex(_allUnits, nameof(UnitData));
 
             _isUnitDataReady = true;
             // UnitData is cheap semantic data needed by gameplay. Prefab, skill, VFX, GPU and
@@ -211,6 +216,98 @@ public class LoadManager : MonoBehaviour
         if (string.IsNullOrEmpty(key)) return null;
         _unitByKey.TryGetValue(key, out var data);
         return data;
+    }
+
+    public UnitData GetUnitDataByContentIdHash(int contentIdHash)
+    {
+        if (contentIdHash == 0)
+        {
+            return null;
+        }
+
+        _unitByContentIdHash.TryGetValue(contentIdHash, out UnitData data);
+        return data;
+    }
+
+    public IEnumerable<MonsterData> GetAllMonsterData()
+    {
+        if (!_hasMatchMonsterDataHandle
+            || !_matchMonsterDataHandle.IsValid()
+            || _matchMonsterDataHandle.Status != AsyncOperationStatus.Succeeded
+            || _matchMonsterDataHandle.Result == null)
+        {
+            return Array.Empty<MonsterData>();
+        }
+
+        return _matchMonsterDataHandle.Result;
+    }
+
+    public MonsterData GetMonsterDataByContentIdHash(int contentIdHash)
+    {
+        if (contentIdHash == 0)
+        {
+            return null;
+        }
+
+        _monsterByContentIdHash.TryGetValue(contentIdHash, out MonsterData data);
+        return data;
+    }
+
+    public IEnumerable<MagicScrollData> GetAllMagicScrollData()
+    {
+        if (!_hasMatchScrollDataHandle
+            || !_matchScrollDataHandle.IsValid()
+            || _matchScrollDataHandle.Status != AsyncOperationStatus.Succeeded
+            || _matchScrollDataHandle.Result == null)
+        {
+            return Array.Empty<MagicScrollData>();
+        }
+
+        return _matchScrollDataHandle.Result;
+    }
+
+    public MagicScrollData GetMagicScrollDataByContentIdHash(int contentIdHash)
+    {
+        if (contentIdHash == 0)
+        {
+            return null;
+        }
+
+        _scrollByContentIdHash.TryGetValue(contentIdHash, out MagicScrollData data);
+        return data;
+    }
+
+    private static Dictionary<int, T> BuildContentIdentityIndex<T>(
+        IEnumerable<T> assets,
+        string contentKind)
+        where T : UnityEngine.Object, IStableContentIdentity
+    {
+        var result = new Dictionary<int, T>();
+        if (assets == null)
+        {
+            return result;
+        }
+
+        foreach (T asset in assets)
+        {
+            if (asset == null || asset.ContentIdHash == 0)
+            {
+                // Empty IDs are tolerated only while the one-off authored-data migration is pending.
+                // ContentIdentityValidator blocks builds once this schema is enabled.
+                continue;
+            }
+
+            if (result.TryGetValue(asset.ContentIdHash, out T existing) && existing != asset)
+            {
+                throw new InvalidOperationException(
+                    $"Duplicate or colliding {contentKind} content identity hash " +
+                    $"{asset.ContentIdHash}: '{existing.ContentId}' and '{asset.ContentId}'.");
+            }
+
+            result[asset.ContentIdHash] = asset;
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -396,6 +493,10 @@ public class LoadManager : MonoBehaviour
                   ?? new InvalidOperationException("The MonsterData match label returned no content.");
         }
 
+        _monsterByContentIdHash = BuildContentIdentityIndex(
+            _matchMonsterDataHandle.Result.Where(data => data != null),
+            nameof(MonsterData));
+
         if (!_hasMatchAugmentDataHandle || !_matchAugmentDataHandle.IsValid())
         {
             _matchAugmentDataHandle = StartOwnedLabelLoad<AugmentData>(MatchAugmentDataLabel);
@@ -443,6 +544,10 @@ public class LoadManager : MonoBehaviour
             throw _matchScrollDataHandle.OperationException
                   ?? new InvalidOperationException("The Scroll match label returned no content.");
         }
+
+        _scrollByContentIdHash = BuildContentIdentityIndex(
+            _matchScrollDataHandle.Result.Where(data => data != null),
+            nameof(MagicScrollData));
     }
 
     private async UniTask PrewarmAdditionalCombatPresentationsAsync(CancellationToken cancellationToken)
@@ -532,6 +637,7 @@ public class LoadManager : MonoBehaviour
         {
             Addressables.Release(_matchScrollDataHandle);
             _hasMatchScrollDataHandle = false;
+            _scrollByContentIdHash.Clear();
         }
     }
 
@@ -566,6 +672,8 @@ public class LoadManager : MonoBehaviour
         _hasMatchAugmentDataHandle = false;
         _hasMatchKingDataHandle = false;
         _hasMatchScrollDataHandle = false;
+        _monsterByContentIdHash.Clear();
+        _scrollByContentIdHash.Clear();
     }
 
     private async UniTask<int> PrewarmMonsterPresentationsAsync(
@@ -1266,5 +1374,9 @@ public class LoadManager : MonoBehaviour
         }
 
         _hasUnitDataHandle = false;
+        _isUnitDataReady = false;
+        _allUnits.Clear();
+        _unitByKey.Clear();
+        _unitByContentIdHash.Clear();
     }
 }

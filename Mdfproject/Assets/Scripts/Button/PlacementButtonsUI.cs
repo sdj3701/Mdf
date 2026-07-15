@@ -3,10 +3,6 @@ using UnityEngine;
 
 public class PlacementButtonsUI : MonoBehaviour
 {
-    [Header("References")]
-    [Tooltip("Temporary prefab for placement test")]
-    public GameObject testUnitPrefab;
-
     private static bool TryGetReadyLocalPlayer(out PlayerManager localPlayer)
     {
         localPlayer = null;
@@ -41,14 +37,6 @@ public class PlacementButtonsUI : MonoBehaviour
             }
 
             localPlayer.fieldManager.TogglePlacementMode(PlacementMode.Wall);
-        }
-    }
-
-    public void OnPlaceUnitTestButtonClicked()
-    {
-        if (testUnitPrefab != null && TryGetReadyLocalPlayer(out var localPlayer))
-        {
-            localPlayer.fieldManager.StartPlacementMode(PlacementMode.Unit, testUnitPrefab);
         }
     }
 

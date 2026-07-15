@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a1cb254f8e70f2243bb5b805efcb2338, type: 3}
   m_Name: UnitData_King_Pyromancer
   m_EditorClassIdentifier: 
+  contentId: king.unit.pyromancer
   baseUnitData: {fileID: 11400000, guid: 4e7855d10fe859147b90840b76fc592a, type: 2}
   kingBuff: {fileID: 11400000, guid: 44b072cc1766f5642a0f375f646d5b44, type: 2}
   kingSkill: {fileID: 11400000, guid: 91645f1c3720074449696ca23cd64453, type: 2}

@@ -1,4 +1,6 @@
 #if UNITY_EDITOR
+using System.Reflection;
+using MDF.Runtime.UI;
 using NUnit.Framework;
 
 public sealed class WallRemovePanelInputEditModeTests
@@ -23,7 +25,10 @@ public sealed class WallRemovePanelInputEditModeTests
         Assert.That(source, Does.Contain("OnRemoveButtonClicked();"));
         Assert.That(source, Does.Contain("OnUpgradeButtonClicked();"));
         Assert.That(source, Does.Contain("RectTransformUtility.RectangleContainsScreenPoint"));
-        Assert.That(source, Does.Contain("_removeRequested"));
+        FieldInfo removeGate = typeof(WallRemovePanelController).GetField(
+            "_removeDispatchGate",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.That(removeGate?.FieldType, Is.EqualTo(typeof(FrameDispatchGate)));
     }
 
     [Test]

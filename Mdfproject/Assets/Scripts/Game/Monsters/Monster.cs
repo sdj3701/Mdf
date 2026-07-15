@@ -111,6 +111,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private int _pendingZonePulseNextEffectIndex;
     private bool _hasEverSpawned;
     private int _spawnGeneration;
+    private readonly LifecycleGeneration _spawnLifecycle = new LifecycleGeneration();
     private CancellationTokenSource _spawnLifecycleCancellation;
     private bool _hasLocalHealthValues;
     private bool _despawnRequested;
@@ -426,12 +427,14 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         CancelSpawnLifecycle();
         _spawnGeneration++;
+        _spawnLifecycle.Begin(Object != null && Object.IsValid ? Object.Id.Raw : 0);
         _spawnLifecycleCancellation = new CancellationTokenSource();
     }
 
     private void CancelSpawnLifecycle()
     {
         _spawnGeneration++;
+        _spawnLifecycle.End();
         if (_spawnLifecycleCancellation != null)
         {
             _spawnLifecycleCancellation.Cancel();
@@ -440,15 +443,15 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
     }
 
-    private bool IsSpawnLifecycleCurrent(int generation, uint networkIdRaw)
+    private bool IsSpawnLifecycleCurrent(LifecycleStamp lifecycle)
     {
         return _hasSpawned &&
-               generation == _spawnGeneration &&
+               _spawnLifecycle.IsCurrent(lifecycle) &&
                _spawnLifecycleCancellation != null &&
                !_spawnLifecycleCancellation.IsCancellationRequested &&
                Object != null &&
                Object.IsValid &&
-               Object.Id.Raw == networkIdRaw;
+               Object.Id.Raw == lifecycle.Identity;
     }
 
     private void ResetTransientRuntimeStateForReuse(bool preserveMigrationState = false)
@@ -893,7 +896,9 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
         NetworkedOwnerPlayerIdEncoded = EncodeSnapshotOwnerId(ownerPlayer != null ? ownerPlayer.playerId : -1);
         _localMonsterDataKey = BuildSnapshotMonsterDataKey(_monsterData);
-        NetworkedMonsterDataKeyHash = StableMonsterDataKeyHash(_localMonsterDataKey);
+        NetworkedMonsterDataKeyHash = _monsterData != null && _monsterData.ContentIdHash != 0
+            ? _monsterData.ContentIdHash
+            : StableMonsterDataKeyHash(_localMonsterDataKey);
         NetworkedMonsterTypeValue = _monsterData != null ? (int)_monsterData.monsterType + 1 : 0;
         NetworkedMonsterTraitsValue = _monsterData != null ? (int)_monsterData.traits + 1 : 0;
     }
@@ -946,18 +951,16 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
 
         _networkMonsterDataLoadRequested = true;
-        int generation = _spawnGeneration;
-        uint networkIdRaw = Object != null && Object.IsValid ? Object.Id.Raw : 0;
-        RecoverMonsterDataFromNetworkSnapshotAsync(key, generation, networkIdRaw).Forget();
+        LifecycleStamp lifecycle = _spawnLifecycle.Capture();
+        RecoverMonsterDataFromNetworkSnapshotAsync(key, lifecycle).Forget();
     }
 
     private async UniTaskVoid RecoverMonsterDataFromNetworkSnapshotAsync(
         string key,
-        int generation,
-        uint networkIdRaw)
+        LifecycleStamp lifecycle)
     {
         MonsterData data = await LoadOwnedAddressableAsync<MonsterData>(key);
-        if (!IsSpawnLifecycleCurrent(generation, networkIdRaw))
+        if (!IsSpawnLifecycleCurrent(lifecycle))
         {
             return;
         }
@@ -1015,67 +1018,128 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             return false;
         }
 
-        MonsterData data = FindLoadedMonsterDataByStableHash(monsterDataKeyHash);
-        if (data == null)
+        if (!TryResolveMonsterDataByStableHash(monsterDataKeyHash, out MonsterData data))
         {
-            data = FindWaveMonsterDataByStableHash(monsterDataKeyHash);
+            return false;
         }
 
         key = BuildSnapshotMonsterDataKey(data);
         return !string.IsNullOrEmpty(key);
     }
 
-    private static MonsterData FindLoadedMonsterDataByStableHash(int monsterDataKeyHash)
+    private static bool TryResolveMonsterDataByStableHash(int monsterDataKeyHash, out MonsterData resolved)
     {
-        var loaded = Resources.FindObjectsOfTypeAll<MonsterData>();
-        foreach (var data in loaded)
-        {
-            if (MatchesMonsterDataHash(data, monsterDataKeyHash))
-            {
-                return data;
-            }
-        }
-
-        return null;
-    }
-
-    private static MonsterData FindWaveMonsterDataByStableHash(int monsterDataKeyHash)
-    {
-        var waveDatabase = AddressablesManager.Instance?.WaveDatabase;
-        if (waveDatabase?.rounds == null)
-        {
-            return null;
-        }
-
-        foreach (var round in waveDatabase.rounds)
-        {
-            if (round?.monsters == null)
-            {
-                continue;
-            }
-
-            foreach (var entry in round.monsters)
-            {
-                if (MatchesMonsterDataHash(entry?.monsterData, monsterDataKeyHash))
-                {
-                    return entry.monsterData;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private static bool MatchesMonsterDataHash(MonsterData data, int monsterDataKeyHash)
-    {
-        if (data == null || monsterDataKeyHash == 0)
+        resolved = null;
+        if (monsterDataKeyHash == 0)
         {
             return false;
         }
 
-        return StableMonsterDataKeyHash(data.name) == monsterDataKeyHash
-            || StableMonsterDataKeyHash(data.monsterName) == monsterDataKeyHash
-            || StableMonsterDataKeyHash(data.monsterPrefab) == monsterDataKeyHash;
+        LoadManager loadManager = LoadManager.Instance;
+        MonsterData indexedData = loadManager?.GetMonsterDataByContentIdHash(monsterDataKeyHash);
+        if (indexedData != null)
+        {
+            resolved = indexedData;
+            return true;
+        }
+
+        var candidates = new HashSet<MonsterData>();
+        if (loadManager != null)
+        {
+            foreach (MonsterData data in loadManager.GetAllMonsterData())
+            {
+                if (data != null)
+                {
+                    candidates.Add(data);
+                }
+            }
+        }
+
+        foreach (MonsterData data in Resources.FindObjectsOfTypeAll<MonsterData>())
+        {
+            if (data != null)
+            {
+                candidates.Add(data);
+            }
+        }
+
+        WaveDatabase waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+        if (waveDatabase != null)
+        {
+            if (waveDatabase.attackSequenceMonsterCatalog != null)
+            {
+                foreach (MonsterData data in waveDatabase.attackSequenceMonsterCatalog)
+                {
+                    if (data != null)
+                    {
+                        candidates.Add(data);
+                    }
+                }
+            }
+
+            if (waveDatabase.rounds != null)
+            {
+                foreach (RoundWaveData round in waveDatabase.rounds)
+                {
+                    if (round?.monsters == null)
+                    {
+                        continue;
+                    }
+
+                    foreach (WaveMonsterEntry entry in round.monsters)
+                    {
+                        if (entry?.monsterData != null)
+                        {
+                            candidates.Add(entry.monsterData);
+                        }
+                    }
+                }
+            }
+        }
+
+        MonsterData contentIdMatch = null;
+        foreach (MonsterData data in candidates)
+        {
+            if (data.ContentIdHash != monsterDataKeyHash)
+            {
+                continue;
+            }
+
+            if (contentIdMatch != null && contentIdMatch != data)
+            {
+                return false;
+            }
+
+            contentIdMatch = data;
+        }
+
+        if (contentIdMatch != null)
+        {
+            resolved = contentIdMatch;
+            return true;
+        }
+
+        MonsterData legacyMatch = null;
+        foreach (MonsterData data in candidates)
+        {
+            bool matchesLegacy = StableMonsterDataKeyHash(data.name) == monsterDataKeyHash
+                || StableMonsterDataKeyHash(data.monsterName) == monsterDataKeyHash
+                || StableMonsterDataKeyHash(data.monsterPrefab) == monsterDataKeyHash;
+            if (!matchesLegacy)
+            {
+                continue;
+            }
+
+            if (legacyMatch != null && legacyMatch != data)
+            {
+                return false;
+            }
+
+            legacyMatch = data;
+        }
+
+        resolved = legacyMatch;
+        return resolved != null;
     }
 
     private void TryApplyPendingHealthToNetworked()
@@ -1289,18 +1353,16 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         
         // Debug.Log($"<color=yellow>[Monster.RPC_InitializeOnClient] {name}: 클라이언트 초기화 시작 (monsterDataName={monsterDataName})</color>");
         
-        int generation = _spawnGeneration;
-        uint networkIdRaw = Object != null && Object.IsValid ? Object.Id.Raw : 0;
-        InitializeOnClientAsync(ownerPlayerId, monsterDataName, generation, networkIdRaw).Forget();
+        LifecycleStamp lifecycle = _spawnLifecycle.Capture();
+        InitializeOnClientAsync(ownerPlayerId, monsterDataName, lifecycle).Forget();
     }
     
     private async UniTaskVoid InitializeOnClientAsync(
         NetworkId ownerPlayerId,
         string monsterDataName,
-        int generation,
-        uint networkIdRaw)
+        LifecycleStamp lifecycle)
     {
-        if (!IsSpawnLifecycleCurrent(generation, networkIdRaw))
+        if (!IsSpawnLifecycleCurrent(lifecycle))
         {
             return;
         }
@@ -1317,7 +1379,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             if (ownerNO == null)
             {
                 await UniTask.Yield();
-                if (!IsSpawnLifecycleCurrent(generation, networkIdRaw))
+                if (!IsSpawnLifecycleCurrent(lifecycle))
                 {
                     return;
                 }
@@ -1340,7 +1402,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         {
             // AssetLoader를 통해 MonsterData 로드
             MonsterData loadedMonsterData = await LoadOwnedAddressableAsync<MonsterData>(monsterDataName);
-            if (!IsSpawnLifecycleCurrent(generation, networkIdRaw))
+            if (!IsSpawnLifecycleCurrent(lifecycle))
             {
                 return;
             }
@@ -1377,7 +1439,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             while (owner.goalTransform == null && goalAttempts < 30)
             {
                 await UniTask.Yield();
-                if (!IsSpawnLifecycleCurrent(generation, networkIdRaw))
+                if (!IsSpawnLifecycleCurrent(lifecycle))
                 {
                     return;
                 }

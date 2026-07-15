@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c564c97079ef2554082fa90e51710b86, type: 3}
   m_Name: WallLevel_3
   m_EditorClassIdentifier: 
+  contentId: wall.level.3
   level: 3
   maxHealth: 550
   upgradeCostFromPreviousLevel: 4

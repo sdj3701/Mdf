@@ -44,74 +44,65 @@ public sealed class LobbyMatchPrewarmGateEditModeTests
         Assert.That(matchWarmup, Does.Contain("MatchScrollDataLabel"));
         Assert.That(matchWarmup, Does.Contain("PrewarmAdditionalCombatPresentationsAsync"));
         Assert.That(matchWarmup, Does.Contain("FirstSpawnPresentationPrewarmer.WarmPrefabAsync"));
-        Assert.That(matchWarmup, Does.Contain("data.projectilePrefab"),
-            "Ranged monster projectiles must be loaded and GPU-warmed before the peer ACKs ready.");
-        Assert.That(matchWarmup, Does.Contain("CollectSkillPresentationPrefabs(monsterData.skillData)"),
-            "Monster skill and zone presentations must be warmed by the same lobby gate.");
+        Assert.That(matchWarmup, Does.Contain("data.projectilePrefab"));
+        Assert.That(matchWarmup, Does.Contain("CollectSkillPresentationPrefabs(monsterData.skillData)"));
         Assert.That(matchWarmup, Does.Contain("provider.PrewarmPrefabAsync"));
         Assert.That(matchWarmup, Does.Contain("PrewarmUnitNetworkPoolAsync"));
         Assert.That(matchWarmup, Does.Contain("_matchContentPrewarmComplete = true"));
-        Assert.That(matchWarmup, Does.Not.Contain("if (_matchContentPrewarmComplete)"),
-            "Static content readiness must never skip pool target enforcement for a new Runner.");
+        Assert.That(matchWarmup, Does.Not.Contain("if (_matchContentPrewarmComplete)"));
     }
 
     [Test]
-    public void AuthorityOwnsPeerAckStateAndRejectsStaleOrForeignReports()
+    public void AuthorityAckPolicyRejectsStaleForeignAndDuplicateReports()
     {
         PropertyInfo revision = typeof(NetworkPlayer).GetProperty(
             nameof(NetworkPlayer.MatchContentLoadRevision));
         PropertyInfo state = typeof(NetworkPlayer).GetProperty(
             nameof(NetworkPlayer.MatchContentLoadStateValue));
-        Assert.That(revision, Is.Not.Null);
-        Assert.That(state, Is.Not.Null);
-        Assert.That(revision.GetCustomAttribute<NetworkedAttribute>(), Is.Not.Null);
-        Assert.That(state.GetCustomAttribute<NetworkedAttribute>(), Is.Not.Null);
+        Assert.That(revision?.GetCustomAttribute<NetworkedAttribute>(), Is.Not.Null);
+        Assert.That(state?.GetCustomAttribute<NetworkedAttribute>(), Is.Not.Null);
 
-        string player = MdfSourcePolicy.ReadStaticContract(
-            "Assets/Scripts/Network/NetworkPlayer.cs");
-        Assert.That(player, Does.Contain("[Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]"));
-        Assert.That(player, Does.Contain("source != Object.InputAuthority"));
-        Assert.That(player, Does.Contain("TryRecordMatchContentLoadingAuthority(revision, succeeded, info.Source)"));
-        Assert.That(player, Does.Contain("TryRecordMatchContentLoadingAuthority("));
-        Assert.That(player, Does.Contain("Object.InputAuthority);"),
-            "A host must commit its own ready result with the real owner because a local RPC source is None.");
-        Assert.That(player, Does.Contain("revision != MatchContentLoadRevision"));
-        Assert.That(player, Does.Contain("MatchContentLoadState != LobbyMatchLoadingState.Warming"));
-        Assert.That(player, Does.Contain("public override void Despawned(NetworkRunner runner, bool hasState)"));
-        Assert.That(player, Does.Contain("attemptCancellation.Token"));
-
-        string loadManager = MdfSourcePolicy.ReadStaticContract(
-            "Assets/Scripts/Managers/LoadManager.cs");
-        Assert.That(loadManager, Does.Contain("CancellationTokenSource.CreateLinkedTokenSource"));
-        Assert.That(loadManager, Does.Contain("PrewarmUnitNetworkPoolCoreAsync("));
-        Assert.That(loadManager, Does.Contain("CancellationTokenSource operationCancellation"));
+        const int owner = 3;
+        const int currentRevision = 9;
+        Assert.That(LobbyMatchLoadPolicy.CanRecordAcknowledgement(
+            true, true, owner, owner, currentRevision, currentRevision,
+            LobbyMatchLoadingState.Warming), Is.True);
+        Assert.That(LobbyMatchLoadPolicy.CanRecordAcknowledgement(
+            true, true, owner, owner + 1, currentRevision, currentRevision,
+            LobbyMatchLoadingState.Warming), Is.False);
+        Assert.That(LobbyMatchLoadPolicy.CanRecordAcknowledgement(
+            true, true, owner, owner, currentRevision - 1, currentRevision,
+            LobbyMatchLoadingState.Warming), Is.False);
+        Assert.That(LobbyMatchLoadPolicy.CanRecordAcknowledgement(
+            true, true, owner, owner, currentRevision, currentRevision,
+            LobbyMatchLoadingState.Ready), Is.False);
     }
 
     [Test]
-    public void HostLoadsGameOnlyAfterStableRosterAndEveryReadyAck()
+    public void HostGateRequiresStableRosterAndEveryReadyAck()
     {
-        string lobby = MdfSourcePolicy.ReadStaticContract(
-            "Assets/Scripts/Network/JoinLobbyUI.cs");
-        string startGate = Slice(
-            lobby,
-            "private async UniTaskVoid TryStartGameAsync()",
-            "private void FailMatchStart(");
+        int revision = LobbyMatchLoadPolicy.NextRevision(new[] { 2, 4, 4 });
+        int[] expected = { 1, 2, 4 };
+        Assert.That(revision, Is.EqualTo(5));
+        Assert.That(LobbyMatchLoadPolicy.HasSameRoster(expected, new[] { 1, 2, 4 }), Is.True);
+        Assert.That(LobbyMatchLoadPolicy.HasSameRoster(expected, new[] { 1, 3, 4 }), Is.False);
 
-        int begin = startGate.IndexOf("BeginMatchContentLoadingAuthority", StringComparison.Ordinal);
-        int rosterGate = startGate.IndexOf("expectedAuthorities.SequenceEqual", StringComparison.Ordinal);
-        int readyGate = startGate.IndexOf("currentPlayers.All(player => player.IsMatchContentReadyFor(revision))", StringComparison.Ordinal);
-        int loadScene = startGate.IndexOf("runner.LoadScene", StringComparison.Ordinal);
-        Assert.That(begin, Is.GreaterThanOrEqualTo(0));
-        Assert.That(rosterGate, Is.GreaterThan(begin));
-        Assert.That(readyGate, Is.GreaterThan(rosterGate));
-        Assert.That(loadScene, Is.GreaterThan(readyGate));
+        var warming = new[]
+        {
+            new LobbyMatchPeerLoadState(1, revision, LobbyMatchLoadingState.Ready),
+            new LobbyMatchPeerLoadState(2, revision, LobbyMatchLoadingState.Warming),
+            new LobbyMatchPeerLoadState(4, revision, LobbyMatchLoadingState.Ready)
+        };
+        Assert.That(LobbyMatchLoadPolicy.CanLoadScene(revision, expected, warming), Is.False);
 
-        Assert.That(startGate, Does.Contain("LobbyMatchLoadingState.Failed"));
-        Assert.That(startGate, Does.Contain("MatchContentLoadTimeoutSeconds"));
-        Assert.That(lobby, Does.Contain("networkBlockOverlay?.Q<Label>(className: \"jl-network-block-label\")"));
-        Assert.That(lobby, Does.Contain("전투 데이터를 준비하고 있습니다"));
-        Assert.That(lobby, Does.Contain("ResetOrphanedAuthorityMatchLoad"));
-        Assert.That(lobby, Does.Contain("orphaned_authority_gate"));
+        var ready = new[]
+        {
+            new LobbyMatchPeerLoadState(1, revision, LobbyMatchLoadingState.Ready),
+            new LobbyMatchPeerLoadState(2, revision, LobbyMatchLoadingState.Ready),
+            new LobbyMatchPeerLoadState(4, revision, LobbyMatchLoadingState.Ready)
+        };
+        Assert.That(LobbyMatchLoadPolicy.CanLoadScene(revision, expected, ready), Is.True);
+        Assert.That(LobbyMatchLoadPolicy.CanLoadScene(revision - 1, expected, ready), Is.False);
     }
 
     [Test]

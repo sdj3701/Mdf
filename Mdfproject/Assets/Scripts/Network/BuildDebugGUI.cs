@@ -22,6 +22,9 @@ public class BuildDebugGUI : MonoBehaviour
 
     private void Awake()
     {
+#if !(UNITY_EDITOR || DEVELOPMENT_BUILD)
+        enabled = false;
+#else
         if (Instance == null)
         {
             Instance = this;
@@ -32,6 +35,7 @@ public class BuildDebugGUI : MonoBehaviour
         {
             Destroy(gameObject);
         }
+#endif
     }
 
     private void ApplyCommandLineVisibility()
@@ -47,6 +51,7 @@ public class BuildDebugGUI : MonoBehaviour
 
     private void Update()
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         if (MdfInput.GetKeyDown(toggleKey))
         {
             visible = !visible;
@@ -67,10 +72,14 @@ public class BuildDebugGUI : MonoBehaviour
         {
             ClearLogs();
         }
+#endif
     }
 
+    [System.Diagnostics.Conditional("UNITY_EDITOR")]
+    [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
     public void Log(string message)
     {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         string formatted = $"[{DateTime.Now:HH:mm:ss}] {message}";
         _logMessages.Add(formatted);
 
@@ -78,6 +87,7 @@ public class BuildDebugGUI : MonoBehaviour
         {
             _logMessages.RemoveAt(0);
         }
+#endif
     }
 
     private void ClearLogs()
@@ -113,6 +123,8 @@ public class BuildDebugGUI : MonoBehaviour
         _statusMessageUntil = Time.realtimeSinceStartup + 2.5f;
     }
 
+    [System.Diagnostics.Conditional("UNITY_EDITOR")]
+    [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
     public static void LogClient(string message)
     {
 #if DEVELOPMENT_BUILD
@@ -131,6 +143,8 @@ public class BuildDebugGUI : MonoBehaviour
 #endif
     }
 
+    [System.Diagnostics.Conditional("UNITY_EDITOR")]
+    [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
     public static void LogClientThrottled(string key, string message, float minIntervalSeconds = 1f)
     {
 #if DEVELOPMENT_BUILD

@@ -40,14 +40,14 @@ public sealed class FieldManagerUnitPresentationEditModeTests
             renderer.enabled = false;
             collider.enabled = false;
 
-            SetPrivateField(field, "placedUnits", new Dictionary<Vector3Int, Unit>
+            SetPrivateField(field, "placedUnits", new GridOccupancyIndex<Unit>(new Dictionary<Vector3Int, Unit>
             {
                 { cell, unit }
-            });
-            SetPrivateField(field, "placedWalls", new Dictionary<Vector3Int, DestructibleWall>
+            }));
+            SetPrivateField(field, "placedWalls", new GridOccupancyIndex<DestructibleWall>(new Dictionary<Vector3Int, DestructibleWall>
             {
                 { cell, wallGo.AddComponent<DestructibleWall>() }
-            });
+            }));
 
             field.RepairPlacedUnitPresentation("editmode-test");
 
@@ -92,10 +92,10 @@ public sealed class FieldManagerUnitPresentationEditModeTests
             var renderer = unitGo.GetComponent<Renderer>();
             renderer.enabled = false;
 
-            SetPrivateField(field, "placedUnits", new Dictionary<Vector3Int, Unit>
+            SetPrivateField(field, "placedUnits", new GridOccupancyIndex<Unit>(new Dictionary<Vector3Int, Unit>
             {
                 { cell, unit }
-            });
+            }));
 
             Assert.That(field.RebuildUnitMapAfterMigration("editmode-read", false, out _), Is.True);
 
@@ -275,10 +275,10 @@ public sealed class FieldManagerUnitPresentationEditModeTests
 
             Vector3Int goalCell = field.GetGoalGridPosition();
             unitGo.transform.position = field.GridToWorld(goalCell);
-            SetPrivateField(field, "placedUnits", new Dictionary<Vector3Int, Unit>
+            SetPrivateField(field, "placedUnits", new GridOccupancyIndex<Unit>(new Dictionary<Vector3Int, Unit>
             {
                 { goalCell, unit }
-            });
+            }));
 
             Assert.That(field.RebuildUnitMapAfterMigration("legacy-goal-test", false, out string summary), Is.True, summary);
             Assert.That(field.GetUnitAt(goalCell), Is.Null);
@@ -318,10 +318,10 @@ public sealed class FieldManagerUnitPresentationEditModeTests
             Vector3Int goalCell = field.GetGoalGridPosition();
             Vector3 originalWorldPosition = field.GridToWorld(goalCell);
             unitGo.transform.position = originalWorldPosition;
-            SetPrivateField(field, "placedUnits", new Dictionary<Vector3Int, Unit>
+            SetPrivateField(field, "placedUnits", new GridOccupancyIndex<Unit>(new Dictionary<Vector3Int, Unit>
             {
                 { goalCell, unit }
-            });
+            }));
 
             Assert.That(field.RebuildUnitMapAfterMigration("blocked-goal-test", false, out string summary), Is.False, summary);
             Assert.That(summary, Does.Contain("unresolvedGoalConflicts=1"));
@@ -378,15 +378,15 @@ public sealed class FieldManagerUnitPresentationEditModeTests
             var destructibleCell = new Vector3Int(2, 0, 0);
             var destructibleWall = destructibleWallGo.AddComponent<DestructibleWall>();
 
-            SetPrivateField(field, "placedPermanentWalls", new Dictionary<Vector3Int, GameObject>
+            SetPrivateField(field, "placedPermanentWalls", new GridOccupancyIndex<GameObject>(new Dictionary<Vector3Int, GameObject>
             {
                 { structuralCell, structuralWall },
                 { playerCell, playerWall }
-            });
-            SetPrivateField(field, "placedWalls", new Dictionary<Vector3Int, DestructibleWall>
+            }));
+            SetPrivateField(field, "placedWalls", new GridOccupancyIndex<DestructibleWall>(new Dictionary<Vector3Int, DestructibleWall>
             {
                 { destructibleCell, destructibleWall }
-            });
+            }));
 
             var playerPlacedCellsField = typeof(FieldManager).GetField(
                 "playerPlacedPermanentWallCells",

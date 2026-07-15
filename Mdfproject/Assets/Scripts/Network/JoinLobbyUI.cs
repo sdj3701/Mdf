@@ -820,13 +820,8 @@ public sealed class JoinLobbyUI : MonoBehaviour
             .Select(player => player.Object.InputAuthority)
             .OrderBy(player => player.PlayerId)
             .ToArray();
-        int revision = players.Count > 0
-            ? players.Max(player => player.MatchContentLoadRevision) + 1
-            : 1;
-        if (revision <= 0)
-        {
-            revision = 1;
-        }
+        int revision = LobbyMatchLoadPolicy.NextRevision(
+            players.Select(player => player.MatchContentLoadRevision));
 
         matchStartInProgress = true;
         activeMatchLoadRevision = revision;
@@ -858,6 +853,9 @@ public sealed class JoinLobbyUI : MonoBehaviour
             }
 
             UpdatePlayerList();
+            int[] expectedAuthorityIds = expectedAuthorities
+                .Select(authority => authority.PlayerId)
+                .ToArray();
             float startedAt = Time.realtimeSinceStartup;
             while (!attemptCancellation.IsCancellationRequested
                    && Time.realtimeSinceStartup - startedAt < MatchContentLoadTimeoutSeconds)
@@ -875,8 +873,11 @@ public sealed class JoinLobbyUI : MonoBehaviour
                     .Select(player => player.Object.InputAuthority)
                     .OrderBy(player => player.PlayerId)
                     .ToArray();
+                int[] currentAuthorityIds = currentAuthorities
+                    .Select(authority => authority.PlayerId)
+                    .ToArray();
                 if (!IsLobbyRosterComplete(currentActiveCount, currentPlayers.Count, currentDuplicates)
-                    || !expectedAuthorities.SequenceEqual(currentAuthorities))
+                    || !LobbyMatchLoadPolicy.HasSameRoster(expectedAuthorityIds, currentAuthorityIds))
                 {
                     FailMatchStart(currentPlayers, revision, "인원 구성이 변경되어 게임 시작을 중단했습니다.");
                     return;
@@ -896,7 +897,17 @@ public sealed class JoinLobbyUI : MonoBehaviour
                     return;
                 }
 
-                if (currentPlayers.All(player => player.IsMatchContentReadyFor(revision)))
+                LobbyMatchPeerLoadState[] peerLoadStates = currentPlayers
+                    .OrderBy(player => player.Object.InputAuthority.PlayerId)
+                    .Select(player => new LobbyMatchPeerLoadState(
+                        player.Object.InputAuthority.PlayerId,
+                        player.MatchContentLoadRevision,
+                        player.MatchContentLoadState))
+                    .ToArray();
+                if (LobbyMatchLoadPolicy.CanLoadScene(
+                        revision,
+                        expectedAuthorityIds,
+                        peerLoadStates))
                 {
                     Debug.Log(
                         $"[MatchPrewarm] All active peer ACKs ready. revision={revision}, " +

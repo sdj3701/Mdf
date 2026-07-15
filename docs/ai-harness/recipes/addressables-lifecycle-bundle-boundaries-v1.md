@@ -6,7 +6,7 @@ Category: unity, performance
 Created: 2026-07-13
 Last used: 2026-07-15
 Last verified: 2026-07-15
-Use count: 14
+Use count: 15
 Review after: 2026-08-03
 Triggers: Addressables, AssetLoader, single-flight, bundle size, PackSeparately, Fusion prefab
 Applies to: MDF Addressables startup, runtime leases, category groups, Development player builds

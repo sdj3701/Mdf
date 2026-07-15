@@ -84,7 +84,7 @@
 | `CameraManager` | 플레이어 필드 간 카메라 이동 | 전투/관전 중 다른 필드를 보기 위해 |
 | `GetPlayerCamera` | 로컬 플레이어 기준 카메라 초기 배치 | 간단한 카메라 보정용 |
 | `ComponentAutoRegister` | 카메라 등 기본 컴포넌트 registry 등록 | 런타임 검색과 참조 결합을 줄이기 위해 |
-| `AddressableAssetLoader` | 일부 static asset을 registry에 로드 | 타일/sprite 같은 공통 자산을 미리 준비하기 위해 |
+| `AddressablesManager` | 수명 추적 캐시로 필요한 에셋을 로드 | 중복 로드와 해제 누락 없이 공통 자산을 준비하기 위해 |
 | `ProjectileVfxManager` | 전투 투사체 VFX 생성/이동 | 전투 이벤트를 시각 효과로 보여주기 위해 |
 | `VfxPoolManager` | VFX pooling | 전투 중 반복 생성 비용을 줄이기 위해 |
 

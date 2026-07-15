@@ -38,10 +38,6 @@ public class AddressablesLoadingPolicyEditModeTests
             {
                 "Assets/Scripts/Managers/AddressablesManager.cs|AssetReference.LoadAssetAsync",
                 "Required Fusion prefabs use serialized AssetReference ownership and ReleaseAsset."
-            },
-            {
-                "Assets/Scripts/ComponentRegistrySystem/StaticAssets/AssetRegistry.cs|InitializeAsync",
-                "The legacy registry owns and releases its one catalog initialization handle."
             }
         };
 

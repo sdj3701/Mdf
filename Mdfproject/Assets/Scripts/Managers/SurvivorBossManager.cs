@@ -543,7 +543,9 @@ public class SurvivorBossManager : MonoBehaviour
             : BuildBossDataKey(boss.BossData);
         return new SurvivorBossReplicatedRow
         {
-            DataKeyHash = StableDataKeyUtility.StableKeyHash(dataKey),
+            DataKeyHash = boss.BossData != null && boss.BossData.ContentIdHash != 0
+                ? boss.BossData.ContentIdHash
+                : StableDataKeyUtility.StableKeyHash(dataKey),
             State = state,
             BossUniqueId = boss.BossUniqueId,
             OriginPlayerId = boss.OriginPlayerId,
@@ -756,22 +758,108 @@ public class SurvivorBossManager : MonoBehaviour
             return null;
         }
 
-        foreach (var data in Resources.FindObjectsOfTypeAll<MonsterData>())
+        LoadManager loadManager = LoadManager.Instance;
+        MonsterData indexedData = loadManager?.GetMonsterDataByContentIdHash(dataKeyHash);
+        if (indexedData != null)
         {
-            if (data == null)
+            return indexedData;
+        }
+
+        var candidates = new HashSet<MonsterData>();
+        if (loadManager != null)
+        {
+            foreach (MonsterData data in loadManager.GetAllMonsterData())
+            {
+                if (data != null)
+                {
+                    candidates.Add(data);
+                }
+            }
+        }
+
+        foreach (MonsterData data in Resources.FindObjectsOfTypeAll<MonsterData>())
+        {
+            if (data != null)
+            {
+                candidates.Add(data);
+            }
+        }
+
+        WaveDatabase waveDatabase = AddressablesManager.Instance?.WaveDatabase;
+        if (waveDatabase != null)
+        {
+            if (waveDatabase.attackSequenceMonsterCatalog != null)
+            {
+                foreach (MonsterData data in waveDatabase.attackSequenceMonsterCatalog)
+                {
+                    if (data != null)
+                    {
+                        candidates.Add(data);
+                    }
+                }
+            }
+
+            if (waveDatabase.rounds != null)
+            {
+                foreach (RoundWaveData round in waveDatabase.rounds)
+                {
+                    if (round?.monsters == null)
+                    {
+                        continue;
+                    }
+
+                    foreach (WaveMonsterEntry entry in round.monsters)
+                    {
+                        if (entry?.monsterData != null)
+                        {
+                            candidates.Add(entry.monsterData);
+                        }
+                    }
+                }
+            }
+        }
+
+        MonsterData contentIdMatch = null;
+        foreach (MonsterData data in candidates)
+        {
+            if (data.ContentIdHash != dataKeyHash)
             {
                 continue;
             }
 
-            if (StableDataKeyUtility.StableKeyHash(data.name) == dataKeyHash
-                || StableDataKeyUtility.StableKeyHash(data.monsterName) == dataKeyHash
-                || StableDataKeyUtility.StableKeyHash(data.monsterPrefab) == dataKeyHash)
+            if (contentIdMatch != null && contentIdMatch != data)
             {
-                return data;
+                return null;
             }
+
+            contentIdMatch = data;
         }
 
-        return null;
+        if (contentIdMatch != null)
+        {
+            return contentIdMatch;
+        }
+
+        MonsterData legacyMatch = null;
+        foreach (MonsterData data in candidates)
+        {
+            bool matchesLegacy = StableDataKeyUtility.StableKeyHash(data.name) == dataKeyHash
+                || StableDataKeyUtility.StableKeyHash(data.monsterName) == dataKeyHash
+                || StableDataKeyUtility.StableKeyHash(data.monsterPrefab) == dataKeyHash;
+            if (!matchesLegacy)
+            {
+                continue;
+            }
+
+            if (legacyMatch != null && legacyMatch != data)
+            {
+                return null;
+            }
+
+            legacyMatch = data;
+        }
+
+        return legacyMatch;
     }
 
     private static bool MatchesMonsterData(MonsterData data, string monsterDataName)

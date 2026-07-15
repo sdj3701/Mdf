@@ -19,8 +19,14 @@ public enum AttackTargetType
 }
 
 [CreateAssetMenu(fileName = "New UnitData", menuName = "Game/Unit Data")]
-public class UnitData : ScriptableObject
+public class UnitData : ScriptableObject, IStableContentIdentity
 {
+    [SerializeField, Tooltip("Immutable gameplay identity. Do not change after release.")]
+    private string contentId;
+
+    public string ContentId => StableDataKeyUtility.NormalizeContentId(contentId);
+    public int ContentIdHash => StableDataKeyUtility.StableContentIdHash(contentId);
+
     [Header("Common")]
     public string unitName;
 

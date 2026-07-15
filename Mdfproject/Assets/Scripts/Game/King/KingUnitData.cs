@@ -1,8 +1,14 @@
 using UnityEngine;
 
 [CreateAssetMenu(fileName = "UnitData_King_New", menuName = "Game/King/Unit Data")]
-public class KingUnitData : ScriptableObject
+public class KingUnitData : ScriptableObject, IStableContentIdentity
 {
+    [SerializeField, Tooltip("Immutable gameplay identity. Do not change after release.")]
+    private string contentId;
+
+    public string ContentId => StableDataKeyUtility.NormalizeContentId(contentId);
+    public int ContentIdHash => StableDataKeyUtility.StableContentIdHash(contentId);
+
     [Header("Definition")]
     public UnitData baseUnitData;
     public KingBuffData kingBuff;

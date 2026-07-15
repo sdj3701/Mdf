@@ -8,8 +8,14 @@ public enum KingSkillEffectKind
 }
 
 [CreateAssetMenu(fileName = "KingSkill_New", menuName = "Game/King/Skill Data")]
-public class KingSkillData : ScriptableObject
+public class KingSkillData : ScriptableObject, IStableContentIdentity
 {
+    [SerializeField, Tooltip("Immutable gameplay identity. Do not change after release.")]
+    private string contentId;
+
+    public string ContentId => StableDataKeyUtility.NormalizeContentId(contentId);
+    public int ContentIdHash => StableDataKeyUtility.StableContentIdHash(contentId);
+
     [Header("Presentation")]
     public string skillName;
     [TextArea(2, 6)] public string description;

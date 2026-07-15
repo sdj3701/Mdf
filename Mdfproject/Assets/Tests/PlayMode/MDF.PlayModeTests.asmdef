@@ -3,6 +3,11 @@
     "rootNamespace": "MDF.Tests.PlayMode",
     "references": [
         "MDF.Runtime.Assets",
+        "MDF.Runtime.Foundation",
+        "MDF.Runtime.Grid",
+        "MDF.Runtime.UI",
+        "Unity.TextMeshPro",
+        "UnityEngine.UI",
         "UniTask"
     ],
     "includePlatforms": [],

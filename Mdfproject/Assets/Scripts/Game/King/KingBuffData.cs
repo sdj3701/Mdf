@@ -26,8 +26,14 @@ public struct KingBuffModifier
 }
 
 [CreateAssetMenu(fileName = "KingBuff_New", menuName = "Game/King/Buff Data")]
-public class KingBuffData : ScriptableObject
+public class KingBuffData : ScriptableObject, IStableContentIdentity
 {
+    [SerializeField, Tooltip("Immutable gameplay identity. Do not change after release.")]
+    private string contentId;
+
+    public string ContentId => StableDataKeyUtility.NormalizeContentId(contentId);
+    public int ContentIdHash => StableDataKeyUtility.StableContentIdHash(contentId);
+
     public string buffName;
     [TextArea(2, 5)] public string description;
     public KingBuffModifier[] modifiers = Array.Empty<KingBuffModifier>();

@@ -18,8 +18,8 @@ public class MdfAsyncAuthorityRegressionEditModeTests
         {
             Unit unit = unitObject.AddComponent<Unit>();
             FieldInfo dataField = typeof(Unit).GetField("unitData", BindingFlags.Instance | BindingFlags.NonPublic);
-            FieldInfo generationField = typeof(Unit).GetField(
-                "_combatTargetLifecycleGeneration",
+            FieldInfo lifecycleField = typeof(Unit).GetField(
+                "_asyncLifecycle",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             MethodInfo capture = typeof(Unit).GetMethod(
                 "CaptureAsyncLifecycle",
@@ -29,7 +29,7 @@ public class MdfAsyncAuthorityRegressionEditModeTests
                 BindingFlags.Instance | BindingFlags.NonPublic);
 
             Assert.That(dataField, Is.Not.Null);
-            Assert.That(generationField, Is.Not.Null);
+            Assert.That(lifecycleField, Is.Not.Null);
             Assert.That(capture, Is.Not.Null);
             Assert.That(isCurrent, Is.Not.Null);
 
@@ -42,8 +42,8 @@ public class MdfAsyncAuthorityRegressionEditModeTests
                 "A result loaded for the previous pooled UnitData must not commit into the reused unit.");
 
             object secondLifecycleStamp = capture.Invoke(unit, null);
-            int generation = (int)generationField.GetValue(unit);
-            generationField.SetValue(unit, generation + 1);
+            var lifecycle = (LifecycleGeneration)lifecycleField.GetValue(unit);
+            lifecycle.End();
             Assert.That((bool)isCurrent.Invoke(unit, new[] { secondLifecycleStamp }), Is.False,
                 "Despawn/respawn generation changes must invalidate every previous async result.");
         }
@@ -227,7 +227,7 @@ public class MdfAsyncAuthorityRegressionEditModeTests
                 "placedPermanentWalls",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.That(permanentWallsField, Is.Not.Null);
-            var permanentWalls = (Dictionary<Vector3Int, GameObject>)permanentWallsField.GetValue(field);
+            var permanentWalls = (GridOccupancyIndex<GameObject>)permanentWallsField.GetValue(field);
             var wall = new GameObject("AuthorityWallAtSpawnCell");
             wall.transform.SetParent(fieldObject.transform);
             permanentWalls[new Vector3Int(0, 0, 0)] = wall;

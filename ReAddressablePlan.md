@@ -1,5 +1,9 @@
 # ReAddressablePlan
 
+> 상태(2026-07-15): 이 문서는 최초 진단 기록을 포함한다. 레거시
+> `AddressableAssetLoader`/`AssetRegistry`와 하드코딩된 `BreakWall` 경로는 제거됐고,
+> 실제 현행 구조는 `docs/ai-harness/project-structure.md`를 기준으로 한다.
+
 작성일: 2026-05-07  
 대상 프로젝트: `Mdfproject` / Unity `2021.3.45f1` / Addressables `1.19.19`
 
@@ -21,13 +25,13 @@
 | 앱 부트스트랩 | `Assets/Scripts/Bootstrap/AppBootstrapper.cs` | Title 진입 시 매니저 존재 확인 후 `PreloadAllAsync`, `LoadManager.InitializeAsync` 호출 |
 | 범용 키 로더 | `Assets/Scripts/Managers/AssetLoader.cs` | string key 기반 제네릭 로드 및 단순 asset cache |
 | UnitData 로더 | `Assets/Scripts/Managers/LoadManager.cs` | Inspector 목록 또는 `UnitData` label 기반 UnitData 목록 캐싱 |
-| 정적 자산 레지스트리 | `Assets/Scripts/ComponentRegistrySystem/StaticAssets/AddressableAssetLoader.cs` | 일부 Tile/Sprite 하드코딩 로드 후 `AssetRegistry`에 등록 |
-| 정적 자산 캐시 | `Assets/Scripts/ComponentRegistrySystem/StaticAssets/AssetRegistry.cs` | Tile/Sprite/Prefab/Sound 딕셔너리 저장소 |
 | 인스펙터 키 선택 | `Assets/Scripts/DB/AddressableKeyAttribute.cs` | string 필드에 Addressable key 용도를 표시 |
 | 인스펙터 Drawer | `Assets/Scripts/Editor/AddressableKeyDrawer.cs` | Addressable로 등록된 asset을 ObjectField로 선택하면 address string 저장 |
 | 데이터 임포트 | `Assets/Scripts/Editor/GoogleSheetDataImporter.cs` | Google Sheet의 `;` 구분 string key를 UnitData 필드에 저장 |
 
-핵심 문제는 로더가 여러 개라는 점이다. `AddressablesManager`, `AssetLoader`, `LoadManager`, `AugmentManager`, `ShopSlot`, `AssetRegistry`가 각각 직접 `Addressables.*` API를 호출한다. 그 결과 handle 수명 관리, 캐시 정책, 실패 처리, 선로딩 기준이 통일되어 있지 않다.
+최초 진단 당시 핵심 문제는 로더가 여러 개라는 점이었다. 현재는 레거시
+`AssetRegistry` 경로를 제거했으며, 남아 있는 직접 호출도 수명 추적 캐시로 단계적으로
+통합한다.
 
 ## 3. Addressables 설정 현황
 
@@ -367,24 +371,11 @@ flowchart TD
 - handle release가 없다.
 - Inspector 직접 참조와 Addressables 로딩이 혼재되어 배포 빌드 기준 정책이 불명확하다.
 
-### 7.4 AddressableAssetLoader / AssetRegistry
+### 7.4 제거된 AddressableAssetLoader / AssetRegistry
 
-역할:
-
-- `AddressableAssetLoader.Start`에서 `LoadAllAssets()` 실행.
-- 현재 하드코딩으로 `BreakWall` tile과 `Spr_Port_Warrior` sprite를 로드해서 `AssetRegistry`에 등록한다.
-- `AssetRegistry`는 TileBase, Sprite, GameObject, AudioClip 딕셔너리를 가진다.
-
-현재 상태:
-
-- `tileBaseList`가 있지만 실제 반복 사용되지 않는다.
-- TODO로 sprite/prefab/sound 확장이 남아 있다.
-- scene/prefab 검색 결과 `AddressableAssetLoader`가 현재 씬에 배치된 흔적은 보이지 않았다.
-
-판단:
-
-- 현재 핵심 Addressables 런타임 경로라기보다 과거/실험용 정적 자산 로더에 가깝다.
-- 유지할 것이라면 통합 서비스 아래로 흡수하고, 사용하지 않는다면 제거 후보로 분류하는 것이 좋다.
+이 절에서 진단했던 레거시 정적 로더와 캐시는 2026-07-15에 제거됐다.
+`03_Game` 씬과 Addressables 그룹의 `BreakWall` 항목도 함께 정리했으며, 삭제된 GUID의
+씬·프리팹·코드 참조가 없음을 검사했다.
 
 ### 7.5 Direct Addressables 호출
 
@@ -393,7 +384,6 @@ flowchart TD
 - `AugmentManager.LoadAllAugmentsAsync`: `Addressables.LoadAssetsAsync<AugmentData>("Augment", null)`
 - `ShopSlot.DisplayUnit`: icon sprite를 직접 `Addressables.LoadAssetAsync<Sprite>`로 로드하고 이전 handle 및 OnDestroy에서 release
 - `LoadManager.InitializeAsync`: UnitData label 직접 로드
-- `AssetRegistry`: Tile/Sprite 직접 로드
 
 `ShopSlot`은 release를 직접 처리하고 있어 상대적으로 안전하지만, 정책이 개별 UI 컴포넌트에 흩어져 있다.
 
@@ -546,7 +536,7 @@ await handle.Task;
 
 1. 깨진 문자열로 인한 컴파일 위험 수정
    - `AddressablesManager.cs`의 `PreloadAll 완료` 로그 라인에 closing quote가 깨져 보인다.
-   - `AssetRegistry.cs`, `ShopSlot.cs`, `UnitData.cs` 등에도 mojibake가 광범위하다.
+   - 삭제된 `AssetRegistry.cs`를 제외하고 `ShopSlot.cs`, `UnitData.cs` 등의 인코딩을 점검한다.
    - 우선 C# syntax error가 있는 파일을 전부 찾아 UTF-8 기준으로 복구해야 한다.
 
 2. boot 성공 판정 보강
@@ -567,7 +557,7 @@ await handle.Task;
 ### P1 - 구조 개선
 
 1. 로더 통합
-   - `AddressablesManager`, `AssetLoader`, `LoadManager`, `AssetRegistry`, direct `Addressables.*` 호출을 하나의 `AddressableAssetService` 또는 개선된 `AddressablesManager`로 합친다.
+   - `AddressablesManager`, `AssetLoader`, `LoadManager`, direct `Addressables.*` 호출을 하나의 `AddressableAssetService` 또는 개선된 `AddressablesManager`로 합친다.
    - 기능은 `LoadAsync<T>`, `LoadLabelAsync<T>`, `InstantiateAsync`, `Release`, `ReleaseInstance`, `PreloadLabelsAsync`로 나눈다.
 
 2. handle/ref-count 관리
@@ -623,10 +613,9 @@ await handle.Task;
    - 여러 동시 slot/panel을 다루려면 active set과 inactive queue를 분리해야 한다.
    - Addressables instance release 정책도 pool dispose 시점과 연결해야 한다.
 
-5. unused/legacy 로더 정리
-   - `AddressableAssetLoader.tileBaseList`는 현재 실제 반복 로드에 쓰이지 않는다.
-   - `AssetRegistry.LoadFromResources`는 Addressables 이전 fallback으로 보인다.
-   - 실제 사용처가 없으면 제거하거나 dev-only fallback으로 분리한다.
+5. unused/legacy 로더 정리 — 완료
+   - `AddressableAssetLoader`, `AssetRegistry`, 하드코딩된 `BreakWall` 자산 경로를 제거했다.
+   - 삭제 전 GUID와 타입 참조가 0건임을 확인했다.
 
 ## 11. 권장 리팩터링 설계
 

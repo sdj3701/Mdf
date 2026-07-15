@@ -208,33 +208,6 @@ public static class MPStopTool
     }
 }
 
-[UnityCliTool(Name = "mp_start_prepare_smoke", Description = "Start or report prepare smoke status.")]
-public static class MPStartPrepareSmokeTool
-{
-    public static object HandleCommand(JObject parameters)
-    {
-        return MPTestUnityCliTools.NotImplemented("prepare_smoke_requires_runtime", "Prepare smoke control requires Phase 5+ runtime bootstrap and Phase 6 state assertions.");
-    }
-}
-
-[UnityCliTool(Name = "mp_start_battle_smoke", Description = "Start or report battle smoke status.")]
-public static class MPStartBattleSmokeTool
-{
-    public static object HandleCommand(JObject parameters)
-    {
-        return MPTestUnityCliTools.NotImplemented("battle_smoke_requires_runtime", "Battle smoke control requires Phase 5+ runtime bootstrap and Phase 6 state assertions.");
-    }
-}
-
-[UnityCliTool(Name = "mp_force_host_migration_probe", Description = "Run a host migration feasibility probe when supported.")]
-public static class MPForceHostMigrationProbeTool
-{
-    public static object HandleCommand(JObject parameters)
-    {
-        return MPTestUnityCliTools.NotImplemented("host_migration_probe_requires_e2e", "Host migration proof requires Phase 15 controlled host drop artifacts, not a Phase 4 Editor-only stub.");
-    }
-}
-
 internal static class MPTestUnityCliTools
 {
     public static async Task<object> StartPeer(JObject parameters, GameMode mode)

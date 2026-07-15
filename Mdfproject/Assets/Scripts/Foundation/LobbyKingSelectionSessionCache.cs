@@ -21,6 +21,8 @@ public sealed class LobbyKingSelectionSessionCache
             return false;
         }
 
+        selectionHash = KingSelectionCatalog.NormalizeOrDefaultHash(selectionHash);
+
         if (playerRefId >= 0)
         {
             _selectionByPlayerRefId[playerRefId] = selectionHash;

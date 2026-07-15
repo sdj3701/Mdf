@@ -78,7 +78,7 @@ public partial class GameManagers
 
     internal static float ResolveDisplayedPhaseTime(float phaseRemaining, bool sequenceTransitioning)
     {
-        return sequenceTransitioning ? 0f : Mathf.Max(0f, phaseRemaining);
+        return MatchFlowPolicy.ResolveDisplayedPhaseTime(phaseRemaining, sequenceTransitioning);
     }
 
     internal static GameState? ResolveExpiredPhaseTransitionTarget(
@@ -111,7 +111,10 @@ public partial class GameManagers
             return;
         }
 
-        if (currentState == GameState.GameOver || currentState == nextState || IsSequenceTransitioning)
+        if (MatchFlowPolicy.ShouldIgnoreTransitionRequest(
+                currentState == GameState.GameOver,
+                currentState == nextState,
+                IsSequenceTransitioning))
         {
             return;
         }
@@ -135,8 +138,12 @@ public partial class GameManagers
 
         float delaySeconds = GetSequenceTransitionDelaySeconds();
         int dueDebtCount = 0;
-        bool waitForCombatDebt = IsBattleSequenceState(fromState) &&
-                                 TryGetUnresolvedCombatExitDebt(out dueDebtCount);
+        bool leavingBattle = IsBattleSequenceState(fromState);
+        bool hasUnresolvedCombatDebt = leavingBattle &&
+                                       TryGetUnresolvedCombatExitDebt(out dueDebtCount);
+        bool waitForCombatDebt = MatchFlowPolicy.ShouldWaitForCombatDebt(
+            leavingBattle,
+            hasUnresolvedCombatDebt);
 
         phaseTimer = TickTimer.None;
         TransitionFromState = fromState;
@@ -144,7 +151,9 @@ public partial class GameManagers
         SequenceTransitionSideEffectsApplied = false;
         CombatExitDebtTerminalFailureSafeStop = false;
         CombatExitDebtGateActive = waitForCombatDebt;
-        CombatExitDebtPendingCount = waitForCombatDebt ? dueDebtCount : 0;
+        CombatExitDebtPendingCount = MatchFlowPolicy.ResolvePendingCombatDebt(
+            waitForCombatDebt,
+            dueDebtCount);
         sequenceTransitionTimer = waitForCombatDebt
             ? TickTimer.CreateFromSeconds(Runner, CombatExitDebtRetrySeconds)
             : delaySeconds > 0f
@@ -166,7 +175,7 @@ public partial class GameManagers
         }
         Debug.Log($"[GameManagers] Sequence transition started: {fromState} -> {nextState}, delay={delaySeconds:F1}s, reason={reason}");
 
-        if (!waitForCombatDebt && delaySeconds <= 0f)
+        if (MatchFlowPolicy.ShouldCompleteImmediately(waitForCombatDebt, delaySeconds))
         {
             CompleteSequenceTransition();
         }

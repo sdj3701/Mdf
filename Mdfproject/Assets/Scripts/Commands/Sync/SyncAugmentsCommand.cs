@@ -320,8 +320,8 @@ public class SyncAugmentsCommand : ICommand, IAsyncCommand
                 (player.Object == null || !player.Object.IsValid || !player.Object.HasStateAuthority))
             {
                 MonsterData[] presentedBosses = player.augmentManager.GetPresentedAugments()
-                    .Where(augment => augment?.bossMonsterData != null)
-                    .Select(augment => augment.bossMonsterData)
+                    .Select(augment => augment != null && augment.TryGetBossMonster(out MonsterData boss) ? boss : null)
+                    .Where(boss => boss != null)
                     .Distinct()
                     .ToArray();
                 if (presentedBosses.Length > 0)

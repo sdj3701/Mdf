@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 527aae111f667914f95eea592ddd0c9c, type: 3}
   m_Name: KingSkill_Warrior
   m_EditorClassIdentifier: 
+  contentId: king.skill.warrior
   skillName: "\uACB0\uC804"
   description: "\uAD6D\uC655 \uC8FC\uBCC0\uC758 \uC801\uC744 \uBCA0\uC5B4 \uD070
     \uBB3C\uB9AC \uD53C\uD574\uB97C \uC90D\uB2C8\uB2E4."

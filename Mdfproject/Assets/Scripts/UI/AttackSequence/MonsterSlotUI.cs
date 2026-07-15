@@ -4,6 +4,7 @@ using UnityEngine.UI;
 using TMPro;
 using Cysharp.Threading.Tasks;
 using MDF.Runtime.Assets;
+using MDF.Runtime.UI;
 
 /// <summary>
 /// 공격 시퀀스에서 개별 몬스터 슬롯을 표시하는 UI 컴포넌트.
@@ -12,6 +13,7 @@ public class MonsterSlotUI : MonoBehaviour
 {
     private AddressableAssetLease<Sprite> _iconLease;
     private int _iconLoadVersion;
+    private AttackMonsterCardView _presentationView;
     #region UI 요소
     [Header("UI 참조")]
     [SerializeField] private Image monsterIconImage;
@@ -80,12 +82,6 @@ public class MonsterSlotUI : MonoBehaviour
     public void UpdateCount()
     {
         if (_poolEntry == null) return;
-        
-        if (countText != null)
-        {
-            countText.text = ResolveCardState().CountText;
-        }
-
         UpdateVisualState();
     }
 
@@ -100,23 +96,7 @@ public class MonsterSlotUI : MonoBehaviour
 
     private void SetEmpty()
     {
-        if (monsterIconImage != null)
-        {
-            monsterIconImage.sprite = null;
-            monsterIconImage.color = emptyColor;
-        }
-        if (countText != null)
-        {
-            countText.text = "";
-        }
-        if (slotBackgroundImage != null)
-        {
-            slotBackgroundImage.color = emptyColor;
-        }
-        if (slotButton != null)
-        {
-            slotButton.interactable = false;
-        }
+        EnsurePresentationView().ApplyEmpty();
     }
 
     private void UpdateVisualState()
@@ -124,47 +104,29 @@ public class MonsterSlotUI : MonoBehaviour
         if (_poolEntry == null) return;
 
         AttackMonsterCardState cardState = ResolveCardState();
-        bool isEmpty = cardState.IsExhausted;
-        bool canInteract = cardState.CanInteract;
+        EnsurePresentationView().Apply(cardState.PolicyState, _isSelected);
+    }
 
-        // 배경 색상
-        if (slotBackgroundImage != null)
+    private AttackMonsterCardView EnsurePresentationView()
+    {
+        if (_presentationView == null)
         {
-            if (isEmpty)
+            _presentationView = GetComponent<AttackMonsterCardView>();
+            if (_presentationView == null)
             {
-                slotBackgroundImage.color = emptyColor;
-            }
-            else if (_isSelected)
-            {
-                slotBackgroundImage.color = selectedColor;
-            }
-            else
-            {
-                slotBackgroundImage.color = normalColor;
+                _presentationView = gameObject.AddComponent<AttackMonsterCardView>();
             }
         }
 
-        // 아이콘 투명도
-        if (monsterIconImage != null)
-        {
-            Color iconColor = monsterIconImage.color;
-            iconColor.a = canInteract ? 1f : 0.3f;
-            monsterIconImage.color = iconColor;
-        }
-
-        // 버튼 활성화
-        if (slotButton != null)
-        {
-            slotButton.interactable = canInteract;
-        }
-
-        // 텍스트 투명도
-        if (countText != null)
-        {
-            Color countColor = countText.color;
-            countColor.a = canInteract ? 1f : 0.3f;
-            countText.color = countColor;
-        }
+        _presentationView.Configure(
+            monsterIconImage,
+            countText,
+            slotBackgroundImage,
+            slotButton,
+            normalColor,
+            selectedColor,
+            emptyColor);
+        return _presentationView;
     }
 
     private bool CanAffordCurrentEntry()

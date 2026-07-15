@@ -1973,8 +1973,8 @@ public partial class GameManagers : NetworkBehaviour
             if (player.monsterSpawner != null)
             {
                 MonsterData[] presentedBosses = presentedAugments
-                    .Where(augment => augment?.bossMonsterData != null)
-                    .Select(augment => augment.bossMonsterData)
+                    .Select(augment => augment != null && augment.TryGetBossMonster(out MonsterData boss) ? boss : null)
+                    .Where(boss => boss != null)
                     .Distinct()
                     .ToArray();
                 if (presentedBosses.Length > 0)

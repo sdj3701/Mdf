@@ -12,8 +12,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 527aae111f667914f95eea592ddd0c9c, type: 3}
   m_Name: KingSkill_Fighter
   m_EditorClassIdentifier: 
+  contentId: king.skill.fighter
   skillName: "\uC655\uC2E4 \uB300\uAC80\uCC38"
-  description: "국왕 주변을 크게 베어 가까운 모든 적에게 강한 물리 피해를 줍니다."
+  description: "\uAD6D\uC655 \uC8FC\uBCC0\uC744 \uD06C\uAC8C \uBCA0\uC5B4 \uAC00\uAE4C\uC6B4
+    \uBAA8\uB4E0 \uC801\uC5D0\uAC8C \uAC15\uD55C \uBB3C\uB9AC \uD53C\uD574\uB97C
+    \uC90D\uB2C8\uB2E4."
   iconKey: Spr_Port_Fighter
   effectKind: 1
   radius: 5

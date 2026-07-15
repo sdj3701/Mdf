@@ -58,8 +58,14 @@ public class WaveMonsterEntry
 /// 인스펙터에서 라운드별 몬스터 구성을 설정할 수 있습니다.
 /// </summary>
 [CreateAssetMenu(fileName = "WaveDatabase", menuName = "Game/Wave Database")]
-public class WaveDatabase : ScriptableObject
+public class WaveDatabase : ScriptableObject, IStableContentIdentity
 {
+    [SerializeField, Tooltip("Immutable gameplay identity. Do not change after release.")]
+    private string contentId;
+
+    public string ContentId => StableDataKeyUtility.NormalizeContentId(contentId);
+    public int ContentIdHash => StableDataKeyUtility.StableContentIdHash(contentId);
+
     [Header("Attack Sequence Catalog")]
     [Tooltip("Every non-boss monster that all players may summon during an attack sequence, in UI order.")]
     public List<MonsterData> attackSequenceMonsterCatalog = new List<MonsterData>();

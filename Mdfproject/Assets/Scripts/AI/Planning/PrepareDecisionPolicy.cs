@@ -145,9 +145,8 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
         {
             int scrollIndex = augments.Take(selectableCount).ToList().FindIndex(augment =>
                 augment != null &&
-                augment.effectType == EffectType.GrantMagicScroll &&
-                augment.magicScrollData != null &&
-                augment.magicScrollData.canAiUse);
+                augment.TryGetMagicScroll(out MagicScrollData scroll) &&
+                scroll.canAiUse);
             if (scrollIndex >= 0)
             {
                 index = scrollIndex;
@@ -166,7 +165,7 @@ public sealed class PrepareDecisionPolicy : IMdfDecisionPolicy
             {
                 { "augmentIndex", index },
                 { "augment", selectedAugment != null ? selectedAugment.name : "unknown" },
-                { "effectType", selectedAugment != null ? selectedAugment.effectType.ToString() : "unknown" },
+                { "effectType", selectedAugment != null && selectedAugment.GetEffect(0) != null ? selectedAugment.GetEffect(0).effectType.ToString() : "unknown" },
                 { "presentedSnapshotCount", presentedSnapshot.Length },
                 { "preferScrollAugment", _preferScrollAugment }
             }));

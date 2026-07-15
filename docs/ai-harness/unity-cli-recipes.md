@@ -108,10 +108,11 @@ mp_command
 mp_screenshot
 mp_stop
 mp_build_player
-mp_start_prepare_smoke
-mp_start_battle_smoke
-mp_force_host_migration_probe
 ```
+
+Prepare, battle, and host-migration scenarios require multiple live peers and
+artifact collection. Run those scenarios with `tools/harness/mp/run_matrix.py`;
+they are intentionally not exposed as single-Editor placeholder commands.
 
 Rules:
 

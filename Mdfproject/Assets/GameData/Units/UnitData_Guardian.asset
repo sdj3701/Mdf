@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fd7f31528da94fb448b3d76147381cf6, type: 3}
   m_Name: UnitData_Guardian
   m_EditorClassIdentifier: 
+  contentId: unit.guardian
   unitName: Guardian
   unitIcon: Spr_Port_Guardian
   cost: 3

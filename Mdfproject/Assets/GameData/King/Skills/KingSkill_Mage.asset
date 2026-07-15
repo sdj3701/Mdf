@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 527aae111f667914f95eea592ddd0c9c, type: 3}
   m_Name: KingSkill_Mage
   m_EditorClassIdentifier: 
+  contentId: king.skill.mage
   skillName: "\uC808\uB300\uC601\uB3C4"
   description: "\uC804\uC7A5 \uC804\uCCB4\uC5D0 \uC808\uB300\uC601\uB3C4\uB97C \uD3BC\uCCD0
     \uBAA8\uB4E0 \uC801\uC5D0\uAC8C \uAC15\uD55C \uB9C8\uBC95 \uD53C\uD574\uB97C

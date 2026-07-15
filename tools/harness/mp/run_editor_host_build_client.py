@@ -488,10 +488,22 @@ def run(args: argparse.Namespace) -> int:
             command_result = {"success": False, "skipped": True, "reason": "no safe durable command before Phase 17"}
         write_json(artifact_dir / "command-result.json", command_result)
 
-        editor_post = dump_editor_state(artifact_dir, "post")
-        build_post = dump_build_state(client, artifact_dir, "post")
+        # A sequence transition can advance between two independent snapshot RPCs.
+        # Reuse the convergence gate so the final assertion compares a stable pair
+        # instead of reporting a false mismatch such as Setup/0 vs Prepare/1.
+        editor_post, build_post, post_ready = wait_states(
+            client,
+            artifact_dir,
+            2,
+            args.scene,
+            args.state_timeout,
+        )
+        write_json(artifact_dir / "snapshots" / "editor-post.json", editor_post)
+        write_json(artifact_dir / "snapshots" / "build-client-post.json", build_post)
         comparison = compare_snapshots(editor_post, build_post)
         write_json(artifact_dir / "comparison.json", comparison)
+        if not post_ready:
+            failures.append("post_state_ready_timeout")
         if not comparison["success"]:
             failures.append("snapshot_mismatch")
 

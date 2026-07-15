@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fd7f31528da94fb448b3d76147381cf6, type: 3}
   m_Name: UnitData_Mage
   m_EditorClassIdentifier: 
+  contentId: unit.mage
   unitName: Mage
   unitIcon: Spr_Port_Mage
   cost: 3

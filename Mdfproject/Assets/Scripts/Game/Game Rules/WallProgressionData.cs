@@ -2,8 +2,14 @@ using System;
 using UnityEngine;
 
 [CreateAssetMenu(fileName = "WallProgression_Default", menuName = "Game/Walls/Wall Progression")]
-public sealed class WallProgressionData : ScriptableObject
+public sealed class WallProgressionData : ScriptableObject, IStableContentIdentity
 {
+    [SerializeField, Tooltip("Immutable gameplay identity. Do not change after release.")]
+    private string contentId;
+
+    public string ContentId => StableDataKeyUtility.NormalizeContentId(contentId);
+    public int ContentIdHash => StableDataKeyUtility.StableContentIdHash(contentId);
+
     [SerializeField] private WallLevelData[] levels = Array.Empty<WallLevelData>();
 
     public int LevelCount => levels?.Length ?? 0;

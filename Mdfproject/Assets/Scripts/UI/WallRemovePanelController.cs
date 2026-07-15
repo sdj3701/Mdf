@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using System.Collections.Generic;
 using TMPro;
+using MDF.Runtime.UI;
 
 /// <summary>
 /// 벽 제거 패널 컨트롤러. 벽을 선택했을 때 제거 버튼을 표시합니다.
@@ -31,10 +32,9 @@ public class WallRemovePanelController : MonoBehaviour
     private Canvas _selfCanvas;
     private CanvasGroup _actionInputCanvasGroup;
     private Canvas[] _presentationCanvases;
-    private bool _removeRequested;
-    private bool _upgradeRequested;
-    private int _lastRemoveDispatchFrame = -1;
-    private int _lastUpgradeDispatchFrame = -1;
+    private readonly FrameDispatchGate _removeDispatchGate = new FrameDispatchGate();
+    private readonly FrameDispatchGate _upgradeDispatchGate = new FrameDispatchGate();
+    private FrameGatedButtonRoute _removeButtonRoute;
     private int _requestedUpgradeLevel;
     private float _upgradeRequestDeadline;
     private DestructibleWall _currentDestructibleWall;
@@ -78,6 +78,8 @@ public class WallRemovePanelController : MonoBehaviour
 
     private void OnDisable()
     {
+        _removeButtonRoute?.Dispose();
+        _removeButtonRoute = null;
         if (removeButton != null)
         {
             removeButton.onClick.RemoveListener(OnRemoveButtonClicked);
@@ -94,10 +96,8 @@ public class WallRemovePanelController : MonoBehaviour
         _fieldManager = null;
         _targetCanvas = null;
         _targetCamera = null;
-        _removeRequested = false;
-        _upgradeRequested = false;
-        _lastRemoveDispatchFrame = -1;
-        _lastUpgradeDispatchFrame = -1;
+        _removeDispatchGate.Reset();
+        _upgradeDispatchGate.Reset();
         _capturedFallbackButton = null;
         _capturedPointerId = -1;
         _fallbackCaptureBlockedThroughFrame = -1;
@@ -129,9 +129,9 @@ public class WallRemovePanelController : MonoBehaviour
             UpdateActionSection();
         }
 
-        if (_upgradeRequested && Time.unscaledTime >= _upgradeRequestDeadline)
+        if (_upgradeDispatchGate.IsPending && Time.unscaledTime >= _upgradeRequestDeadline)
         {
-            _upgradeRequested = false;
+            _upgradeDispatchGate.Complete();
             UpdateActionSection();
         }
 
@@ -195,10 +195,8 @@ public class WallRemovePanelController : MonoBehaviour
         _fieldManager = manager;
         _targetCanvas = UIManagers.Instance != null ? UIManagers.Instance.mainCanvas : null;
         _targetCamera = manager != null ? manager.PlayerCamera : Camera.main;
-        _removeRequested = false;
-        _upgradeRequested = false;
-        _lastRemoveDispatchFrame = -1;
-        _lastUpgradeDispatchFrame = -1;
+        _removeDispatchGate.Reset();
+        _upgradeDispatchGate.Reset();
         _capturedFallbackButton = null;
         _capturedPointerId = -1;
         BeginActionInputGate();
@@ -227,19 +225,25 @@ public class WallRemovePanelController : MonoBehaviour
 
     private void HandleWallUpgradeChanged(int level, int investedGold)
     {
-        if (_upgradeRequested && level != _requestedUpgradeLevel)
+        if (_upgradeDispatchGate.IsPending && level != _requestedUpgradeLevel)
         {
-            _upgradeRequested = false;
+            _upgradeDispatchGate.Complete();
         }
         UpdateActionSection();
     }
 
     private void HookButtons()
     {
+        _removeButtonRoute?.Dispose();
+        _removeButtonRoute = null;
         if (removeButton != null)
         {
             removeButton.onClick.RemoveListener(OnRemoveButtonClicked);
-            removeButton.onClick.AddListener(OnRemoveButtonClicked);
+            _removeButtonRoute = new FrameGatedButtonRoute(
+                removeButton,
+                _removeDispatchGate,
+                CanRemoveCurrentWall,
+                TryRequestRemoveCurrentWall);
         }
         if (upgradeButton != null)
         {
@@ -279,7 +283,7 @@ public class WallRemovePanelController : MonoBehaviour
             out int cost,
             out _);
         PlayerManager owner = _fieldManager != null ? _fieldManager.playerManager : null;
-        bool canUpgrade = interactionArmed && hasQuote && !_upgradeRequested && canRemove &&
+        bool canUpgrade = interactionArmed && hasQuote && !_upgradeDispatchGate.IsPending && canRemove &&
                           owner != null && owner.GetGold() >= cost;
         SetActionButtonsInteractable(canRemove, canUpgrade);
         SetUpgradeCostPresentation(hasQuote, cost);
@@ -325,37 +329,34 @@ public class WallRemovePanelController : MonoBehaviour
 
     private void OnRemoveButtonClicked()
     {
-        int dispatchFrame = Time.frameCount;
-        if (_removeRequested || _lastRemoveDispatchFrame == dispatchFrame)
-        {
-            return;
-        }
+        _removeButtonRoute?.TryDispatch(Time.frameCount);
+        // 벽 제거 후 모든 선택 UI 패널 숨기기 (유닛 디테일, 유닛 판매, 벽 제거)
+    }
 
-        if (!CanRemoveCurrentWall()) return;
+    /// <summary>
+    /// Sends the authority-owned request after the UI frame gate succeeds.
+    /// Keeping command dispatch separate lets the shared button route own duplicate suppression.
+    /// </summary>
+    private bool TryRequestRemoveCurrentWall()
+    {
         var commandProcessor = GameManagers.Instance != null
             ? GameManagers.Instance.CommandProcessor
             : null;
         if (commandProcessor == null)
         {
             // Durable wall state is authority-owned; never mutate or refund directly from UI.
-            return;
+            return false;
         }
 
-        // 벽 제거 후 모든 선택 UI 패널 숨기기 (유닛 디테일, 유닛 판매, 벽 제거)
-        // World-space fallback input and Unity's Button.onClick can both fire for one release.
-        // Keep this guard even when the authority completes the command within the same frame.
-        _lastRemoveDispatchFrame = dispatchFrame;
-        _removeRequested = true;
         var command = new RemoveWallCommand(_fieldManager.playerManager.playerId, _wallGridPosition);
         commandProcessor.RequestCommandExecution(command);
         _fieldManager.HideAllSelectionPanels();
+        return true;
     }
 
     private void OnUpgradeButtonClicked()
     {
-        int dispatchFrame = Time.frameCount;
-        if (_upgradeRequested || _lastUpgradeDispatchFrame == dispatchFrame ||
-            _currentDestructibleWall == null)
+        if (_upgradeDispatchGate.IsPending || _currentDestructibleWall == null)
         {
             return;
         }
@@ -379,10 +380,12 @@ public class WallRemovePanelController : MonoBehaviour
             return;
         }
 
-        // The command may finish synchronously on the host and clear _upgradeRequested before
-        // Button.onClick runs. The frame gate still prevents one release from buying two levels.
-        _lastUpgradeDispatchFrame = dispatchFrame;
-        _upgradeRequested = true;
+        // The command may finish synchronously on the host before Button.onClick runs. The frame
+        // gate still prevents one release from buying two levels after the pending flag clears.
+        if (!_upgradeDispatchGate.TryBegin(Time.frameCount))
+        {
+            return;
+        }
         _requestedUpgradeLevel = expectedLevel;
         _upgradeRequestDeadline = Time.unscaledTime + 2f;
         UpdateActionSection();

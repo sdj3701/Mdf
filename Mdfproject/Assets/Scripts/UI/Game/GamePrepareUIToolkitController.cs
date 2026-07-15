@@ -4,6 +4,7 @@ using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UIElements;
 using MDF.Runtime.Assets;
+using MDF.Runtime.UI;
 
 /// <summary>
 /// UI Toolkit bridge for the 03_Game prepare phase shop and augment choices.
@@ -71,6 +72,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private readonly ScrollCardView[] scrollCards = new ScrollCardView[ScrollCardCount];
     private readonly List<AugmentData> currentAugments = new List<AugmentData>(AugmentCardCount);
     private readonly HashSet<int> pendingShopPurchaseSlots = new HashSet<int>();
+    private readonly List<IDisposable> pointerRegistrations = new List<IDisposable>();
 
     private VisualElement root;
     private VisualElement safeRoot;
@@ -726,6 +728,12 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     private void OnDestroy()
     {
+        for (int i = 0; i < pointerRegistrations.Count; i++)
+        {
+            pointerRegistrations[i]?.Dispose();
+        }
+        pointerRegistrations.Clear();
+
         if (instance == this)
         {
             instance = null;
@@ -927,15 +935,16 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                     evt.StopPropagation();
                 }
             });
-            monsterCards[i].Root?.RegisterCallback<PointerUpEvent>(evt =>
+            if (monsterCards[i].Root != null)
             {
-                if (evt.button == 0)
-                {
+                pointerRegistrations.Add(UiToolkitPrimaryPointerRouter.Register(
+                    monsterCards[i].Root,
+                    _ =>
+                    {
                     SuppressBattleMapInputForCurrentPointer();
                     HandleMonsterCardClicked(slotIndex);
-                    evt.StopPropagation();
-                }
-            });
+                    }));
+            }
         }
 
         for (var i = 0; i < scrollCards.Length; i++)
@@ -949,15 +958,16 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
                     evt.StopPropagation();
                 }
             });
-            scrollCards[i].Root?.RegisterCallback<PointerUpEvent>(evt =>
+            if (scrollCards[i].Root != null)
             {
-                if (evt.button == 0)
-                {
+                pointerRegistrations.Add(UiToolkitPrimaryPointerRouter.Register(
+                    scrollCards[i].Root,
+                    _ =>
+                    {
                     SuppressBattleMapInputForCurrentPointer();
                     HandleScrollCardClicked(slotIndex);
-                    evt.StopPropagation();
-                }
-            });
+                    }));
+            }
         }
 
         rerollButton?.RegisterCallback<PointerUpEvent>(evt =>

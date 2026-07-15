@@ -135,10 +135,10 @@ Mdfproject/Assets/Scripts/Testing/MP/
   MPTestLogger.cs
   MPTestStateSnapshot.cs
   MPTestAssertions.cs
-  MPTestCommands.cs
   MPTestAutomationServer.cs
   MPTestMainThreadDispatcher.cs
-  MPTestAutomationClient.cs
+  MPTestHumanBotDriver.cs
+  MPTestGracefulQuit.cs
   Editor/
     MPTestUnityCliTools.cs
     BuildAutomation.cs
@@ -180,12 +180,13 @@ mp_command
 mp_screenshot
 mp_stop
 mp_build_player
-mp_start_prepare_smoke
-mp_start_battle_smoke
-mp_force_host_migration_probe
 ```
 
 The implementation should use existing entry points where possible: `NetworkManager.JoinLobby()`, `NetworkManager.StartGame(...)`, `GameSceneInitializer`, `GameManagers`, `CommandProcessor`, and project managers.
+
+Prepare, battle, and host-migration scenarios are runtime multiplayer workflows.
+Run them through the Python matrix and authenticated automation routes rather than
+registering Editor commands that can only return `not_implemented`.
 
 Scene assertions and runner readiness checks must compare aliases through the shared scene normalization helpers. Legacy CLI names such as `Game` and `TestMatching` are accepted inputs, but runtime snapshots may report canonical numbered scene names such as `03_Game` and `01_MatchingLobby`.
 

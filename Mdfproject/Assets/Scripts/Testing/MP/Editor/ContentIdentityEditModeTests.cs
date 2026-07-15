@@ -99,23 +99,103 @@ public sealed class ContentIdentityEditModeTests
             SetContentId(skill, "content.shared.identity");
             var issues = new List<ContentValidationIssue>();
             MethodInfo validate = typeof(ContentIdentityValidator).GetMethod(
-                "ValidateCrossTypeIdentities",
+                "ValidateGlobalContentIdentities",
                 BindingFlags.Static | BindingFlags.NonPublic);
             Assert.That(validate, Is.Not.Null);
 
             validate.Invoke(null, new object[]
             {
-                new[] { augment },
-                new[] { skill },
+                new UnityEngine.Object[] { augment, skill },
                 issues
             });
 
-            Assert.That(issues.Any(issue => issue.Code == "content_id.cross_type_duplicate"), Is.True);
+            Assert.That(issues.Any(issue => issue.Code == "content_id.global_duplicate"), Is.True);
         }
         finally
         {
             UnityEngine.Object.DestroyImmediate(augment);
             UnityEngine.Object.DestroyImmediate(skill);
+        }
+    }
+
+    [Test]
+    public void ValidatorRejectsContentIdAndLegacyAliasHashCrossCollision()
+    {
+        var unit = ScriptableObject.CreateInstance<UnitData>();
+        var scroll = ScriptableObject.CreateInstance<MagicScrollData>();
+        try
+        {
+            unit.name = "scroll.test.collision";
+            unit.unitName = "unique unit display";
+            SetContentId(unit, "unit.test.identity");
+            scroll.name = "unique_scroll_asset";
+            scroll.scrollName = "unique scroll display";
+            SetContentId(scroll, "scroll.test.collision");
+
+            var issues = new List<ContentValidationIssue>();
+            MethodInfo validate = typeof(ContentIdentityValidator).GetMethod(
+                "ValidateGlobalContentIdentities",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.That(validate, Is.Not.Null);
+            validate.Invoke(null, new object[]
+            {
+                new UnityEngine.Object[] { unit, scroll },
+                issues
+            });
+
+            Assert.That(issues.Any(issue => issue.Code == "content_id.legacy_hash_cross_collision"), Is.True);
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(unit);
+            UnityEngine.Object.DestroyImmediate(scroll);
+        }
+    }
+
+    [Test]
+    public void ScrollInventoryAndMigrationResolverPreferContentIdAndFailClosedForLegacyAmbiguity()
+    {
+        var first = ScriptableObject.CreateInstance<MagicScrollData>();
+        var second = ScriptableObject.CreateInstance<MagicScrollData>();
+        var legacyFirst = ScriptableObject.CreateInstance<MagicScrollData>();
+        var legacySecond = ScriptableObject.CreateInstance<MagicScrollData>();
+        try
+        {
+            first.name = "same_legacy_name";
+            second.name = "same_legacy_name";
+            SetContentId(first, "scroll.test.first");
+            SetContentId(second, "scroll.test.second");
+
+            var inventory = new PlayerMagicScrollInventory();
+            Assert.That(inventory.TryAdd(first), Is.True);
+            Assert.That(inventory.TryAdd(second), Is.True,
+                "durable identities must not collapse assets that happen to share an old name");
+            Assert.That(inventory.FindSlot(second), Is.EqualTo(1));
+
+            Assert.That(PlayerMagicScrollInventory.TryResolveSnapshotIdentity(
+                new[] { first, second },
+                second.ContentId,
+                "renamed_old_address",
+                out MagicScrollData durableResolved,
+                out string durableReason), Is.True, durableReason);
+            Assert.That(durableResolved, Is.SameAs(second));
+
+            legacyFirst.name = "legacy_duplicate";
+            legacySecond.name = "legacy_duplicate";
+            Assert.That(PlayerMagicScrollInventory.TryResolveSnapshotIdentity(
+                new[] { legacyFirst, legacySecond },
+                string.Empty,
+                "legacy_duplicate",
+                out _,
+                out string legacyReason), Is.False);
+            Assert.That(legacyReason, Does.Contain("ambiguous"));
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(first);
+            UnityEngine.Object.DestroyImmediate(second);
+            UnityEngine.Object.DestroyImmediate(legacyFirst);
+            UnityEngine.Object.DestroyImmediate(legacySecond);
         }
     }
 

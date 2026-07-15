@@ -28,7 +28,6 @@ That is why HumanBot must be separate from `AIPlayerController`.
 ```text
 Mdfproject/Assets/Scripts/Testing/MP/
   MPTestHumanBotDriver.cs
-  MPTestHumanBotPolicy.cs
   MPTestBotPersona.cs
   MPTestBotJournal.cs
 ```
@@ -38,7 +37,7 @@ All runtime behavior must be guarded by `UNITY_EDITOR || DEVELOPMENT_BUILD` wher
 Status note, 2026-05-08:
 
 - `MPTestHumanBotDriver` now uses shared `PrepareDecisionPolicy` and `BattleDecisionPolicy` directly.
-- `MPTestHumanBotPolicy` is an obsolete adapter for legacy test callers only. Do not add new behavior there.
+- The former `MPTestHumanBotPolicy` compatibility adapter was removed after all callers migrated to the shared policies.
 - HumanBot command emission should go through `HumanClientCommandEmitter`, which submits prepare commands through `CommandProcessor.RequestCommandExecution` and battle commands through the validated request/executor path.
 
 ## Command-Line Arguments

@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 73835f266bc110d45b861166d5a327d1, type: 3}
   m_Name: Scroll_Berserk
   m_EditorClassIdentifier: 
+  contentId: scroll.berserk
   scrollName: Berserk
   description: 
   icon: {fileID: 21300000, guid: dff70d1d31f2b7f43bc06b7515a4a87c, type: 3}

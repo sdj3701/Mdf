@@ -134,6 +134,7 @@ public class HostMigrationHandler : MonoBehaviour
         public bool HasOwnedScrollSnapshot;
         public int OwnedScrollRevision;
         public MagicScrollData[] OwnedScrollDataRefs;
+        public string[] OwnedScrollContentIds;
         public string[] OwnedScrollDataNames;
     }
 
@@ -1909,6 +1910,7 @@ public class HostMigrationHandler : MonoBehaviour
             report = await player.RestoreOwnedMagicScrollsFromMigrationSnapshotAsync(
                 snapshot.OwnedScrollRevision,
                 snapshot.OwnedScrollDataRefs,
+                snapshot.OwnedScrollContentIds,
                 snapshot.OwnedScrollDataNames,
                 context,
                 expectedRunner,
@@ -1919,7 +1921,9 @@ public class HostMigrationHandler : MonoBehaviour
             Debug.LogException(exception, this);
             int captured = Mathf.Max(
                 snapshot.OwnedScrollDataRefs?.Length ?? 0,
-                snapshot.OwnedScrollDataNames?.Length ?? 0);
+                Mathf.Max(
+                    snapshot.OwnedScrollContentIds?.Length ?? 0,
+                    snapshot.OwnedScrollDataNames?.Length ?? 0));
             report = MigrationRestoreReport.FailedScope(
                 $"owned_magic_scrolls:P{snapshot.PlayerId}",
                 captured,
@@ -3234,6 +3238,7 @@ public class HostMigrationHandler : MonoBehaviour
                 HasOwnedScrollSnapshot = false,
                 OwnedScrollRevision = 0,
                 OwnedScrollDataRefs = Array.Empty<MagicScrollData>(),
+                OwnedScrollContentIds = Array.Empty<string>(),
                 OwnedScrollDataNames = Array.Empty<string>()
             };
             var migrationPayloadFailures = new List<string>();
@@ -3379,11 +3384,13 @@ public class HostMigrationHandler : MonoBehaviour
             if (player.TryGetOwnedMagicScrollSnapshot(
                     out int ownedScrollRevision,
                     out MagicScrollData[] ownedScrollDataRefs,
+                    out string[] ownedScrollContentIds,
                     out string[] ownedScrollDataNames))
             {
                 snapshot.HasOwnedScrollSnapshot = true;
                 snapshot.OwnedScrollRevision = ownedScrollRevision;
                 snapshot.OwnedScrollDataRefs = ownedScrollDataRefs ?? Array.Empty<MagicScrollData>();
+                snapshot.OwnedScrollContentIds = ownedScrollContentIds ?? Array.Empty<string>();
                 snapshot.OwnedScrollDataNames = ownedScrollDataNames ?? Array.Empty<string>();
             }
             else

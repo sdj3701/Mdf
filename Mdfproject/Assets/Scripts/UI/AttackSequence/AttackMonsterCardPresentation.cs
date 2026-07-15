@@ -1,5 +1,3 @@
-using UnityEngine;
-
 public readonly struct AttackMonsterCardState
 {
     public bool HasPortrait { get; }
@@ -7,6 +5,12 @@ public readonly struct AttackMonsterCardState
     public bool IsExhausted { get; }
     public bool IsUnaffordable { get; }
     public string CountText { get; }
+    public AttackMonsterCardPolicyState PolicyState => new AttackMonsterCardPolicyState(
+        HasPortrait,
+        CanInteract,
+        IsExhausted,
+        IsUnaffordable,
+        CountText);
 
     public AttackMonsterCardState(
         bool hasPortrait,
@@ -31,25 +35,18 @@ public static class AttackMonsterCardPresentation
 {
     public static AttackMonsterCardState Resolve(MonsterPoolEntry entry, int availableBlackMagic)
     {
-        bool hasPortrait = entry != null && entry.MonsterData != null;
-        if (!hasPortrait)
-        {
-            return new AttackMonsterCardState(false, false, false, false, string.Empty);
-        }
-
-        bool isExhausted = entry.IsEmpty;
-        bool canAfford = entry.IsBoss ||
-                         availableBlackMagic >= Mathf.Max(0, entry.MonsterData.blackMagicCost);
-        bool canInteract = !isExhausted && canAfford;
-        string countText = entry.IsBoss
-            ? $"x{Mathf.Max(0, entry.RemainingCount)}"
-            : Mathf.Max(0, entry.MonsterData.blackMagicCost).ToString();
-
+        AttackMonsterCardPolicyState state = AttackMonsterCardPolicy.Resolve(
+            new AttackMonsterCardPolicyInput(
+                entry != null && entry.MonsterData != null,
+                entry != null && entry.IsBoss,
+                entry != null ? entry.RemainingCount : 0,
+                entry != null && entry.MonsterData != null ? entry.MonsterData.blackMagicCost : 0,
+                availableBlackMagic));
         return new AttackMonsterCardState(
-            true,
-            canInteract,
-            isExhausted,
-            !isExhausted && !canAfford,
-            countText);
+            state.HasPortrait,
+            state.CanInteract,
+            state.IsExhausted,
+            state.IsUnaffordable,
+            state.CountText);
     }
 }

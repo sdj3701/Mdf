@@ -66,9 +66,70 @@ public sealed class ManagerResponsibilityExtractionEditModeTests
     public void ExtractedPoliciesCompileIntoNamedRuntimeAssemblies()
     {
         Assert.That(typeof(PlayerSnapshotCodec).Assembly.GetName().Name, Is.EqualTo("MDF.Runtime.Foundation"));
+        Assert.That(typeof(MatchFlowPolicy).Assembly.GetName().Name, Is.EqualTo("MDF.Runtime.Foundation"));
+        Assert.That(typeof(OrderedInventory<>).Assembly.GetName().Name, Is.EqualTo("MDF.Runtime.Foundation"));
         Assert.That(typeof(FieldGridGeometry).Assembly.GetName().Name, Is.EqualTo("MDF.Runtime.Grid"));
+        Assert.That(typeof(GridOccupancyIndex<>).Assembly.GetName().Name, Is.EqualTo("MDF.Runtime.Grid"));
         Assert.That(typeof(BoundedUnityObjectPool<>).Assembly.GetName().Name, Is.EqualTo("MDF.Runtime.Pooling"));
+        Assert.That(typeof(LifecycleGeneration).Assembly.GetName().Name, Is.EqualTo("MDF.Runtime.Foundation"));
         Assert.That(typeof(PlayerMagicScrollInventory).Assembly.GetName().Name, Is.EqualTo("Assembly-CSharp"));
+    }
+
+    [Test]
+    public void ExtractedResponsibilities_AreWiredThroughTypedRuntimeServices()
+    {
+        const System.Reflection.BindingFlags PrivateInstance =
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+        Assert.That(typeof(FieldManager).GetField("placedUnits", PrivateInstance)?.FieldType,
+            Is.EqualTo(typeof(GridOccupancyIndex<Unit>)));
+        Assert.That(typeof(PlayerMagicScrollInventory).GetField("_inventory", PrivateInstance)?.FieldType,
+            Is.EqualTo(typeof(OrderedInventory<MagicScrollData>)));
+        Assert.That(typeof(Unit).GetField("_asyncLifecycle", PrivateInstance)?.FieldType,
+            Is.EqualTo(typeof(LifecycleGeneration)));
+        Assert.That(typeof(Monster).GetField("_spawnLifecycle", PrivateInstance)?.FieldType,
+            Is.EqualTo(typeof(LifecycleGeneration)));
+    }
+
+    [Test]
+    public void MatchFlowPolicy_PreservesTimerAndTransitionGateRules()
+    {
+        Assert.That(MatchFlowPolicy.ResolveDisplayedPhaseTime(7.5f, false), Is.EqualTo(7.5f));
+        Assert.That(MatchFlowPolicy.ResolveDisplayedPhaseTime(-1f, false), Is.Zero);
+        Assert.That(MatchFlowPolicy.ResolveDisplayedPhaseTime(7.5f, true), Is.Zero);
+
+        Assert.That(MatchFlowPolicy.ShouldIgnoreTransitionRequest(true, false, false), Is.True);
+        Assert.That(MatchFlowPolicy.ShouldIgnoreTransitionRequest(false, true, false), Is.True);
+        Assert.That(MatchFlowPolicy.ShouldIgnoreTransitionRequest(false, false, true), Is.True);
+        Assert.That(MatchFlowPolicy.ShouldIgnoreTransitionRequest(false, false, false), Is.False);
+
+        Assert.That(MatchFlowPolicy.ShouldWaitForCombatDebt(true, true), Is.True);
+        Assert.That(MatchFlowPolicy.ShouldWaitForCombatDebt(false, true), Is.False);
+        Assert.That(MatchFlowPolicy.ResolvePendingCombatDebt(true, 4), Is.EqualTo(4));
+        Assert.That(MatchFlowPolicy.ResolvePendingCombatDebt(false, 4), Is.Zero);
+        Assert.That(MatchFlowPolicy.ShouldCompleteImmediately(false, 0f), Is.True);
+        Assert.That(MatchFlowPolicy.ShouldCompleteImmediately(true, 0f), Is.False);
+    }
+
+    [Test]
+    public void OrderedInventory_OwnsOrderingIdentityAndReadOnlyView()
+    {
+        var inventory = new OrderedInventory<string>(
+            value => !string.IsNullOrWhiteSpace(value),
+            (left, right) => string.Equals(left, right, System.StringComparison.OrdinalIgnoreCase));
+
+        Assert.That(inventory.TryAdd(null), Is.False);
+        Assert.That(inventory.TryAdd("First"), Is.True);
+        Assert.That(inventory.TryAdd("Second"), Is.True);
+        Assert.That(inventory.FindIndex("first"), Is.Zero);
+        Assert.That(inventory.TryRemoveAt(0, out string removed), Is.True);
+        Assert.That(removed, Is.EqualTo("First"));
+        Assert.That(inventory.TryInsertAt(0, removed), Is.True);
+        Assert.That(inventory.Items, Is.EqualTo(new[] { "First", "Second" }));
+
+        var mutableView = inventory.Items as System.Collections.Generic.IList<string>;
+        Assert.That(mutableView, Is.Not.Null);
+        Assert.Throws<System.NotSupportedException>(() => mutableView.Add("Third"));
     }
 
     [Test]

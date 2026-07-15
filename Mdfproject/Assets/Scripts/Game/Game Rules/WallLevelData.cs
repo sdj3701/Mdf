@@ -2,8 +2,14 @@ using System;
 using UnityEngine;
 
 [CreateAssetMenu(fileName = "WallLevel_New", menuName = "Game/Walls/Wall Level")]
-public sealed class WallLevelData : ScriptableObject
+public sealed class WallLevelData : ScriptableObject, IStableContentIdentity
 {
+    [SerializeField, Tooltip("Immutable gameplay identity. Do not change after release.")]
+    private string contentId;
+
+    public string ContentId => StableDataKeyUtility.NormalizeContentId(contentId);
+    public int ContentIdHash => StableDataKeyUtility.StableContentIdHash(contentId);
+
     [SerializeField, Min(1)] private int level = 1;
     [SerializeField, Min(1f)] private float maxHealth = 200f;
     [SerializeField, Min(0)] private int upgradeCostFromPreviousLevel;

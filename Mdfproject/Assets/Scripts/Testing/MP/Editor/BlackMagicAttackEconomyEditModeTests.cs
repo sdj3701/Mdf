@@ -176,7 +176,7 @@ public sealed class BlackMagicAttackEconomyEditModeTests
                      "monsterDamageBonusPercent", "monsterMoveSpeedBonusPercent"
                  })
         {
-            Assert.That(MdfCompiledCodePolicy.ReferencesField(typeof(MonsterSpawner), typeof(AugmentData), fieldName),
+            Assert.That(MdfCompiledCodePolicy.ReferencesField(typeof(MonsterSpawner), typeof(AugmentEffectData), fieldName),
                 Is.True, fieldName);
         }
     }
@@ -527,7 +527,11 @@ public sealed class BlackMagicAttackEconomyEditModeTests
         boss.name = "MonsterData_DuplicateBoss";
         AugmentData first = ScriptableObject.CreateInstance<AugmentData>();
         AugmentData second = ScriptableObject.CreateInstance<AugmentData>();
+        first.effectType = EffectType.SpawnMonsterOnEnemyField;
+        first.isBossSummon = true;
         first.bossMonsterData = boss;
+        second.effectType = EffectType.SpawnMonsterOnEnemyField;
+        second.isBossSummon = true;
         second.bossMonsterData = boss;
 
         try

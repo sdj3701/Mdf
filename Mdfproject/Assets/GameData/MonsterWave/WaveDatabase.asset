@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9df4057dd2fc53442bf603fff122b7fd, type: 3}
   m_Name: WaveDatabase
   m_EditorClassIdentifier: 
+  contentId: wave.default
   attackSequenceMonsterCatalog:
   - {fileID: 11400000, guid: 467e13ba307d4c44fa072f30306c41b2, type: 2}
   - {fileID: 11400000, guid: 38bd09580b24c144ebfb111f6b7a4580, type: 2}

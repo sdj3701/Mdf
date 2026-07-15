@@ -1,7 +1,4 @@
 // Assets/Scripts/ComponentRegistrySystem/GameAssets.cs
-using System.Collections;
-using System.Collections.Generic;
-using TMPro;
 using UnityEngine;
 
 /// <summary>
@@ -17,13 +14,6 @@ public static class GameAssets
             ComponentRegistry.Get<Camera>("Main Camera", false) ??
             Camera.main ??
             Object.FindObjectOfType<Camera>();
-    }
-    #endregion
-
-    #region UI
-    public static class UI
-    {
-        public static TMP_Text CurrentBreakWall => ComponentRegistry.Get<TMP_Text>("CurrentBreakWall");
     }
     #endregion
 }

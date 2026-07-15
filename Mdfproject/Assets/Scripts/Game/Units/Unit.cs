@@ -90,6 +90,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private int _pendingZonePulseDebtToken;
     private int _pendingZonePulseNextEffectIndex;
     private int _combatTargetLifecycleGeneration;
+    private readonly LifecycleGeneration _asyncLifecycle = new LifecycleGeneration();
     private string _localUnitDataKey = string.Empty;
     private int _localOwnerPlayerId = -1;
     private bool _localHasOwnerPlayerId;
@@ -113,21 +114,18 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private readonly struct AsyncLifecycleStamp
     {
         public AsyncLifecycleStamp(
-            int generation,
-            uint networkIdRaw,
+            LifecycleStamp lifecycle,
             PlayerManager capturedOwner,
             UnitData capturedData,
             AddressableAssetOwner assetOwner)
         {
-            Generation = generation;
-            NetworkIdRaw = networkIdRaw;
+            Lifecycle = lifecycle;
             CapturedOwner = capturedOwner;
             CapturedData = capturedData;
             AssetOwner = assetOwner;
         }
 
-        public int Generation { get; }
-        public uint NetworkIdRaw { get; }
+        public LifecycleStamp Lifecycle { get; }
         public PlayerManager CapturedOwner { get; }
         public UnitData CapturedData { get; }
         public AddressableAssetOwner AssetOwner { get; }
@@ -136,9 +134,12 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private AsyncLifecycleStamp CaptureAsyncLifecycle()
     {
         uint networkIdRaw = Object != null && Object.IsValid ? Object.Id.Raw : 0;
+        if (!_asyncLifecycle.IsActive || _asyncLifecycle.Identity != networkIdRaw)
+        {
+            _asyncLifecycle.Begin(networkIdRaw);
+        }
         return new AsyncLifecycleStamp(
-            _combatTargetLifecycleGeneration,
-            networkIdRaw,
+            _asyncLifecycle.Capture(),
             owner,
             unitData,
             _addressableAssets);
@@ -147,7 +148,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     private bool IsAsyncLifecycleCurrent(AsyncLifecycleStamp stamp)
     {
         if (this == null ||
-            stamp.Generation != _combatTargetLifecycleGeneration ||
+            !_asyncLifecycle.IsCurrent(stamp.Lifecycle) ||
             !ReferenceEquals(stamp.CapturedOwner, owner) ||
             !ReferenceEquals(stamp.CapturedData, unitData) ||
             !ReferenceEquals(stamp.AssetOwner, _addressableAssets) ||
@@ -157,7 +158,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return false;
         }
 
-        if (stamp.NetworkIdRaw == 0)
+        if (stamp.Lifecycle.Identity == 0)
         {
             return Object == null || !Object.IsValid;
         }
@@ -165,7 +166,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         return _hasSpawned &&
                Object != null &&
                Object.IsValid &&
-               Object.Id.Raw == stamp.NetworkIdRaw;
+               Object.Id.Raw == stamp.Lifecycle.Identity;
     }
     private bool CanReadNetworkedState => _hasSpawned
         && Runner != null
@@ -924,6 +925,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             _addressableAssets = new AddressableAssetOwner();
         }
         _combatTargetLifecycleGeneration++;
+        _asyncLifecycle.Begin(Object != null && Object.IsValid ? Object.Id.Raw : 0);
         _hasSpawned = true;
         _pendingZonePulseDebtToken = NetworkedPendingZonePulseDebtToken;
         _pendingZonePulseNextEffectIndex = NetworkedPendingZonePulseNextEffectIndex;
@@ -937,6 +939,7 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
     {
         NotifyCombatSchedulerTargetInvalidated("Unit.Despawned");
         _combatTargetLifecycleGeneration++;
+        _asyncLifecycle.End();
         _hasSpawned = false;
         _pendingZonePulseDebtToken = 0;
         _pendingZonePulseNextEffectIndex = 0;
@@ -1240,7 +1243,9 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         string key = unitData != null ? NormalizeUnitDataKey(unitData.name) : string.Empty;
-        int keyHash = StableUnitDataKeyHash(key);
+        int keyHash = unitData != null && unitData.ContentIdHash != 0
+            ? unitData.ContentIdHash
+            : StableUnitDataKeyHash(key);
         if (keyHash != 0)
         {
             NetworkedUnitDataKeyHash = keyHash;
@@ -1333,12 +1338,36 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
         }
 
         var lm = LoadManager.Instance;
-        if (lm != null && lm.IsReady && TryResolveUnitDataKeyByStableHash(lm.GetAllUnitData(), unitDataKeyHash, out key))
+        UnitData indexedData = lm != null && lm.IsReady
+            ? lm.GetUnitDataByContentIdHash(unitDataKeyHash)
+            : null;
+        if (indexedData != null)
         {
-            return true;
+            key = NormalizeUnitDataKey(indexedData.name);
+            return !string.IsNullOrEmpty(key);
         }
 
-        return TryResolveUnitDataKeyByStableHash(Resources.FindObjectsOfTypeAll<UnitData>(), unitDataKeyHash, out key);
+        var candidates = new HashSet<UnitData>();
+        if (lm != null && lm.IsReady)
+        {
+            foreach (UnitData data in lm.GetAllUnitData())
+            {
+                if (data != null)
+                {
+                    candidates.Add(data);
+                }
+            }
+        }
+
+        foreach (UnitData data in Resources.FindObjectsOfTypeAll<UnitData>())
+        {
+            if (data != null)
+            {
+                candidates.Add(data);
+            }
+        }
+
+        return TryResolveUnitDataKeyByStableHash(candidates, unitDataKeyHash, out key);
     }
 
     private static bool TryResolveUnitDataKeyByStableHash(IEnumerable<UnitData> units, int unitDataKeyHash, out string key)
@@ -1349,19 +1378,50 @@ public class Unit : NetworkBehaviour, IEnemy, IHealth
             return false;
         }
 
-        foreach (var data in units)
+        UnitData contentIdMatch = null;
+        foreach (UnitData data in units)
         {
-            if (data == null)
+            if (data == null || data.ContentIdHash != unitDataKeyHash)
             {
                 continue;
             }
 
-            if (StableUnitDataKeyHash(data.name) == unitDataKeyHash ||
-                StableUnitDataKeyHash(data.unitName) == unitDataKeyHash)
+            if (contentIdMatch != null && contentIdMatch != data)
             {
-                key = NormalizeUnitDataKey(data.name);
-                return !string.IsNullOrEmpty(key);
+                return false;
             }
+
+            contentIdMatch = data;
+        }
+
+        if (contentIdMatch != null)
+        {
+            key = NormalizeUnitDataKey(contentIdMatch.name);
+            return !string.IsNullOrEmpty(key);
+        }
+
+        UnitData legacyMatch = null;
+        foreach (UnitData data in units)
+        {
+            if (data == null
+                || (StableUnitDataKeyHash(data.name) != unitDataKeyHash
+                    && StableUnitDataKeyHash(data.unitName) != unitDataKeyHash))
+            {
+                continue;
+            }
+
+            if (legacyMatch != null && legacyMatch != data)
+            {
+                return false;
+            }
+
+            legacyMatch = data;
+        }
+
+        if (legacyMatch != null)
+        {
+            key = NormalizeUnitDataKey(legacyMatch.name);
+            return !string.IsNullOrEmpty(key);
         }
 
         return false;
