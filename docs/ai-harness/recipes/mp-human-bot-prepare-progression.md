@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: AI/HumanBot
 Created: 2026-05-06
-Last used: 2026-05-16
+Last used: 2026-07-15
 Last verified: 2026-05-16
-Use count: 3
+Use count: 4
 Review after: 2026-08-04
 Triggers: HumanBot, `/bot/start`, `/bot/status`, selected augment hash, random-aware comparison
 Applies to: `tools/harness/mp/run_human_bot_prepare_progression.py`, Phase 20 HumanBot prepare progression
@@ -38,3 +38,4 @@ Pitfalls:
 
 Lifecycle notes:
 - 2026-05-16: verified artifact `artifacts/mp/20260515-201820-matrix/20260515-201825-human-bot-prepare/result.json`
+- 2026-07-15: Running the graphical build-host/build-client HumanBot prepare progression flow.

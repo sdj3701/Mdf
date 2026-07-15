@@ -72,6 +72,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private readonly ScrollCardView[] scrollCards = new ScrollCardView[ScrollCardCount];
     private readonly List<AugmentData> currentAugments = new List<AugmentData>(AugmentCardCount);
     private readonly HashSet<int> pendingShopPurchaseSlots = new HashSet<int>();
+    private readonly HashSet<int> confirmedShopPurchaseSlots = new HashSet<int>();
     private readonly List<IDisposable> pointerRegistrations = new List<IDisposable>();
 
     private VisualElement root;
@@ -117,6 +118,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private bool eventsSubscribed;
     private bool shopVisible;
     private bool augmentVisible;
+    private bool augmentSelectionSubmittedForCurrentPrepare;
     private bool attackSequenceVisible;
     private bool attackSequenceIsAttacking;
     private int selectedMonsterSlotIndex = -1;
@@ -294,6 +296,99 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
+    public readonly struct MpTestPrepareUiPresentationState
+    {
+        public MpTestPrepareUiPresentationState(
+            string action,
+            bool shopIsVisible,
+            bool augmentIsVisible,
+            int shopSlotIndex,
+            bool shopSlotPending,
+            bool shopSlotSold,
+            bool shopSlotEnabled)
+        {
+            Action = action ?? "none";
+            ShopIsVisible = shopIsVisible;
+            AugmentIsVisible = augmentIsVisible;
+            ShopSlotIndex = shopSlotIndex;
+            ShopSlotPending = shopSlotPending;
+            ShopSlotSold = shopSlotSold;
+            ShopSlotEnabled = shopSlotEnabled;
+        }
+
+        public string Action { get; }
+        public bool ShopIsVisible { get; }
+        public bool AugmentIsVisible { get; }
+        public int ShopSlotIndex { get; }
+        public bool ShopSlotPending { get; }
+        public bool ShopSlotSold { get; }
+        public bool ShopSlotEnabled { get; }
+    }
+
+    public static bool TryPresentHumanBotCommand(
+        CommandType commandType,
+        int shopSlotIndex,
+        out MpTestPrepareUiPresentationState state)
+    {
+        state = default;
+        if (!IsToolkitActive)
+        {
+            return false;
+        }
+
+        string action;
+        switch (commandType)
+        {
+            case CommandType.BuyUnit:
+                action = instance.BeginShopPurchasePresentation(shopSlotIndex)
+                    ? "shop_purchase_pending"
+                    : "shop_purchase_pending_rejected";
+                break;
+            case CommandType.SelectAugment:
+                instance.CloseAugmentAfterSubmission();
+                action = "augment_selection_closed";
+                break;
+            case CommandType.PlaceWall:
+            case CommandType.MoveUnit:
+                instance.SetShopVisible(false);
+                instance.SetAugmentVisible(false);
+                instance.HideLegacyShopContent();
+                instance.HideLegacyAugmentContent();
+                action = "prepare_panels_closed_for_board_action";
+                break;
+            default:
+                action = "no_prepare_ui_change";
+                break;
+        }
+
+        state = instance.CaptureMpTestPresentationState(action, shopSlotIndex);
+        return true;
+    }
+
+    public static bool TryDismissHumanBotPreparePanels(
+        bool hideAugment,
+        out MpTestPrepareUiPresentationState state)
+    {
+        state = default;
+        if (!IsToolkitActive)
+        {
+            return false;
+        }
+
+        instance.SetShopVisible(false);
+        instance.HideLegacyShopContent();
+        if (hideAugment)
+        {
+            instance.SetAugmentVisible(false);
+            instance.HideLegacyAugmentContent();
+        }
+
+        state = instance.CaptureMpTestPresentationState(
+            hideAugment ? "prepare_panels_dismissed" : "shop_panel_dismissed",
+            -1);
+        return true;
+    }
+
     public static bool TryHideTransientPanelsForMpTest()
     {
         if (!IsToolkitActive)
@@ -303,6 +398,23 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         instance.HideTransientPanelsForMpTest();
         return true;
+    }
+
+    private MpTestPrepareUiPresentationState CaptureMpTestPresentationState(
+        string action,
+        int shopSlotIndex)
+    {
+        ShopCardView card = shopSlotIndex >= 0 && shopSlotIndex < shopCards.Length
+            ? shopCards[shopSlotIndex]
+            : null;
+        return new MpTestPrepareUiPresentationState(
+            action,
+            shopVisible,
+            augmentVisible,
+            shopSlotIndex,
+            card != null && card.IsPending,
+            card != null && card.IsSold,
+            card != null && card.IsEnabled);
     }
 #endif
 
@@ -1103,6 +1215,9 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         MarkHudDirty();
         if (newState != GameManagers.GameState.Prepare)
         {
+            augmentSelectionSubmittedForCurrentPrepare = false;
+            pendingShopPurchaseSlots.Clear();
+            confirmedShopPurchaseSlots.Clear();
             SetShopVisible(false);
             SetAugmentVisible(false);
         }
@@ -1123,6 +1238,8 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void HandleHostMigrationCompleted(bool isNewHost)
     {
         RefreshRuntimeReferences();
+        pendingShopPurchaseSlots.Clear();
+        confirmedShopPurchaseSlots.Clear();
         MarkHudDirty();
         RefreshShopCards();
         UpdateHudState(true);
@@ -1137,6 +1254,7 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         pendingShopPurchaseSlots.Clear();
+        confirmedShopPurchaseSlots.Clear();
         BindShopCards(localShopManager?.GetCurrentShopItems());
         UpdateRerollLabel(true);
         MarkHudDirty();
@@ -1145,22 +1263,13 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void HandleUnitPurchaseSucceeded(int playerID, ShopItem item, int slotIndex)
     {
         RefreshRuntimeReferences();
-        if (localPlayer != null)
+        if (!TryGetLocalPlayerId(out int localPlayerId) || localPlayerId != playerID)
         {
-            try
-            {
-                if (localPlayer.playerId != playerID)
-                {
-                    return;
-                }
-            }
-            catch (InvalidOperationException)
-            {
-                return;
-            }
+            return;
         }
 
         pendingShopPurchaseSlots.Remove(slotIndex);
+        confirmedShopPurchaseSlots.Add(slotIndex);
         RefreshShopCards();
     }
 
@@ -1172,11 +1281,19 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
 
         pendingShopPurchaseSlots.Remove(slotIndex);
+        confirmedShopPurchaseSlots.Remove(slotIndex);
         RefreshShopCards();
     }
 
     private void HandleAugmentPhaseStart(PlayerManager player, List<AugmentData> choices)
     {
+        if (augmentSelectionSubmittedForCurrentPrepare)
+        {
+            SetAugmentVisible(false);
+            HideLegacyAugmentContent();
+            return;
+        }
+
         ShowAugments(player, choices);
     }
 
@@ -1188,7 +1305,9 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
             return;
         }
 
+        augmentSelectionSubmittedForCurrentPrepare = true;
         SetAugmentVisible(false);
+        HideLegacyAugmentContent();
     }
 
     private void HandlePlayerStatsChanged(int playerId, int newHealth, int newGold)
@@ -1307,6 +1426,15 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         if (player != null && localPlayer != null && player != localPlayer)
         {
             return false;
+        }
+
+        if (augmentSelectionSubmittedForCurrentPrepare)
+        {
+            currentAugments.Clear();
+            BindAugmentCards(currentAugments);
+            SetAugmentVisible(false);
+            HideLegacyAugmentContent();
+            return true;
         }
 
         currentAugments.Clear();
@@ -1447,11 +1575,38 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
     private void BindShopCards(List<ShopItem> items)
     {
+        bool[] replicatedSoldFlags = null;
+        if (localPlayer != null)
+        {
+            try
+            {
+                localPlayer.TryGetShopSnapshot(
+                    out _,
+                    out _,
+                    out replicatedSoldFlags,
+                    out _,
+                    out _);
+            }
+            catch (InvalidOperationException)
+            {
+                replicatedSoldFlags = null;
+            }
+            catch (MissingReferenceException)
+            {
+                replicatedSoldFlags = null;
+            }
+        }
+
         for (var i = 0; i < shopCards.Length; i++)
         {
             var hasItem = items != null && i < items.Count && items[i].UnitData != null;
-            var sold = localShopManager != null && localShopManager.IsSlotSold(i);
-            shopCards[i].Bind(hasItem ? items[i] : default, hasItem, sold);
+            var sold = confirmedShopPurchaseSlots.Contains(i)
+                       || (localShopManager != null && localShopManager.IsSlotSold(i))
+                       || (replicatedSoldFlags != null
+                           && i < replicatedSoldFlags.Length
+                           && replicatedSoldFlags[i]);
+            var pending = !sold && pendingShopPurchaseSlots.Contains(i);
+            shopCards[i].Bind(hasItem ? items[i] : default, hasItem, sold, pending);
         }
 
         SetStatusText(items == null || items.Count == 0 ? "\uC0C1\uC810\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4." : string.Empty);
@@ -1566,12 +1721,17 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         if (slotIndex < 0
             || slotIndex >= items.Count
             || localShopManager.IsSlotSold(slotIndex)
+            || confirmedShopPurchaseSlots.Contains(slotIndex)
             || pendingShopPurchaseSlots.Contains(slotIndex))
         {
             return;
         }
 
-        pendingShopPurchaseSlots.Add(slotIndex);
+        if (!BeginShopPurchasePresentation(slotIndex))
+        {
+            return;
+        }
+
         var command = new BuyUnitCommand(playerId, slotIndex);
         if (GameManagers.Instance?.CommandProcessor != null)
         {
@@ -1579,8 +1739,29 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
         }
         else
         {
-            pendingShopPurchaseSlots.Remove(slotIndex);
+            CancelShopPurchasePresentation(slotIndex);
         }
+    }
+
+    private bool BeginShopPurchasePresentation(int slotIndex)
+    {
+        if (slotIndex < 0
+            || slotIndex >= shopCards.Length
+            || confirmedShopPurchaseSlots.Contains(slotIndex)
+            || pendingShopPurchaseSlots.Contains(slotIndex))
+        {
+            return false;
+        }
+
+        pendingShopPurchaseSlots.Add(slotIndex);
+        RefreshShopCards();
+        return true;
+    }
+
+    private void CancelShopPurchasePresentation(int slotIndex)
+    {
+        pendingShopPurchaseSlots.Remove(slotIndex);
+        RefreshShopCards();
     }
 
     private void HandleRerollClicked()
@@ -1683,14 +1864,24 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
     private void HandleAugmentCardClicked(int index)
     {
         RefreshRuntimeReferences();
-        if (index < 0 || index >= currentAugments.Count || !TryGetLocalPlayerId(out var playerId))
+        if (index < 0
+            || index >= currentAugments.Count
+            || !TryGetLocalPlayerId(out var playerId)
+            || GameManagers.Instance?.CommandProcessor == null)
         {
             return;
         }
 
         var command = new SelectAugmentCommand(playerId, index);
         GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
+        CloseAugmentAfterSubmission();
+    }
+
+    private void CloseAugmentAfterSubmission()
+    {
+        augmentSelectionSubmittedForCurrentPrepare = true;
         SetAugmentVisible(false);
+        HideLegacyAugmentContent();
     }
 
     private void HandleMonsterCardClicked(int slotIndex)
@@ -2650,15 +2841,22 @@ public sealed class GamePrepareUIToolkitController : MonoBehaviour
 
         public int Index { get; }
         public VisualElement Root { get; }
+        public bool IsPending { get; private set; }
+        public bool IsSold { get; private set; }
+        public bool IsEnabled => Root != null && Root.enabledSelf;
 
-        public void Bind(ShopItem item, bool hasItem, bool sold)
+        public void Bind(ShopItem item, bool hasItem, bool sold, bool pending)
         {
             InvalidateIconLoad();
             int version = bindVersion;
+            IsSold = hasItem && sold;
+            IsPending = hasItem && pending && !IsSold;
+            bool disabled = !hasItem || IsSold || IsPending;
 
-            Root?.SetEnabled(hasItem && !sold);
-            Root?.EnableInClassList("is-disabled", !hasItem || sold);
-            SetVisible(soldOverlay, sold);
+            Root?.SetEnabled(!disabled);
+            Root?.EnableInClassList("is-disabled", disabled);
+            Root?.EnableInClassList("is-pending", IsPending);
+            SetVisible(soldOverlay, IsSold);
             ApplyStarBackground(hasItem && item.UnitData != null ? item.UnitData.cost : 0);
 
             if (!hasItem || item.UnitData == null)

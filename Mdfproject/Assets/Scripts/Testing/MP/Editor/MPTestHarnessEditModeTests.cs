@@ -1061,23 +1061,232 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
-    public void HumanBotClosesShopUiBeforeBoardActionCommands()
+    public void HumanBotUsesSharedPrepareUiPresentationWithoutFakingPointerClicks()
     {
         string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Testing/MP/MPTestHumanBotDriver.cs");
 
-        Assert.That(source, Does.Contain("CloseShopUiBeforeBoardAction(decision);"));
-        Assert.That(source.IndexOf("CloseShopUiBeforeBoardAction(decision);", System.StringComparison.Ordinal),
-            Is.LessThan(source.IndexOf("_commandEmitter.TryEmit(decision", System.StringComparison.Ordinal)));
-        Assert.That(source, Does.Contain("CloseShopUiAfterPrepareIdle(context, decision);"));
-        Assert.That(source, Does.Contain("shop_close_after_shopping_complete"));
-        Assert.That(source, Does.Contain("CommandType.PlaceWall"));
-        Assert.That(source, Does.Contain("CommandType.MoveUnit"));
-        Assert.That(source, Does.Contain("FindObjectOfType<ShopUIController>(true)"));
-        Assert.That(source, Does.Contain("SetContentVisibility(false)"));
-        Assert.That(source, Does.Contain("shop_close_before_board_action"));
-        Assert.That(source, Does.Contain("human_bot_ui"));
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(MPTestHumanBotDriver),
+                typeof(GamePrepareUIToolkitController),
+                "TryPresentHumanBotCommand"),
+            Is.True);
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(MPTestHumanBotDriver),
+                typeof(GamePrepareUIToolkitController),
+                "TryDismissHumanBotPreparePanels"),
+            Is.True);
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(MPTestHumanBotDriver),
+                typeof(ShopSlot),
+                "TryBeginPurchasePresentation"),
+            Is.True);
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(MPTestHumanBotDriver),
+                typeof(AugmentUIController),
+                "CloseAfterLocalSubmission"),
+            Is.True);
+        Assert.That(source, Does.Contain("PresentAcceptedCommand(decision);"));
+        Assert.That(source.IndexOf("_commandEmitter.TryEmit(decision", System.StringComparison.Ordinal),
+            Is.LessThan(source.IndexOf("PresentAcceptedCommand(decision);", System.StringComparison.Ordinal)),
+            "request-time UI state is applied only after the local emitter accepts the command");
+        Assert.That(source, Does.Not.Contain("buyButton.onClick.Invoke"));
+        Assert.That(source, Does.Not.Contain("selectButton.onClick.Invoke"));
         Assert.That(source, Does.Contain("MinimumCommandIntervalSeconds = 0.7f"));
         Assert.That(source, Does.Contain("Mathf.Max(decisionInterval, MinimumCommandIntervalSeconds)"));
+    }
+
+    [Test]
+    public void PurchaseAndAugmentNotificationsConvergeClientPresentationCaches()
+    {
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(NotifyPurchaseSucceededCommand),
+                typeof(ShopManager),
+                "ApplyAuthoritativePurchaseNotification"),
+            Is.True);
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(NotifyAugmentSelectedCommand),
+                typeof(AugmentManager),
+                "ApplyAuthoritativeSelectionNotification"),
+            Is.True);
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(BuyUnitCommand),
+                typeof(PlayerManager),
+                "RPC_SyncShopItems"),
+            Is.True);
+    }
+
+    [Test]
+    public void HumanBotToolkitPresentationAppliesRealPanelStates()
+    {
+        GamePrepareUIToolkitController controller = null;
+        UnitData unitData = null;
+        AugmentData augment = null;
+        PanelSettings runtimePanelSettings = null;
+        try
+        {
+            controller = GamePrepareUIToolkitController.EnsureExists();
+            Assert.That(controller, Is.Not.Null);
+            typeof(GamePrepareUIToolkitController).GetMethod(
+                    "Awake",
+                    BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.Invoke(controller, null);
+            typeof(GamePrepareUIToolkitController).GetMethod(
+                    "OnEnable",
+                    BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.Invoke(controller, null);
+            UIDocument document = controller.GetComponent<UIDocument>();
+            Assert.That(document, Is.Not.Null);
+            runtimePanelSettings = document.panelSettings;
+
+            unitData = ScriptableObject.CreateInstance<UnitData>();
+            unitData.unitName = "UI Test Unit";
+            unitData.cost = 3;
+            unitData.unitIcon = string.Empty;
+            var shopItems = new List<ShopItem> { new ShopItem(unitData, 1) };
+
+            augment = ScriptableObject.CreateInstance<AugmentData>();
+            var choices = new List<AugmentData> { augment };
+            Assert.That(GamePrepareUIToolkitController.TryShowAugmentsFromLegacy(null, choices), Is.True);
+            VisualElement augmentPanel = document.rootVisualElement.Q<VisualElement>("augment-panel");
+            Assert.That(augmentPanel.style.display.value, Is.EqualTo(DisplayStyle.Flex));
+
+            Assert.That(
+                GamePrepareUIToolkitController.TryPresentHumanBotCommand(
+                    CommandType.SelectAugment,
+                    -1,
+                    out GamePrepareUIToolkitController.MpTestPrepareUiPresentationState augmentState),
+                Is.True);
+            Assert.That(augmentState.Action, Is.EqualTo("augment_selection_closed"));
+            Assert.That(augmentState.AugmentIsVisible, Is.False);
+            Assert.That(augmentPanel.style.display.value, Is.EqualTo(DisplayStyle.None));
+            Assert.That(augmentPanel.pickingMode, Is.EqualTo(PickingMode.Ignore));
+
+            Assert.That(GamePrepareUIToolkitController.TryShowAugmentsFromLegacy(null, choices), Is.True);
+            Assert.That(augmentPanel.style.display.value, Is.EqualTo(DisplayStyle.None),
+                "a delayed sync retry must not reopen choices consumed in this Prepare phase");
+
+            Assert.That(GamePrepareUIToolkitController.TryShowShopFromLegacy(shopItems, out _), Is.True);
+            Assert.That(
+                GamePrepareUIToolkitController.TryPresentHumanBotCommand(
+                    CommandType.MoveUnit,
+                    -1,
+                    out GamePrepareUIToolkitController.MpTestPrepareUiPresentationState boardState),
+                Is.True);
+            Assert.That(boardState.Action, Is.EqualTo("prepare_panels_closed_for_board_action"));
+            Assert.That(boardState.ShopIsVisible, Is.False);
+            VisualElement shopPanel = document.rootVisualElement.Q<VisualElement>("shop-panel");
+            Assert.That(shopPanel.style.display.value, Is.EqualTo(DisplayStyle.None));
+            Assert.That(shopPanel.pickingMode, Is.EqualTo(PickingMode.Ignore));
+        }
+        finally
+        {
+            if (controller != null)
+            {
+                Object.DestroyImmediate(controller.gameObject);
+            }
+            if (runtimePanelSettings != null && !AssetDatabase.Contains(runtimePanelSettings))
+            {
+                Object.DestroyImmediate(runtimePanelSettings);
+            }
+            if (unitData != null)
+            {
+                Object.DestroyImmediate(unitData);
+            }
+            if (augment != null)
+            {
+                Object.DestroyImmediate(augment);
+            }
+        }
+    }
+
+    [Test]
+    public void ShopCardViewDistinguishesPendingFromAuthoritativeSoldState()
+    {
+        UnitData unitData = ScriptableObject.CreateInstance<UnitData>();
+        try
+        {
+            unitData.unitName = "UI State Unit";
+            unitData.cost = 2;
+            var root = new VisualElement();
+            var soldOverlay = new Label();
+            System.Type viewType = typeof(GamePrepareUIToolkitController).GetNestedType(
+                "ShopCardView",
+                BindingFlags.NonPublic);
+            Assert.That(viewType, Is.Not.Null);
+            object view = System.Activator.CreateInstance(
+                viewType,
+                new object[]
+                {
+                    0,
+                    root,
+                    new UnityEngine.UIElements.Image(),
+                    new Label(),
+                    new Label(),
+                    new Label(),
+                    new VisualElement(),
+                    soldOverlay
+                });
+            MethodInfo bind = viewType.GetMethod("Bind", BindingFlags.Instance | BindingFlags.Public);
+            Assert.That(bind, Is.Not.Null);
+            ShopItem item = new ShopItem(unitData, 1);
+
+            bind.Invoke(view, new object[] { item, true, false, true });
+            Assert.That(root.enabledSelf, Is.False);
+            Assert.That(root.ClassListContains("is-disabled"), Is.True);
+            Assert.That(root.ClassListContains("is-pending"), Is.True);
+            Assert.That(soldOverlay.style.display.value, Is.EqualTo(DisplayStyle.None));
+
+            bind.Invoke(view, new object[] { item, true, true, false });
+            Assert.That(root.enabledSelf, Is.False);
+            Assert.That(root.ClassListContains("is-disabled"), Is.True);
+            Assert.That(root.ClassListContains("is-pending"), Is.False);
+            Assert.That(soldOverlay.style.display.value, Is.EqualTo(DisplayStyle.Flex));
+        }
+        finally
+        {
+            Object.DestroyImmediate(unitData);
+        }
+    }
+
+    [Test]
+    public void AuthoritativeNotificationsProjectOnlyPeerLocalPresentationCaches()
+    {
+        var host = new GameObject("authoritative-ui-projection-test");
+        UnitData unitData = ScriptableObject.CreateInstance<UnitData>();
+        AugmentData augment = ScriptableObject.CreateInstance<AugmentData>();
+        try
+        {
+            ShopManager shop = host.AddComponent<ShopManager>();
+            AugmentManager augments = host.AddComponent<AugmentManager>();
+            shop.GetCurrentShopItems().Add(new ShopItem(unitData, 1));
+            augments.GetPresentedAugments().Add(augment);
+
+            Assert.That(shop.ApplyAuthoritativePurchaseNotification(-1), Is.False);
+            Assert.That(shop.ApplyAuthoritativePurchaseNotification(1), Is.False);
+            Assert.That(shop.ApplyAuthoritativePurchaseNotification(0), Is.True);
+            Assert.That(shop.IsSlotSold(0), Is.True);
+            Assert.That(shop.ApplyAuthoritativePurchaseNotification(0), Is.True,
+                "duplicate State Authority notifications must be idempotent");
+
+            augments.ApplyAuthoritativeSelectionNotification();
+            Assert.That(augments.GetPresentedAugments(), Is.Empty);
+            augments.ApplyAuthoritativeSelectionNotification();
+            Assert.That(augments.GetPresentedAugments(), Is.Empty,
+                "duplicate selection notifications must remain harmless");
+        }
+        finally
+        {
+            Object.DestroyImmediate(unitData);
+            Object.DestroyImmediate(augment);
+            Object.DestroyImmediate(host);
+        }
     }
 
     [Test]

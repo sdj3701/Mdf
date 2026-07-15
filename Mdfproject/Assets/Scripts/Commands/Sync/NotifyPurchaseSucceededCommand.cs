@@ -18,6 +18,9 @@ public class NotifyPurchaseSucceededCommand : ICommand
 
     public void Execute()
     {
+        var player = GameManagers.Instance?.GetPlayer(PlayerId);
+        player?.shopManager?.ApplyAuthoritativePurchaseNotification(SlotIndex);
+
         // UI 업데이트를 위한 이벤트 트리거
         GameEvents.TriggerUnitPurchaseSucceeded(PlayerId, default(ShopItem), SlotIndex);
         // Debug.Log($"<color=green>[NotifyPurchaseSucceededCommand] Player {PlayerId}: 슬롯 {SlotIndex} 구매 성공 알림</color>");

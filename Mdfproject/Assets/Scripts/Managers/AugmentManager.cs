@@ -108,6 +108,16 @@ public class AugmentManager : MonoBehaviour
     }
 
     /// <summary>
+    /// Clears the peer-local presentation cache after State Authority has accepted a choice.
+    /// The selected augment is retained in the durable selected-augment snapshot; this method
+    /// only prevents a delayed UI sync retry from presenting the consumed choices again.
+    /// </summary>
+    public void ApplyAuthoritativeSelectionNotification()
+    {
+        presentedAugments.Clear();
+    }
+
+    /// <summary>
     /// 증강 데이터 로딩을 보장하고, 증강 목록이 있는지 확인합니다.
     /// 서버에서는 생성, 클라이언트에서는 서버 데이터 도착을 대기합니다.
     /// </summary>

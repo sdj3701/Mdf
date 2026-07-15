@@ -384,6 +384,12 @@ public class SyncAugmentsCommand : ICommand, IAsyncCommand
         }
 
         var presentedAugments = player.augmentManager.GetPresentedAugments();
+        if (presentedAugments == null || presentedAugments.Count == 0)
+        {
+            TraceClient("Skip augment UI trigger: choices were already consumed.");
+            return;
+        }
+
         string triggerKey = BuildUiTriggerKey(gm);
         if (IsDuplicateUiTrigger(triggerKey))
         {
@@ -396,11 +402,19 @@ public class SyncAugmentsCommand : ICommand, IAsyncCommand
         GameEvents.TriggerAugmentPhaseStart(player, presentedAugments);
 
         // Build client에서는 Awake/구독 타이밍이 늦을 수 있어 짧게 재시도합니다.
-        if (UIManagers.Instance != null && presentedAugments != null && presentedAugments.Count > 0)
+        if (UIManagers.Instance != null
+            && !GamePrepareUIToolkitController.IsToolkitActive
+            && presentedAugments.Count > 0)
         {
             for (int retry = 0; retry < 3; retry++)
             {
                 await UniTask.Delay(120, cancellationToken: cancellationToken);
+                if (presentedAugments.Count == 0)
+                {
+                    TraceClient($"Stop augment UI retry={retry}: choices were consumed.");
+                    break;
+                }
+
                 if (UIManagers.Instance.IsUIElementActive("UI_Pnl_Augment"))
                 {
                     TraceClient($"Augment panel active after retry={retry}");

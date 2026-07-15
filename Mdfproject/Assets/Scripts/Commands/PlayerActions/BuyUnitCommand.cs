@@ -44,6 +44,24 @@ public class BuyUnitCommand : ICommand, IAsyncCommand
             return CommandExecutionResult.Failed(reason);
         }
 
+        // The sold flag lives in the durable Networked shop snapshot, while each peer also
+        // keeps a non-networked ShopManager cache for presentation. Reconcile that cache after
+        // every committed purchase just as reroll already does; the success notification below
+        // remains the immediate UI event and is idempotent with this snapshot application.
+        if (player.TryGetShopSnapshot(
+                out string[] names,
+                out int[] stars,
+                out _,
+                out int revision,
+                out int round))
+        {
+            player.RPC_SyncShopItems(names, stars, revision, round);
+        }
+        else
+        {
+            Debug.LogError($"[BuyUnitCommand] Authoritative shop snapshot unavailable after purchase for P{PlayerId}.");
+        }
+
         gm.NotifyPurchaseSucceeded(PlayerId, ShopSlotIndex);
         return CommandExecutionResult.Completed();
     }

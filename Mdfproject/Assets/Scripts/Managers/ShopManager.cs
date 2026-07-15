@@ -520,6 +520,23 @@ public class ShopManager : MonoBehaviour
     }
 
     /// <summary>
+    /// Projects a purchase that was already committed by State Authority into this peer's
+    /// non-networked runtime cache. This never spends gold, spawns a unit, or publishes a
+    /// snapshot; it is safe to call repeatedly from the authoritative success notification.
+    /// </summary>
+    public bool ApplyAuthoritativePurchaseNotification(int slotIndex)
+    {
+        int itemCount = currentShopItems != null ? currentShopItems.Count : 0;
+        if (slotIndex < 0 || slotIndex >= itemCount || slotIndex >= _isSlotSold.Length)
+        {
+            return false;
+        }
+
+        _isSlotSold[slotIndex] = true;
+        return true;
+    }
+
+    /// <summary>
     /// 구매되지 않은 슬롯만 슬롯 인덱스→아이템 형태의 사전으로 반환합니다.
     /// </summary>
     public Dictionary<int, ShopItem> GetAvailableShopItems()

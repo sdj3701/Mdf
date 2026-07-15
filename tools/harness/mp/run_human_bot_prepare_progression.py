@@ -263,6 +263,8 @@ def progression_assertions(
     host_state = state(host_snapshot)
     client_state = state(client_snapshot)
     commands_issued = int(bot_status.get("commandsIssued") or 0)
+    ui_presentation_count = int(bot_status.get("uiPresentationCount") or 0)
+    ui_presentation_failures = int(bot_status.get("uiPresentationFailureCount") or 0)
     bot_player_id = bot_status.get("playerId")
     if not isinstance(bot_player_id, int) or bot_player_id < 0:
         bot_player_id = local_player_id(client_snapshot)
@@ -279,6 +281,10 @@ def progression_assertions(
         errors.append("client.player_ids_not_unique")
     if commands_issued < min_commands:
         errors.append(f"bot.commandsIssued expected>={min_commands} actual={commands_issued}")
+    if commands_issued > 0 and ui_presentation_count <= 0:
+        errors.append("bot.uiPresentationCount expected>0 after accepted commands")
+    if ui_presentation_failures > 0:
+        errors.append(f"bot.uiPresentationFailureCount expected=0 actual={ui_presentation_failures}")
     if bot_status.get("lastCommandType") not in MEANINGFUL_COMMANDS:
         warnings.append(f"bot.lastCommandType_not_meaningful actual={bot_status.get('lastCommandType')}")
 
@@ -312,6 +318,20 @@ def progression_assertions(
         "commandsIssued": commands_issued,
         "lastDecision": bot_status.get("lastDecision"),
         "lastCommandType": bot_status.get("lastCommandType"),
+        "uiPresentation": {
+            "count": ui_presentation_count,
+            "shopPurchaseCount": int(bot_status.get("shopPurchasePresentationCount") or 0),
+            "augmentSelectionCount": int(bot_status.get("augmentSelectionPresentationCount") or 0),
+            "panelDismissCount": int(bot_status.get("panelDismissPresentationCount") or 0),
+            "failureCount": ui_presentation_failures,
+            "lastAction": bot_status.get("lastUiAction"),
+            "lastShopSlotIndex": bot_status.get("lastUiShopSlotIndex"),
+            "lastShopVisible": bot_status.get("lastUiShopVisible"),
+            "lastAugmentVisible": bot_status.get("lastUiAugmentVisible"),
+            "lastShopSlotPending": bot_status.get("lastUiShopSlotPending"),
+            "lastShopSlotSold": bot_status.get("lastUiShopSlotSold"),
+            "lastShopSlotEnabled": bot_status.get("lastUiShopSlotEnabled"),
+        },
         "meaningfulDeltas": deltas,
         "hostGame": host_state.get("game"),
         "clientGame": client_state.get("game"),
@@ -617,6 +637,12 @@ def run(args: argparse.Namespace) -> int:
         write_json(artifact_dir / "snapshots" / "build-host-prepare-progressed.json", host_after)
         write_json(artifact_dir / "snapshots" / "build-client-prepare-progressed.json", client_after)
         write_json(artifact_dir / "human-bot-prepare-assertions.json", assertions)
+        ui_evidence = assertions.get("uiPresentation") or {}
+        write_json(artifact_dir / "human-bot-ui-evidence.json", {
+            "success": int(ui_evidence.get("count") or 0) > 0
+                       and int(ui_evidence.get("failureCount") or 0) == 0,
+            **ui_evidence,
+        })
         write_json(artifact_dir / "random-outcome-summary.json", random_outcome_summary(host_after, client_after))
         write_json(artifact_dir / "checkpoint-summary.json", {
             "beforeBot": {

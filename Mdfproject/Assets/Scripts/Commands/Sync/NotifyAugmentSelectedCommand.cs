@@ -31,8 +31,7 @@ public class NotifyAugmentSelectedCommand : ICommand
             return;
         }
 
-        bool isServer = gm.Runner != null && gm.Runner.IsServer;
-
+        player.augmentManager.ApplyAuthoritativeSelectionNotification();
         GameEvents.TriggerAugmentApplied(player, chosenAugment);
         // Debug.Log($"<color=green>[NotifyAugmentSelectedCommand] Player {PlayerId}: '{AugmentContentId}' selected</color>");
     }

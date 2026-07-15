@@ -120,10 +120,8 @@ public class ShopSlot : MonoBehaviour
     /// </summary>
     private void OnBuyButtonClick()
     {
-        if (currentShopItem.UnitData != null && shopManager != null && !isPurchased && !isPurchasePending)
+        if (currentShopItem.UnitData != null && shopManager != null && TryBeginPurchasePresentation())
         {
-            isPurchasePending = true;
-            buyButton.interactable = false;
             // 기존: GameEvents.TriggerUnitPurchased(...)
             // 변경: BuyUnitCommand 생성 및 실행
             var command = new BuyUnitCommand(shopManager.playerManager.playerId, this.slotIndex);
@@ -137,6 +135,23 @@ public class ShopSlot : MonoBehaviour
                 buyButton.interactable = true;
             }
         }
+    }
+
+    /// <summary>
+    /// Applies the request-time visual state without dispatching a command. Manual clicks and
+    /// Development HumanBot automation share this path, so automation never fakes a click and
+    /// cannot submit the purchase command twice.
+    /// </summary>
+    public bool TryBeginPurchasePresentation()
+    {
+        if (currentShopItem.UnitData == null || isPurchased || isPurchasePending || buyButton == null)
+        {
+            return false;
+        }
+
+        isPurchasePending = true;
+        buyButton.interactable = false;
+        return true;
     }
 
     private void HandlePurchaseSucceeded(int playerId, ShopItem item, int purchasedSlotIndex)
