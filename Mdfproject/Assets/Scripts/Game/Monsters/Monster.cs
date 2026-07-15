@@ -2009,8 +2009,6 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
             if (skillData.vfxPrefab != null)
             {
-                GameObject vfxInstance = Instantiate(skillData.vfxPrefab, transform.position, Quaternion.identity);
-
                 float maxDuration = 0f;
                 foreach (var effect in skillData.effects)
                 {
@@ -2024,15 +2022,11 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
                 }
 
                 float vfxLifetime = (maxDuration > 0) ? maxDuration : 2f;
-
-                if (vfxInstance.TryGetComponent<VFXAutoDestroy>(out var autoDestroy))
-                {
-                    autoDestroy.Initialize(vfxLifetime);
-                }
-                else
-                {
-                    // Debug.LogWarning($"VFX 프리팹 '{vfxInstance.name}'에 VFXAutoDestroy.cs 컴포넌트가 없습니다. 자동으로 파괴되지 않습니다.");
-                }
+                VfxPoolManager.SpawnTimed(
+                    skillData.vfxPrefab,
+                    transform.position,
+                    Quaternion.identity,
+                    vfxLifetime);
             }
         }
     }

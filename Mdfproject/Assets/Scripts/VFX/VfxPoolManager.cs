@@ -93,6 +93,45 @@ public class VfxPoolManager : MonoBehaviour
     }
 
     /// <summary>
+    /// Spawns a local presentation VFX and returns pooled instances after the requested lifetime.
+    /// Scenes without a VfxPoolManager keep a safe Instantiate/Destroy fallback for isolated tests.
+    /// </summary>
+    public static GameObject SpawnTimed(
+        GameObject prefab,
+        Vector3 position,
+        Quaternion rotation,
+        float lifetime,
+        Transform parent = null)
+    {
+        if (prefab == null)
+        {
+            return null;
+        }
+
+        VfxPoolManager manager = Instance;
+        GameObject instance = manager != null
+            ? manager.Spawn(prefab, position, rotation, parent)
+            : Instantiate(prefab, position, rotation, parent);
+        if (instance == null)
+        {
+            return null;
+        }
+
+        RestartTimedVfx(instance);
+
+        if (!instance.TryGetComponent(out VFXAutoDestroy autoDestroy))
+        {
+            autoDestroy = instance.AddComponent<VFXAutoDestroy>();
+        }
+
+        float safeLifetime = float.IsNaN(lifetime) || float.IsInfinity(lifetime)
+            ? 0f
+            : Mathf.Max(0f, lifetime);
+        autoDestroy.Initialize(safeLifetime);
+        return instance;
+    }
+
+    /// <summary>
     /// Lazily loads a VFX prefab once and keeps its Addressables lease for the lifetime of this pool.
     /// Concurrent requests for the same key share one in-flight load.
     /// </summary>
@@ -373,6 +412,32 @@ public class VfxPoolManager : MonoBehaviour
             {
                 particles[i].Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             }
+        }
+    }
+
+    private static void RestartTimedVfx(GameObject instance)
+    {
+        ProjectileVfxComponentCache cache = ProjectileVfxComponentCache.GetOrCreate(instance);
+        TrailRenderer[] trails = cache.Trails;
+        for (int i = 0; i < trails.Length; i++)
+        {
+            if (trails[i] != null)
+            {
+                trails[i].Clear();
+            }
+        }
+
+        ParticleSystem[] particles = cache.Particles;
+        for (int i = 0; i < particles.Length; i++)
+        {
+            ParticleSystem particle = particles[i];
+            if (particle == null || !particle.gameObject.activeInHierarchy)
+            {
+                continue;
+            }
+
+            particle.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            particle.Play(true);
         }
     }
 

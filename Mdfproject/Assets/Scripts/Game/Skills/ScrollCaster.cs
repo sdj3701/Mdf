@@ -84,8 +84,11 @@ public class ScrollCaster : MonoBehaviour
     {
         if (skillData?.vfxPrefab != null)
         {
-            GameObject vfx = Instantiate(skillData.vfxPrefab, transform.position, Quaternion.identity);
-            Destroy(vfx, 5f);
+            VfxPoolManager.SpawnTimed(
+                skillData.vfxPrefab,
+                transform.position,
+                Quaternion.identity,
+                5f);
         }
 
         Destroy(gameObject, 0.1f);

@@ -158,6 +158,56 @@ public sealed class RuntimeLifecycleRegressionEditModeTests
         NUnitAssert.That(AddressableAssetCache.CachedEntryCount, Is.EqualTo(initialEntryCount));
     }
 
+    [UnityTest]
+    public IEnumerator TimedSkillVfxReturnsToPoolAndReusesTheSameInstance()
+    {
+        var managerObject = new GameObject("TimedSkillVfxPoolTest");
+        var prefab = new GameObject("TimedSkillVfxPrefab");
+
+        try
+        {
+            VfxPoolManager manager = managerObject.AddComponent<VfxPoolManager>();
+            MethodInfo awake = typeof(VfxPoolManager).GetMethod(
+                "Awake",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            NUnitAssert.That(awake, Is.Not.Null);
+            awake.Invoke(manager, null);
+            NUnitAssert.That(VfxPoolManager.Instance, Is.SameAs(manager));
+
+            GameObject first = VfxPoolManager.SpawnTimed(
+                prefab,
+                Vector3.one,
+                Quaternion.identity,
+                0f);
+            NUnitAssert.That(first, Is.Not.Null);
+            NUnitAssert.That(first.activeSelf, Is.True);
+            NUnitAssert.That(first.GetComponent<PooledObject>(), Is.Not.Null);
+            NUnitAssert.That(first.GetComponent<VFXAutoDestroy>(), Is.Not.Null);
+
+            yield return null;
+            yield return null;
+
+            NUnitAssert.That(first.activeSelf, Is.False,
+                "A completed timed VFX must return to the pool instead of being destroyed.");
+
+            GameObject reused = VfxPoolManager.SpawnTimed(
+                prefab,
+                Vector3.zero,
+                Quaternion.identity,
+                10f);
+            NUnitAssert.That(reused, Is.SameAs(first));
+            NUnitAssert.That(reused.activeSelf, Is.True);
+
+            reused.GetComponent<PooledObject>().ReturnToPool();
+            NUnitAssert.That(reused.activeSelf, Is.False);
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(managerObject);
+            UnityEngine.Object.DestroyImmediate(prefab);
+        }
+    }
+
     [Test]
     public void NameBasedNetworkPrewarmSharesOnePrefabCapacityAfterIdResolution()
     {

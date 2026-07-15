@@ -77,6 +77,25 @@ public sealed class LocalVfxVisibilityEditModeTests
     }
 
     [Test]
+    public void SkillMonsterAndScrollVfxUseTheSharedTimedPoolPath()
+    {
+        string poolSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/VfxPoolManager.cs");
+        string unitSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Units/Unit.cs");
+        string monsterSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Monsters/Monster.cs");
+        string scrollSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Skills/ScrollCaster.cs");
+
+        Assert.That(poolSource, Does.Contain("public static GameObject SpawnTimed("));
+        Assert.That(poolSource, Does.Contain("manager.Spawn(prefab, position, rotation, parent)"));
+        Assert.That(poolSource, Does.Contain("autoDestroy.Initialize(safeLifetime);"));
+        Assert.That(unitSource, Does.Contain("VfxPoolManager.SpawnTimed("));
+        Assert.That(monsterSource, Does.Contain("VfxPoolManager.SpawnTimed("));
+        Assert.That(scrollSource, Does.Contain("VfxPoolManager.SpawnTimed("));
+        Assert.That(unitSource, Does.Not.Contain("Instantiate(currentSkillData.vfxPrefab"));
+        Assert.That(monsterSource, Does.Not.Contain("Instantiate(skillData.vfxPrefab"));
+        Assert.That(scrollSource, Does.Not.Contain("Instantiate(skillData.vfxPrefab"));
+    }
+
+    [Test]
     public void CombatSchedulerFiltersLocalVfxRpcPlayback()
     {
         string schedulerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/CombatScheduler.cs");
