@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: AI/HumanBot, battle
 Created: 2026-05-07
-Last used: 2026-05-07
-Last verified: 2026-05-07
-Use count: 1
+Last used: 2026-07-15
+Last verified: 2026-07-15
+Use count: 3
 Review after: 2026-08-05
 Triggers: AI behavior tuning, HumanBot journal review, behavior baseline, seed sweep metrics
 Applies to: `tools/harness/mp/summarize_bot_metrics.py`, HumanBot battle progression, battle seed sweep
-Verified by: see Verification section below; migrated from old Status: verified-from-existing-artifact
+Verified by: see Verification section below; migrated from old Status: verified-from-existing-artifact; artifacts/mp/20260715-105036-matrix/20260715-110318-human-bot-battle-progression/bot-metrics-summary.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -34,3 +34,6 @@ Pitfalls:
 - `commandsIssued` is bot-issued command intent from `human_bot_decision` timeline lines. It can be ahead of final snapshot command counters when the bot emits a command just after the last strict comparison sample.
 - `goldSpent` is an observed estimate from journal gold drops and known command cost fields; if a run gains gold after spending before the next journal entry, it can undercount.
 - Use dedicated scroll artifacts to judge scroll quality. A seed sweep may still pass while only some seeds actually use a scroll.
+
+Lifecycle notes:
+- 2026-07-15: verified artifact `artifacts/mp/20260715-105036-matrix/20260715-110318-human-bot-battle-progression/bot-metrics-summary.json`

@@ -226,6 +226,10 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     private Coroutine resumeCoroutine;
     private int currentBlockerId = 0;
     private ChangeDetector _changeDetector;
+    private MonsterHitFeedbackPresenter _hitFeedbackPresenter;
+    private bool _hasObservedHitFeedbackHealth;
+    private float _lastObservedHitFeedbackHealth;
+    private float _lastObservedHitFeedbackMaxHealth;
     private bool _networkMonsterDataLoadRequested;
     private string _localMonsterDataKey = string.Empty;
 
@@ -425,6 +429,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         }
         _hasSpawned = true;
         _hasEverSpawned = true;
+        PrimeHitFeedbackHealthObservation(NetworkedHP, NetworkedMaxHP);
         TryRebindOwnerFromNetworkSnapshot();
         TryRecoverMonsterDataFromNetworkSnapshot();
         RestorePermanentStatsFromNetworkSnapshot();
@@ -522,6 +527,8 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         _blockerCandidateCache.Clear();
         _despawnRequested = false;
         _hasRegisteredAsSurvivor = false;
+        ResetHitFeedbackHealthObservation();
+        _hitFeedbackPresenter?.RestorePresentation();
 
         if (manaController != null)
         {
@@ -551,6 +558,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             if (propertyName == nameof(NetworkedHP) || propertyName == nameof(NetworkedMaxHP))
             {
                 OnHealthChanged?.Invoke(NetworkedHP, NetworkedMaxHP);
+                ObserveNetworkedHealthForHitFeedback();
             }
             // 공격 애니메이션 동기화 (클라이언트에서만 실행)
             else if (propertyName == nameof(NetworkedAttackTrigger))
@@ -599,6 +607,58 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             && Runner != null
             && Runner.IsRunning
             && Object != null;
+    }
+
+    private void PrimeHitFeedbackHealthObservation(float health, float maxHealth)
+    {
+        _lastObservedHitFeedbackHealth = health;
+        _lastObservedHitFeedbackMaxHealth = maxHealth;
+        _hasObservedHitFeedbackHealth = true;
+    }
+
+    private void ResetHitFeedbackHealthObservation()
+    {
+        _hasObservedHitFeedbackHealth = false;
+        _lastObservedHitFeedbackHealth = 0f;
+        _lastObservedHitFeedbackMaxHealth = 0f;
+    }
+
+    private void ObserveNetworkedHealthForHitFeedback()
+    {
+        float health = NetworkedHP;
+        float maxHealth = NetworkedMaxHP;
+        bool shouldPlay = _hasObservedHitFeedbackHealth
+            && MonsterHitFeedbackPresenter.ShouldPlayForHealthChange(
+                _lastObservedHitFeedbackHealth,
+                _lastObservedHitFeedbackMaxHealth,
+                health,
+                maxHealth);
+
+        PrimeHitFeedbackHealthObservation(health, maxHealth);
+        if (shouldPlay)
+        {
+            PlayConfirmedDamageFeedback();
+        }
+    }
+
+    private void EnsureHitFeedbackPresenter()
+    {
+        if (_hitFeedbackPresenter == null)
+        {
+            _hitFeedbackPresenter = GetComponent<MonsterHitFeedbackPresenter>();
+            if (_hitFeedbackPresenter == null)
+            {
+                _hitFeedbackPresenter = gameObject.AddComponent<MonsterHitFeedbackPresenter>();
+            }
+        }
+
+        _hitFeedbackPresenter.Configure(animator != null ? animator.transform : null);
+    }
+
+    private void PlayConfirmedDamageFeedback()
+    {
+        EnsureHitFeedbackPresenter();
+        _hitFeedbackPresenter.Play();
     }
 
     private bool IsSkillCapacityBackpressurePending()
@@ -1324,6 +1384,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         _localMaxHP = maxHp;
         _localHP = maxHp;
         _isDying = false;
+        PrimeHitFeedbackHealthObservation(maxHp, maxHp);
         
         // StatusBarUI 생성 (statusBarPrefab이 이미 할당된 상태)
         EnsureStatusBarUI();
@@ -1561,6 +1622,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         // 서버에서 동기화된 HP 값을 UI에 반영
         statusBarUI?.ResetForReuse();
         OnHealthChanged?.Invoke(NetworkedHP, NetworkedMaxHP);
+        PrimeHitFeedbackHealthObservation(NetworkedHP, NetworkedMaxHP);
         
         manaController = GetComponent<ManaController>();
         if (manaController != null && _monsterData != null)
@@ -2117,7 +2179,12 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
         if (_isDying || currentHP <= 0f) return;
         if (_monsterData == null) return;
         int finalDamage = DamageCalculator.CalculateDamage(baseDamage, damageType, _monsterData.defense, _monsterData.magicResistance);
+        float previousHealth = currentHP;
         currentHP -= finalDamage;
+        if (!CanReadNetworkedHealth() && currentHP < previousHealth)
+        {
+            PlayConfirmedDamageFeedback();
+        }
         if (currentHP <= 0) Die();
     }
 
@@ -2253,6 +2320,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
     {
         currentMaxHP = maxHp;
         currentHP = Mathf.Min(hp, maxHp);
+        PrimeHitFeedbackHealthObservation(currentHP, currentMaxHP);
         OnHealthChanged?.Invoke(currentHP, currentMaxHP);
     }
 
@@ -3238,6 +3306,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
 
         if (animator == null)
         {
+            EnsureHitFeedbackPresenter();
             return;
         }
         
@@ -3252,6 +3321,7 @@ public class Monster : NetworkBehaviour, IEnemy, IHealth
             proxy = animatorObj.AddComponent<MonsterAnimationEventProxy>();
         }
         proxy.Initialize(this);
+        EnsureHitFeedbackPresenter();
     }
 
     /// <summary>

@@ -5,10 +5,54 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.AddressableAssets;
 using UnityEditor.AddressableAssets.Settings;
+using UnityEditor.Animations;
 using UnityEngine;
 
 public sealed class UnitAttackAnimationEditModeTests
 {
+    [Test]
+    public void UnitAttackTransitionsAreSnappyWithoutChangingClipTiming()
+    {
+        AnimatorController controller = AssetDatabase.LoadAssetAtPath<AnimatorController>(
+            "Assets/Resource/Animations/Unit_Base_Controller.controller");
+        Assert.That(controller, Is.Not.Null);
+        Assert.That(controller.layers, Has.Length.EqualTo(1));
+
+        AnimatorState idleState = null;
+        AnimatorState attackState = null;
+        AnimatorState skillState = null;
+        ChildAnimatorState[] states = controller.layers[0].stateMachine.states;
+        for (int i = 0; i < states.Length; i++)
+        {
+            AnimatorState state = states[i].state;
+            if (state.name == "Idle") idleState = state;
+            else if (state.name == "Attack") attackState = state;
+            else if (state.name == "Skill") skillState = state;
+        }
+
+        Assert.That(idleState, Is.Not.Null);
+        Assert.That(attackState, Is.Not.Null);
+        Assert.That(skillState, Is.Not.Null);
+
+        AnimatorStateTransition attackEntry = FindTransition(idleState, attackState);
+        AnimatorStateTransition attackExit = FindTransition(attackState, idleState);
+        AnimatorStateTransition skillExit = FindTransition(skillState, idleState);
+
+        Assert.That(attackEntry, Is.Not.Null);
+        Assert.That(attackEntry.hasFixedDuration, Is.True);
+        Assert.That(attackEntry.hasExitTime, Is.False);
+        Assert.That(attackEntry.duration, Is.EqualTo(0.04f).Within(0.0001f));
+
+        Assert.That(attackExit, Is.Not.Null);
+        Assert.That(attackExit.hasFixedDuration, Is.True);
+        Assert.That(attackExit.hasExitTime, Is.True);
+        Assert.That(attackExit.exitTime, Is.EqualTo(0.8897059f).Within(0.0001f));
+        Assert.That(attackExit.duration, Is.EqualTo(0.08f).Within(0.0001f));
+
+        Assert.That(skillExit, Is.Not.Null);
+        Assert.That(skillExit.duration, Is.EqualTo(0.25f).Within(0.0001f));
+    }
+
     [Test]
     public void UnitAttackPlaybackResetWaitsForRealAnimatorAttackExit()
     {
@@ -149,6 +193,20 @@ public sealed class UnitAttackAnimationEditModeTests
         Assert.That(unitSource, Does.Contain("ResetAnimatorSpeedWhenAttackAnimationFinishes"));
         Assert.That(unitSource, Does.Contain("IsAttackPlaybackActive("));
         Assert.That(unitSource, Does.Not.Contain("private IEnumerator ResetAnimatorSpeedAfter"));
+    }
+
+    private static AnimatorStateTransition FindTransition(AnimatorState source, AnimatorState destination)
+    {
+        AnimatorStateTransition[] transitions = source.transitions;
+        for (int i = 0; i < transitions.Length; i++)
+        {
+            if (transitions[i].destinationState == destination)
+            {
+                return transitions[i];
+            }
+        }
+
+        return null;
     }
 }
 
