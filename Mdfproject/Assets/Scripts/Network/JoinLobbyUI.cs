@@ -1,7 +1,11 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using Cysharp.Threading.Tasks;
 using Fusion;
 using GameCore.Enums;
+using MDF.Runtime.Assets;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
@@ -12,6 +16,9 @@ public sealed class JoinLobbyUI : MonoBehaviour
     private const float DesignWidth = 1672f;
     private const float DesignHeight = 941f;
     private const int SlotCount = 4;
+    private const int KingCount = 7;
+    private const int DemonCount = 5;
+    private const float MatchContentLoadTimeoutSeconds = 90f;
 
     public static JoinLobbyUI Instance { get; private set; }
 
@@ -26,6 +33,16 @@ public sealed class JoinLobbyUI : MonoBehaviour
     [SerializeField] private bool useMockPlayersWhenNoPlayers;
 
     private readonly SlotView[] slots = new SlotView[SlotCount];
+    private readonly KingCardView[] kingCards = new KingCardView[KingCount];
+    private readonly DemonCardView[] demonCards = new DemonCardView[DemonCount];
+    private readonly MapThemeCardView[] mapThemeCards =
+        new MapThemeCardView[MapThemeCatalog.Entries.Count];
+    private readonly AddressableAssetLease<Sprite>[] kingIconLeases =
+        new AddressableAssetLease<Sprite>[KingCount];
+    private readonly AddressableAssetLease<Sprite>[] demonIconLeases =
+        new AddressableAssetLease<Sprite>[DemonCount];
+    private readonly Dictionary<int, Sprite> kingSprites = new Dictionary<int, Sprite>();
+    private readonly Dictionary<int, Sprite> demonSprites = new Dictionary<int, Sprite>();
 
     private VisualElement root;
     private VisualElement designSpace;
@@ -33,6 +50,9 @@ public sealed class JoinLobbyUI : MonoBehaviour
     private VisualElement readyButton;
     private VisualElement leaveRoomButton;
     private VisualElement networkBlockOverlay;
+    private VisualElement kingSelectionPanel;
+    private VisualElement demonSelectionPanel;
+    private Label networkBlockLabel;
 
     private Label roomNameLabel;
     private Label playerCountLabel;
@@ -42,6 +62,16 @@ public sealed class JoinLobbyUI : MonoBehaviour
     private NetworkManager networkManager;
     private NetworkPlayer localPlayer;
     private bool callbacksRegistered;
+    private int kingIconLoadVersion;
+    private int demonIconLoadVersion;
+    private bool showingDemonSelection;
+    private bool matchStartInProgress;
+    private int activeMatchLoadRevision;
+    private CancellationTokenSource matchStartCancellation;
+    private float nextOrphanedMatchLoadCheckRealtime;
+
+    public bool IsMatchStartInProgress => matchStartInProgress;
+    public int ActiveMatchLoadRevision => activeMatchLoadRevision;
 
     private struct PlayerViewData
     {
@@ -49,14 +79,28 @@ public sealed class JoinLobbyUI : MonoBehaviour
         public readonly int Level;
         public readonly bool IsReady;
         public readonly int VisualIndex;
+        public readonly int KingKeyHash;
+        public readonly int MapThemeId;
+        public readonly bool IsLocal;
         public readonly bool IsEmpty;
 
-        public PlayerViewData(string name, int level, bool isReady, int visualIndex, bool isEmpty = false)
+        public PlayerViewData(
+            string name,
+            int level,
+            bool isReady,
+            int visualIndex,
+            int kingKeyHash,
+            int mapThemeId,
+            bool isLocal,
+            bool isEmpty = false)
         {
             Name = name;
             Level = level;
             IsReady = isReady;
             VisualIndex = visualIndex;
+            KingKeyHash = kingKeyHash;
+            MapThemeId = mapThemeId;
+            IsLocal = isLocal;
             IsEmpty = isEmpty;
         }
     }
@@ -67,7 +111,35 @@ public sealed class JoinLobbyUI : MonoBehaviour
         public VisualElement Portrait;
         public Label Name;
         public Label Level;
+        public Label King;
+        public Label Theme;
         public Label Ready;
+        public VisualElement DemonButton;
+        public Label DemonButtonLabel;
+    }
+
+    private sealed class KingCardView
+    {
+        public VisualElement Root;
+        public VisualElement Portrait;
+        public Label Name;
+        public Label Selection;
+    }
+
+    private sealed class DemonCardView
+    {
+        public VisualElement Root;
+        public VisualElement Portrait;
+        public Label Name;
+        public Label Passive;
+        public Label Skill;
+        public Label Selection;
+    }
+
+    private sealed class MapThemeCardView
+    {
+        public VisualElement Root;
+        public Label Name;
     }
 
     private void Reset()
@@ -113,14 +185,39 @@ public sealed class JoinLobbyUI : MonoBehaviour
         SubscribeNetworkEvents();
         ResolveNetworkManager();
         UpdatePlayerList();
+        BeginLoadKingIcons();
+        BeginLoadDemonIcons();
         RefreshNetworkBlockOverlay();
         UpdateDesignScale();
     }
 
     private void OnDisable()
     {
+        if (matchStartInProgress && activeMatchLoadRevision > 0)
+        {
+            ResolveNetworkManager();
+            if (networkManager != null
+                && networkManager._runner != null
+                && networkManager._runner.IsRunning
+                && networkManager._runner.IsServer)
+            {
+                List<NetworkPlayer> players = CollectActiveLobbyPlayers(out _, out _);
+                foreach (NetworkPlayer player in players)
+                {
+                    player?.ResetMatchContentLoadingAuthority(activeMatchLoadRevision);
+                }
+            }
+        }
+
+        matchStartInProgress = false;
+        activeMatchLoadRevision = 0;
+        matchStartCancellation?.Cancel();
+        matchStartCancellation?.Dispose();
+        matchStartCancellation = null;
         UnregisterCallbacks();
         UnsubscribeNetworkEvents();
+        ReleaseKingIcons();
+        ReleaseDemonIcons();
     }
 
     private void OnDestroy()
@@ -138,6 +235,9 @@ public sealed class JoinLobbyUI : MonoBehaviour
         readyButton = Query<VisualElement>("readyButton");
         leaveRoomButton = Query<VisualElement>("leaveRoomButton");
         networkBlockOverlay = Query<VisualElement>("networkBlockOverlay");
+        kingSelectionPanel = Query<VisualElement>("kingSelectionPanel");
+        demonSelectionPanel = Query<VisualElement>("demonSelectionPanel");
+        networkBlockLabel = networkBlockOverlay?.Q<Label>(className: "jl-network-block-label");
 
         roomNameLabel = Query<Label>("roomNameLabel");
         playerCountLabel = Query<Label>("playerCountLabel");
@@ -152,8 +252,78 @@ public sealed class JoinLobbyUI : MonoBehaviour
                 Portrait = Query<VisualElement>($"portrait{i}"),
                 Name = Query<Label>($"slotName{i}"),
                 Level = Query<Label>($"slotLevel{i}"),
-                Ready = Query<Label>($"slotReady{i}")
+                King = Query<Label>($"slotKing{i}"),
+                Theme = Query<Label>($"slotTheme{i}"),
+                Ready = Query<Label>($"slotReady{i}"),
+                DemonButton = Query<VisualElement>($"demonSelectButton{i}"),
+                DemonButtonLabel = Query<Label>($"demonSelectButtonLabel{i}")
             };
+
+            if (slots[i].Portrait != null)
+            {
+                slots[i].Portrait.userData = i;
+            }
+            if (slots[i].DemonButton != null)
+            {
+                slots[i].DemonButton.userData = i;
+            }
+        }
+
+        for (int i = 0; i < demonCards.Length; i++)
+        {
+            demonCards[i] = new DemonCardView
+            {
+                Root = Query<VisualElement>($"demonCard{i}"),
+                Portrait = Query<VisualElement>($"demonPortrait{i}"),
+                Name = Query<Label>($"demonName{i}"),
+                Passive = Query<Label>($"demonPassive{i}"),
+                Skill = Query<Label>($"demonSkill{i}"),
+                Selection = Query<Label>($"demonSelection{i}")
+            };
+
+            if (demonCards[i].Root != null)
+            {
+                demonCards[i].Root.userData = i;
+            }
+        }
+
+        for (int i = 0; i < kingCards.Length; i++)
+        {
+            kingCards[i] = new KingCardView
+            {
+                Root = Query<VisualElement>($"kingCard{i}"),
+                Portrait = Query<VisualElement>($"kingPortrait{i}"),
+                Name = Query<Label>($"kingName{i}"),
+                Selection = Query<Label>($"kingSelection{i}")
+            };
+
+            if (kingCards[i].Root != null)
+            {
+                kingCards[i].Root.userData = i;
+            }
+        }
+        for (int i = 0; i < demonCards.Length; i++)
+        {
+            SetPickingMode(demonCards[i]?.Root, PickingMode.Position);
+        }
+        for (int i = 0; i < slots.Length; i++)
+        {
+            SetPickingMode(slots[i]?.Portrait, PickingMode.Position);
+            SetPickingMode(slots[i]?.DemonButton, PickingMode.Position);
+        }
+
+        for (int i = 0; i < mapThemeCards.Length; i++)
+        {
+            mapThemeCards[i] = new MapThemeCardView
+            {
+                Root = Query<VisualElement>($"mapThemeCard{i}"),
+                Name = Query<Label>($"mapThemeName{i}")
+            };
+
+            if (mapThemeCards[i].Root != null)
+            {
+                mapThemeCards[i].Root.userData = i;
+            }
         }
     }
 
@@ -174,6 +344,14 @@ public sealed class JoinLobbyUI : MonoBehaviour
         SetPickingMode(gameStartButton, PickingMode.Position);
         SetPickingMode(readyButton, PickingMode.Position);
         SetPickingMode(leaveRoomButton, PickingMode.Position);
+        for (int i = 0; i < kingCards.Length; i++)
+        {
+            SetPickingMode(kingCards[i]?.Root, PickingMode.Position);
+        }
+        for (int i = 0; i < mapThemeCards.Length; i++)
+        {
+            SetPickingMode(mapThemeCards[i]?.Root, PickingMode.Position);
+        }
     }
 
     private void RegisterCallbacks()
@@ -187,6 +365,23 @@ public sealed class JoinLobbyUI : MonoBehaviour
         gameStartButton?.RegisterCallback<PointerUpEvent>(OnGameStartPointerUp);
         readyButton?.RegisterCallback<PointerUpEvent>(OnReadyPointerUp);
         leaveRoomButton?.RegisterCallback<PointerUpEvent>(OnLeaveRoomPointerUp);
+        for (int i = 0; i < kingCards.Length; i++)
+        {
+            kingCards[i]?.Root?.RegisterCallback<PointerUpEvent>(OnKingCardPointerUp);
+        }
+        for (int i = 0; i < demonCards.Length; i++)
+        {
+            demonCards[i]?.Root?.RegisterCallback<PointerUpEvent>(OnDemonCardPointerUp);
+        }
+        for (int i = 0; i < slots.Length; i++)
+        {
+            slots[i]?.Portrait?.RegisterCallback<PointerUpEvent>(OnSlotPortraitPointerUp);
+            slots[i]?.DemonButton?.RegisterCallback<PointerUpEvent>(OnDemonSelectButtonPointerUp);
+        }
+        for (int i = 0; i < mapThemeCards.Length; i++)
+        {
+            mapThemeCards[i]?.Root?.RegisterCallback<PointerUpEvent>(OnMapThemeCardPointerUp);
+        }
 
         callbacksRegistered = true;
     }
@@ -202,6 +397,23 @@ public sealed class JoinLobbyUI : MonoBehaviour
         gameStartButton?.UnregisterCallback<PointerUpEvent>(OnGameStartPointerUp);
         readyButton?.UnregisterCallback<PointerUpEvent>(OnReadyPointerUp);
         leaveRoomButton?.UnregisterCallback<PointerUpEvent>(OnLeaveRoomPointerUp);
+        for (int i = 0; i < kingCards.Length; i++)
+        {
+            kingCards[i]?.Root?.UnregisterCallback<PointerUpEvent>(OnKingCardPointerUp);
+        }
+        for (int i = 0; i < demonCards.Length; i++)
+        {
+            demonCards[i]?.Root?.UnregisterCallback<PointerUpEvent>(OnDemonCardPointerUp);
+        }
+        for (int i = 0; i < slots.Length; i++)
+        {
+            slots[i]?.Portrait?.UnregisterCallback<PointerUpEvent>(OnSlotPortraitPointerUp);
+            slots[i]?.DemonButton?.UnregisterCallback<PointerUpEvent>(OnDemonSelectButtonPointerUp);
+        }
+        for (int i = 0; i < mapThemeCards.Length; i++)
+        {
+            mapThemeCards[i]?.Root?.UnregisterCallback<PointerUpEvent>(OnMapThemeCardPointerUp);
+        }
 
         callbacksRegistered = false;
     }
@@ -264,8 +476,89 @@ public sealed class JoinLobbyUI : MonoBehaviour
             return;
         }
 
-        TryStartGame();
+        RequestMatchStart();
         evt.StopPropagation();
+    }
+
+    private void Update()
+    {
+        if (matchStartInProgress || Time.realtimeSinceStartup < nextOrphanedMatchLoadCheckRealtime)
+        {
+            return;
+        }
+
+        nextOrphanedMatchLoadCheckRealtime = Time.realtimeSinceStartup + 0.25f;
+        ResetOrphanedAuthorityMatchLoad();
+    }
+
+    private void ResetOrphanedAuthorityMatchLoad()
+    {
+        ResolveNetworkManager();
+        NetworkRunner runner = networkManager != null ? networkManager._runner : null;
+        if (runner == null || !runner.IsRunning || !runner.IsServer)
+        {
+            return;
+        }
+
+        List<NetworkPlayer> players = CollectActiveLobbyPlayers(out _, out _);
+        int orphanedRevision = ResolveActiveMatchLoadingRevision(players);
+        if (orphanedRevision <= 0)
+        {
+            return;
+        }
+
+        foreach (NetworkPlayer player in players)
+        {
+            player?.ResetMatchContentLoadingAuthority(orphanedRevision);
+        }
+
+        Debug.LogWarning(
+            $"[MatchPrewarm] Reset orphaned lobby loading state after authority/lifecycle change. " +
+            $"revision={orphanedRevision}");
+        MPTestLogger.Log(
+            "match_prewarm_gate",
+            "reset",
+            "orphaned_authority_gate",
+            "stale lobby loading state reset after authority/lifecycle change",
+            new Dictionary<string, object> { { "revision", orphanedRevision } });
+        UpdatePlayerList();
+    }
+
+    /// <summary>
+    /// Production and DEVELOPMENT_BUILD automation entry point for the exact same lobby gate.
+    /// The host-side validation and peer ACK collection remain inside TryStartGameAsync.
+    /// </summary>
+    public bool RequestMatchStart()
+    {
+        return TryStartGame();
+    }
+
+    private bool TryStartGame()
+    {
+        ResolveNetworkManager();
+        List<NetworkPlayer> players = CollectActiveLobbyPlayers(
+            out int activePlayerCount,
+            out bool hasDuplicateAuthorities);
+        bool valid = !matchStartInProgress
+                     && isActiveAndEnabled
+                     && networkManager != null
+                     && networkManager._runner != null
+                     && networkManager._runner.IsRunning
+                     && networkManager._runner.IsServer
+                      && IsLobbyRosterComplete(activePlayerCount, players.Count, hasDuplicateAuthorities)
+                      && players.Count > 0
+                      && players.All(player => KingSelectionCatalog.IsAllowedHash(player.SelectedKingUnitKeyHash))
+                      && AllPlayersHaveAuthoritativeDemonSelection(players)
+                      && players.All(player => player.IsReady)
+                     && SceneUtility.GetBuildIndexByScenePath(gameScenePath) >= 0;
+        if (!valid)
+        {
+            UpdatePlayerList();
+            return false;
+        }
+
+        TryStartGameAsync().Forget();
+        return true;
     }
 
     private void OnReadyPointerUp(PointerUpEvent evt)
@@ -299,6 +592,78 @@ public sealed class JoinLobbyUI : MonoBehaviour
         evt.StopPropagation();
     }
 
+    private void OnKingCardPointerUp(PointerUpEvent evt)
+    {
+        if (!IsPrimaryPointer(evt)
+            || !(evt.currentTarget is VisualElement card)
+            || !(card.userData is int catalogIndex)
+            || catalogIndex < 0
+            || catalogIndex >= KingSelectionCatalog.Entries.Count)
+        {
+            return;
+        }
+
+        SelectKing(KingSelectionCatalog.Entries[catalogIndex].KeyHash);
+        evt.StopPropagation();
+    }
+
+    private void OnDemonCardPointerUp(PointerUpEvent evt)
+    {
+        if (!IsPrimaryPointer(evt)
+            || !(evt.currentTarget is VisualElement card)
+            || !(card.userData is int catalogIndex)
+            || catalogIndex < 0
+            || catalogIndex >= DemonSelectionCatalog.Entries.Count)
+        {
+            return;
+        }
+
+        SelectDemon(DemonSelectionCatalog.Entries[catalogIndex].KeyHash);
+        evt.StopPropagation();
+    }
+
+    private void OnSlotPortraitPointerUp(PointerUpEvent evt)
+    {
+        if (!IsPrimaryPointer(evt))
+        {
+            return;
+        }
+
+        ShowSelectionPanel(showDemon: false);
+        evt.StopPropagation();
+    }
+
+    private void OnDemonSelectButtonPointerUp(PointerUpEvent evt)
+    {
+        if (!IsPrimaryPointer(evt)
+            || !(evt.currentTarget is VisualElement button)
+            || !(button.userData is int slotIndex)
+            || slotIndex < 0
+            || slotIndex >= slots.Length
+            || localPlayer == null)
+        {
+            return;
+        }
+
+        ShowSelectionPanel(showDemon: true);
+        evt.StopPropagation();
+    }
+
+    private void OnMapThemeCardPointerUp(PointerUpEvent evt)
+    {
+        if (!IsPrimaryPointer(evt)
+            || !(evt.currentTarget is VisualElement card)
+            || !(card.userData is int catalogIndex)
+            || catalogIndex < 0
+            || catalogIndex >= MapThemeCatalog.Entries.Count)
+        {
+            return;
+        }
+
+        SelectMapTheme((int)MapThemeCatalog.Entries[catalogIndex].Id);
+        evt.StopPropagation();
+    }
+
     public void UpdatePlayerList()
     {
         if (this == null)
@@ -308,12 +673,11 @@ public sealed class JoinLobbyUI : MonoBehaviour
 
         ResolveNetworkManager();
 
-        List<NetworkPlayer> players = FindObjectsOfType<NetworkPlayer>()
-            .Where(player => player != null)
-            .OrderBy(GetPlayerSortKey)
-            .ToList();
+        List<NetworkPlayer> players = CollectActiveLobbyPlayers(
+            out int activePlayerCount,
+            out bool hasDuplicateAuthorities);
 
-        localPlayer = players.FirstOrDefault(player => player.HasInputAuthority) ?? localPlayer;
+        localPlayer = players.FirstOrDefault(player => player.HasInputAuthority);
 
         bool usingMockPlayers = useMockPlayersWhenNoPlayers && players.Count == 0;
         List<PlayerViewData> viewData = usingMockPlayers
@@ -321,17 +685,82 @@ public sealed class JoinLobbyUI : MonoBehaviour
             : BuildPlayerViewData(players);
 
         RenderSlots(viewData);
-        UpdateRoomInfo(players.Count, usingMockPlayers);
-        UpdateButtons(players, usingMockPlayers);
+        RenderKingSelection();
+        RenderDemonSelection();
+        ShowSelectionPanel(showingDemonSelection);
+        RenderMapThemeSelection();
+        UpdateRoomInfo(activePlayerCount, usingMockPlayers);
+        UpdateButtons(players, activePlayerCount, hasDuplicateAuthorities, usingMockPlayers);
+        RefreshNetworkBlockOverlay();
+    }
+
+    private List<NetworkPlayer> CollectActiveLobbyPlayers(
+        out int activePlayerCount,
+        out bool hasDuplicateAuthorities)
+    {
+        activePlayerCount = 0;
+        hasDuplicateAuthorities = false;
+        NetworkRunner runner = networkManager != null ? networkManager._runner : null;
+        if (runner == null || !runner.IsRunning)
+        {
+            return new List<NetworkPlayer>();
+        }
+
+        List<PlayerRef> activePlayers = runner.ActivePlayers.ToList();
+        activePlayerCount = activePlayers.Count;
+        var activeSet = new HashSet<PlayerRef>(activePlayers);
+        var playerByAuthority = new Dictionary<PlayerRef, NetworkPlayer>();
+
+        foreach (NetworkPlayer player in FindObjectsOfType<NetworkPlayer>())
+        {
+            if (player == null
+                || player.Runner != runner
+                || player.Object == null
+                || !player.Object.IsValid)
+            {
+                continue;
+            }
+
+            PlayerRef inputAuthority = player.Object.InputAuthority;
+            if (inputAuthority == PlayerRef.None || !activeSet.Contains(inputAuthority))
+            {
+                continue;
+            }
+
+            // A reconnect can briefly leave two scene objects visible. Render one row,
+            // but flag the roster incomplete so duplicates can never satisfy ready/start.
+            if (!playerByAuthority.ContainsKey(inputAuthority))
+            {
+                playerByAuthority.Add(inputAuthority, player);
+            }
+            else
+            {
+                hasDuplicateAuthorities = true;
+            }
+        }
+
+        return playerByAuthority.Values
+            .OrderBy(GetPlayerSortKey)
+            .ToList();
+    }
+
+    public static bool IsLobbyRosterComplete(
+        int activePlayerCount,
+        int rosterPlayerCount,
+        bool hasDuplicateAuthorities = false)
+    {
+        return !hasDuplicateAuthorities
+            && activePlayerCount > 0
+            && rosterPlayerCount == activePlayerCount;
     }
 
     private static List<PlayerViewData> BuildMockPlayers()
     {
         return new List<PlayerViewData>
         {
-            new PlayerViewData("루나", 42, true, 0),
-            new PlayerViewData("카인", 45, true, 1),
-            new PlayerViewData("미르", 40, true, 2)
+            new PlayerViewData("루나", 42, true, 0, KingSelectionCatalog.Entries[0].KeyHash, (int)MapThemeId.Arena, true),
+            new PlayerViewData("카인", 45, true, 1, KingSelectionCatalog.Entries[3].KeyHash, (int)MapThemeId.Classic, false),
+            new PlayerViewData("미르", 40, true, 2, KingSelectionCatalog.Entries[4].KeyHash, (int)MapThemeId.Arena, false)
         };
     }
 
@@ -351,7 +780,10 @@ public sealed class JoinLobbyUI : MonoBehaviour
                 nickname,
                 GetDisplayLevel(i),
                 player.IsReady,
-                i));
+                i,
+                player.SelectedKingUnitKeyHash,
+                player.SelectedMapThemeId,
+                player.HasInputAuthority));
         }
 
         return viewData;
@@ -372,7 +804,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
         }
     }
 
-    private static void RenderOccupiedSlot(SlotView slot, PlayerViewData player)
+    private void RenderOccupiedSlot(SlotView slot, PlayerViewData player)
     {
         if (slot == null || slot.Root == null)
         {
@@ -385,7 +817,13 @@ public sealed class JoinLobbyUI : MonoBehaviour
         slot.Root.AddToClassList(player.IsReady ? "jl-slot--ready" : "jl-slot--waiting");
 
         SetDisplay(slot.Portrait, true);
-        SetPortraitClass(slot.Portrait, player.VisualIndex);
+        SetDisplay(slot.DemonButton, player.IsLocal);
+        SetKingPortrait(slot.Portrait, player.KingKeyHash, player.VisualIndex);
+
+        if (slot.DemonButtonLabel != null)
+        {
+            slot.DemonButtonLabel.text = "악마 선택";
+        }
 
         if (slot.Name != null)
         {
@@ -395,6 +833,21 @@ public sealed class JoinLobbyUI : MonoBehaviour
         if (slot.Level != null)
         {
             slot.Level.text = $"Lv. {player.Level}";
+        }
+
+        if (slot.King != null)
+        {
+            slot.King.text = KingSelectionCatalog.TryGetByHash(player.KingKeyHash, out KingSelectionCatalog.Entry king)
+                ? $"국왕 {king.DisplayName}"
+                : "국왕 미선택";
+        }
+
+        if (slot.Theme != null)
+        {
+            int themeId = MapThemeCatalog.NormalizeOrDefault(player.MapThemeId);
+            slot.Theme.text = MapThemeCatalog.TryGet(themeId, out MapThemeCatalog.Entry theme)
+                ? $"맵 {theme.DisplayName}"
+                : string.Empty;
         }
 
         if (slot.Ready != null)
@@ -415,6 +868,7 @@ public sealed class JoinLobbyUI : MonoBehaviour
         slot.Root.AddToClassList("jl-slot--empty");
 
         SetDisplay(slot.Portrait, false);
+        SetDisplay(slot.DemonButton, false);
 
         if (slot.Name != null)
         {
@@ -424,6 +878,16 @@ public sealed class JoinLobbyUI : MonoBehaviour
         if (slot.Level != null)
         {
             slot.Level.text = string.Empty;
+        }
+
+        if (slot.King != null)
+        {
+            slot.King.text = string.Empty;
+        }
+
+        if (slot.Theme != null)
+        {
+            slot.Theme.text = string.Empty;
         }
 
         if (slot.Ready != null)
@@ -448,15 +912,29 @@ public sealed class JoinLobbyUI : MonoBehaviour
         }
     }
 
-    private void UpdateButtons(List<NetworkPlayer> players, bool usingMockPlayers)
+    private void UpdateButtons(
+        List<NetworkPlayer> players,
+        int activePlayerCount,
+        bool hasDuplicateAuthorities,
+        bool usingMockPlayers)
     {
         bool hasNetworkRunner = networkManager != null && networkManager._runner != null;
         bool isHost = hasNetworkRunner && networkManager._runner.IsServer;
-        bool hasRealPlayers = !usingMockPlayers && players.Count > 0;
-        bool allReady = hasRealPlayers && players.All(player => player.IsReady);
-        bool canStart = isHost && allReady;
+        bool rosterComplete = !usingMockPlayers
+            && IsLobbyRosterComplete(activePlayerCount, players.Count, hasDuplicateAuthorities);
+        bool hasRealPlayers = rosterComplete && players.Count > 0;
+        bool allKingsSelected = hasRealPlayers
+            && players.All(player => KingSelectionCatalog.IsAllowedHash(player.SelectedKingUnitKeyHash));
+        bool allDemonsSelected = !isHost || AllPlayersHaveAuthoritativeDemonSelection(players);
+        bool allReady = allKingsSelected && allDemonsSelected && players.All(player => player.IsReady);
+        bool canStart = isHost && allReady && !matchStartInProgress && !IsMatchLoadingActive(players);
+        bool localKingSelected = localPlayer != null
+            && KingSelectionCatalog.IsAllowedHash(localPlayer.SelectedKingUnitKeyHash);
+        bool localDemonSelected = localPlayer != null
+            && DemonSelectionCatalog.IsAllowedHash(localPlayer.LocalSelectedDemonKeyHash);
 
         gameStartButton?.EnableInClassList("jl-button--disabled", !canStart);
+        readyButton?.EnableInClassList("jl-button--disabled", !localKingSelected || !localDemonSelected);
 
         if (readyButtonLabel != null)
         {
@@ -474,7 +952,21 @@ public sealed class JoinLobbyUI : MonoBehaviour
         }
         else if (!isHost)
         {
-            statusLabel.text = "ⓘ 방장이 게임을 시작할 수 있습니다.";
+            statusLabel.text = localKingSelected && localDemonSelected
+                ? "ⓘ 방장이 게임을 시작할 수 있습니다."
+                : "ⓘ 국왕과 악마를 선택해야 준비할 수 있습니다.";
+        }
+        else if (!rosterComplete)
+        {
+            statusLabel.text = "플레이어 로스터 동기화를 기다리고 있습니다.";
+        }
+        else if (!allKingsSelected)
+        {
+            statusLabel.text = "ⓘ 모든 인원이 국왕을 선택해야 준비할 수 있습니다.";
+        }
+        else if (!allDemonsSelected)
+        {
+            statusLabel.text = "ⓘ 모든 인원이 악마를 선택해야 준비할 수 있습니다.";
         }
         else if (!allReady)
         {
@@ -486,12 +978,17 @@ public sealed class JoinLobbyUI : MonoBehaviour
         }
     }
 
-    private void TryStartGame()
+    private async UniTaskVoid TryStartGameAsync()
     {
+        if (matchStartInProgress)
+        {
+            return;
+        }
+
         ResolveNetworkManager();
-        List<NetworkPlayer> players = FindObjectsOfType<NetworkPlayer>()
-            .Where(player => player != null)
-            .ToList();
+        List<NetworkPlayer> players = CollectActiveLobbyPlayers(
+            out int activePlayerCount,
+            out bool hasDuplicateAuthorities);
 
         if (networkManager == null || networkManager._runner == null)
         {
@@ -505,7 +1002,26 @@ public sealed class JoinLobbyUI : MonoBehaviour
             return;
         }
 
-        if (players.Count == 0 || !players.All(player => player.IsReady))
+        if (!IsLobbyRosterComplete(activePlayerCount, players.Count, hasDuplicateAuthorities))
+        {
+            ShowStatus("플레이어 로스터 동기화를 기다리고 있습니다.");
+            return;
+        }
+
+        if (players.Count == 0
+            || !players.All(player => KingSelectionCatalog.IsAllowedHash(player.SelectedKingUnitKeyHash)))
+        {
+            ShowStatus("ⓘ 모든 인원이 국왕을 선택해야 게임을 시작할 수 있습니다.");
+            return;
+        }
+
+        if (!AllPlayersHaveAuthoritativeDemonSelection(players))
+        {
+            ShowStatus("ⓘ 모든 인원이 악마를 선택해야 게임을 시작할 수 있습니다.");
+            return;
+        }
+
+        if (!players.All(player => player.IsReady))
         {
             ShowStatus("ⓘ 모든 인원이 준비를 완료해야 게임을 시작할 수 있습니다.");
             return;
@@ -518,7 +1034,205 @@ public sealed class JoinLobbyUI : MonoBehaviour
             return;
         }
 
-        networkManager._runner.LoadScene(SceneRef.FromIndex(sceneIndex), LoadSceneMode.Single);
+        NetworkRunner runner = networkManager._runner;
+        PlayerRef[] expectedAuthorities = players
+            .Select(player => player.Object.InputAuthority)
+            .OrderBy(player => player.PlayerId)
+            .ToArray();
+        int revision = LobbyMatchLoadPolicy.NextRevision(
+            players.Select(player => player.MatchContentLoadRevision));
+
+        matchStartInProgress = true;
+        activeMatchLoadRevision = revision;
+        MatchLoadingScreenController.Show(document?.panelSettings);
+        MatchLoadingScreenController.SetPeerReadiness(0, players.Count);
+        matchStartCancellation?.Cancel();
+        matchStartCancellation?.Dispose();
+        var attemptCancellation = new CancellationTokenSource();
+        matchStartCancellation = attemptCancellation;
+
+        try
+        {
+            Debug.Log(
+                $"[MatchPrewarm] Authority gate started. revision={revision}, peers={expectedAuthorities.Length}");
+            MPTestLogger.Log(
+                "match_prewarm_gate",
+                "begin",
+                null,
+                "authority waiting for active peer readiness",
+                new Dictionary<string, object>
+                {
+                    { "revision", revision },
+                    { "expectedPeers", expectedAuthorities.Length }
+                });
+
+            bool beganAll = players.All(player => player.BeginMatchContentLoadingAuthority(revision));
+            if (!beganAll)
+            {
+                FailMatchStart(players, revision, "전투 데이터 준비를 시작하지 못했습니다. 다시 시도해 주세요.");
+                return;
+            }
+
+            UpdatePlayerList();
+            int[] expectedAuthorityIds = expectedAuthorities
+                .Select(authority => authority.PlayerId)
+                .ToArray();
+            float startedAt = Time.realtimeSinceStartup;
+            while (!attemptCancellation.IsCancellationRequested
+                   && Time.realtimeSinceStartup - startedAt < MatchContentLoadTimeoutSeconds)
+            {
+                if (runner == null || !runner.IsRunning || !runner.IsServer)
+                {
+                    FailMatchStart(players, revision, "방 연결이 변경되어 게임 시작을 중단했습니다.");
+                    return;
+                }
+
+                List<NetworkPlayer> currentPlayers = CollectActiveLobbyPlayers(
+                    out int currentActiveCount,
+                    out bool currentDuplicates);
+                PlayerRef[] currentAuthorities = currentPlayers
+                    .Select(player => player.Object.InputAuthority)
+                    .OrderBy(player => player.PlayerId)
+                    .ToArray();
+                int[] currentAuthorityIds = currentAuthorities
+                    .Select(authority => authority.PlayerId)
+                    .ToArray();
+                if (!IsLobbyRosterComplete(currentActiveCount, currentPlayers.Count, currentDuplicates)
+                    || !LobbyMatchLoadPolicy.HasSameRoster(expectedAuthorityIds, currentAuthorityIds))
+                {
+                    FailMatchStart(currentPlayers, revision, "인원 구성이 변경되어 게임 시작을 중단했습니다.");
+                    return;
+                }
+
+                if (currentPlayers.Any(player => player.MatchContentLoadRevision != revision))
+                {
+                    FailMatchStart(currentPlayers, revision, "전투 데이터 준비 상태가 변경되었습니다. 다시 시도해 주세요.");
+                    return;
+                }
+
+                if (currentPlayers.Any(player =>
+                        player.MatchContentLoadRevision == revision
+                        && player.MatchContentLoadState == LobbyMatchLoadingState.Failed))
+                {
+                    FailMatchStart(currentPlayers, revision, "전투 데이터 준비에 실패한 인원이 있습니다. 다시 시도해 주세요.");
+                    return;
+                }
+
+                if (currentPlayers.Any(player =>
+                        !player.IsReady
+                        || !KingSelectionCatalog.IsAllowedHash(player.SelectedKingUnitKeyHash)))
+                {
+                    FailMatchStart(
+                        currentPlayers,
+                        revision,
+                        "준비 중 선택 정보가 변경되어 게임 시작을 중단했습니다.");
+                    return;
+                }
+
+                LobbyMatchPeerLoadState[] peerLoadStates = currentPlayers
+                    .OrderBy(player => player.Object.InputAuthority.PlayerId)
+                    .Select(player => new LobbyMatchPeerLoadState(
+                        player.Object.InputAuthority.PlayerId,
+                        player.MatchContentLoadRevision,
+                        player.MatchContentLoadState))
+                    .ToArray();
+                if (LobbyMatchLoadPolicy.CanLoadScene(
+                        revision,
+                        expectedAuthorityIds,
+                        peerLoadStates))
+                {
+                    Debug.Log(
+                        $"[MatchPrewarm] All active peer ACKs ready. revision={revision}, " +
+                        $"peers={currentPlayers.Count}. Loading {SceneDefine.Game}.");
+                    MPTestLogger.Pass(
+                        "match_prewarm_gate",
+                        "all active peers acknowledged; loading game scene",
+                        new Dictionary<string, object>
+                        {
+                            { "revision", revision },
+                            { "readyPeers", currentPlayers.Count }
+                        });
+                    MatchLoadingScreenController.BeginSceneTransition();
+                    runner.LoadScene(SceneRef.FromIndex(sceneIndex), LoadSceneMode.Single);
+                    return;
+                }
+
+                UpdatePlayerList();
+                await UniTask.Delay(
+                    100,
+                    DelayType.Realtime,
+                    PlayerLoopTiming.Update,
+                    attemptCancellation.Token);
+            }
+
+            if (!attemptCancellation.IsCancellationRequested)
+            {
+                List<NetworkPlayer> currentPlayers = CollectActiveLobbyPlayers(out _, out _);
+                FailMatchStart(
+                    currentPlayers,
+                    revision,
+                    "전투 데이터 준비 시간이 초과되었습니다. 연결을 확인한 뒤 다시 시도해 주세요.");
+                Debug.LogError(
+                    $"[MatchPrewarm] Authority gate timed out after {MatchContentLoadTimeoutSeconds:F0}s. " +
+                    $"revision={revision}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the lobby UI is disabled or the room is left.
+        }
+        catch (Exception exception)
+        {
+            if (matchStartInProgress && activeMatchLoadRevision == revision)
+            {
+                List<NetworkPlayer> currentPlayers = CollectActiveLobbyPlayers(out _, out _);
+                FailMatchStart(
+                    currentPlayers,
+                    revision,
+                    "전투 데이터 준비 중 오류가 발생했습니다. 다시 시도해 주세요.");
+            }
+
+            Debug.LogException(exception);
+        }
+        finally
+        {
+            DisposeMatchStartAttempt(attemptCancellation);
+        }
+    }
+
+    private void FailMatchStart(
+        IEnumerable<NetworkPlayer> players,
+        int revision,
+        string userMessage)
+    {
+        if (players != null)
+        {
+            foreach (NetworkPlayer player in players)
+            {
+                player?.ResetMatchContentLoadingAuthority(revision);
+            }
+        }
+
+        matchStartInProgress = false;
+        activeMatchLoadRevision = 0;
+        MatchLoadingScreenController.CancelFromLobby();
+        MPTestLogger.Fail(
+            "match_prewarm_gate",
+            "match_content_not_ready",
+            userMessage,
+            new Dictionary<string, object> { { "revision", revision } });
+        UpdatePlayerList();
+        ShowStatus(userMessage);
+    }
+
+    private void DisposeMatchStartAttempt(CancellationTokenSource attemptCancellation)
+    {
+        if (ReferenceEquals(matchStartCancellation, attemptCancellation))
+        {
+            matchStartCancellation = null;
+        }
+
+        attemptCancellation?.Dispose();
     }
 
     private void ToggleReady()
@@ -534,15 +1248,397 @@ public sealed class JoinLobbyUI : MonoBehaviour
             return;
         }
 
+        if (!KingSelectionCatalog.IsAllowedHash(localPlayer.SelectedKingUnitKeyHash))
+        {
+            ShowStatus("ⓘ 국왕을 먼저 선택해야 준비할 수 있습니다.");
+            return;
+        }
+
+        if (!DemonSelectionCatalog.IsAllowedHash(localPlayer.LocalSelectedDemonKeyHash))
+        {
+            ShowStatus("ⓘ 악마를 먼저 선택해야 준비할 수 있습니다.");
+            return;
+        }
+
         localPlayer.RPC_ToggleReady();
+    }
+
+    private void SelectKing(int selectedKingHash)
+    {
+        if (localPlayer == null)
+        {
+            UpdatePlayerList();
+        }
+
+        if (localPlayer == null)
+        {
+            ShowStatus("ⓘ 로컬 플레이어 정보를 아직 찾을 수 없습니다.");
+            return;
+        }
+
+        if (localPlayer.SelectedKingUnitKeyHash == selectedKingHash)
+        {
+            return;
+        }
+
+        if (!localPlayer.RequestKingSelection(selectedKingHash))
+        {
+            ShowStatus("ⓘ 선택할 수 없는 국왕입니다.");
+            return;
+        }
+
+        RenderKingSelection(selectedKingHash);
+        ShowStatus(localPlayer.IsReady
+            ? "ⓘ 국왕을 변경했습니다. 준비 상태가 해제됩니다."
+            : "ⓘ 국왕을 선택했습니다.");
+    }
+
+    private void RenderKingSelection(int? optimisticSelectionHash = null)
+    {
+        int selectedHash = optimisticSelectionHash
+            ?? (localPlayer != null ? localPlayer.SelectedKingUnitKeyHash : KingSelectionCatalog.DefaultKeyHash);
+
+        for (int i = 0; i < kingCards.Length; i++)
+        {
+            KingCardView card = kingCards[i];
+            if (card == null || i >= KingSelectionCatalog.Entries.Count)
+            {
+                continue;
+            }
+
+            KingSelectionCatalog.Entry entry = KingSelectionCatalog.Entries[i];
+            bool selected = entry.KeyHash == selectedHash;
+            card.Root?.EnableInClassList("jl-king-card--selected", selected);
+
+            if (card.Name != null)
+            {
+                card.Name.text = entry.DisplayName;
+            }
+
+            if (card.Selection != null)
+            {
+                card.Selection.text = selected ? "선택됨" : "선택";
+            }
+
+            SetBackgroundSprite(card.Portrait,
+                kingSprites.TryGetValue(entry.KeyHash, out Sprite sprite) ? sprite : null);
+        }
+    }
+
+    private void SelectDemon(int selectedDemonHash)
+    {
+        if (localPlayer == null)
+        {
+            UpdatePlayerList();
+        }
+
+        if (localPlayer == null)
+        {
+            ShowStatus("ⓘ 로컬 플레이어 정보를 아직 찾을 수 없습니다.");
+            return;
+        }
+
+        if (localPlayer.LocalSelectedDemonKeyHash == selectedDemonHash)
+        {
+            return;
+        }
+
+        if (!localPlayer.RequestDemonSelection(selectedDemonHash))
+        {
+            ShowStatus("ⓘ 선택할 수 없는 악마입니다.");
+            return;
+        }
+
+        RenderDemonSelection(selectedDemonHash);
+        ShowStatus(localPlayer.IsReady
+            ? "ⓘ 악마를 변경했습니다. 준비 상태가 해제됩니다."
+            : "ⓘ 악마를 선택했습니다. 이 선택은 게임 시작 전까지 다른 플레이어에게 공개되지 않습니다.");
+    }
+
+    private void RenderDemonSelection(int? optimisticSelectionHash = null)
+    {
+        int selectedHash = DemonSelectionCatalog.NormalizeOrDefaultHash(
+            optimisticSelectionHash
+            ?? (localPlayer != null
+                ? localPlayer.LocalSelectedDemonKeyHash
+                : DemonSelectionCatalog.DefaultKeyHash));
+
+        for (int i = 0; i < demonCards.Length; i++)
+        {
+            DemonCardView card = demonCards[i];
+            if (card == null || i >= DemonSelectionCatalog.Entries.Count)
+            {
+                continue;
+            }
+
+            DemonSelectionCatalog.Entry entry = DemonSelectionCatalog.Entries[i];
+            bool selected = entry.KeyHash == selectedHash;
+            card.Root?.EnableInClassList("jl-king-card--selected", selected);
+            if (card.Name != null)
+            {
+                card.Name.text = entry.DisplayName;
+            }
+            if (card.Passive != null)
+            {
+                card.Passive.text = entry.PassiveDescription;
+            }
+            if (card.Skill != null)
+            {
+                card.Skill.text = $"{entry.SkillName}: {entry.SkillDescription}";
+            }
+            if (card.Selection != null)
+            {
+                card.Selection.text = selected ? "선택됨" : "선택";
+            }
+
+            SetBackgroundSprite(
+                card.Portrait,
+                demonSprites.TryGetValue(entry.KeyHash, out Sprite sprite) ? sprite : null);
+        }
+    }
+
+    private void ShowSelectionPanel(bool showDemon)
+    {
+        showingDemonSelection = showDemon;
+        SetDisplay(kingSelectionPanel, !showDemon);
+        SetDisplay(demonSelectionPanel, showDemon);
+    }
+
+    private bool AllPlayersHaveAuthoritativeDemonSelection(IEnumerable<NetworkPlayer> players)
+    {
+        if (networkManager == null || networkManager._runner == null || !networkManager._runner.IsServer)
+        {
+            return false;
+        }
+
+        foreach (NetworkPlayer player in players)
+        {
+            if (player == null
+                || player.Object == null
+                || !player.Object.IsValid
+                || !networkManager.TryGetLobbyDemonSelectionForGameplay(
+                    networkManager._runner,
+                    player.Object.InputAuthority,
+                    out int selectionHash)
+                || !DemonSelectionCatalog.IsAllowedHash(selectionHash))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void SelectMapTheme(int selectedThemeId)
+    {
+        if (localPlayer == null)
+        {
+            UpdatePlayerList();
+        }
+
+        if (localPlayer == null)
+        {
+            ShowStatus("로컬 플레이어 정보를 아직 찾을 수 없습니다.");
+            return;
+        }
+
+        int themeId = MapThemeCatalog.NormalizeOrDefault(selectedThemeId);
+        if (localPlayer.SelectedMapThemeId == themeId)
+        {
+            return;
+        }
+
+        if (!localPlayer.RequestMapThemeSelection(themeId))
+        {
+            ShowStatus("선택할 수 없는 맵 테마입니다.");
+            return;
+        }
+
+        RenderMapThemeSelection(themeId);
+        ShowStatus(localPlayer.IsReady
+            ? "내 필드 테마를 변경했습니다. 준비 상태가 해제됩니다."
+            : "내 필드 테마를 선택했습니다.");
+    }
+
+    private void RenderMapThemeSelection(int? optimisticThemeId = null)
+    {
+        int selectedThemeId = MapThemeCatalog.NormalizeOrDefault(
+            optimisticThemeId ?? (localPlayer != null
+                ? localPlayer.SelectedMapThemeId
+                : MapThemeCatalog.DefaultId));
+
+        for (int i = 0; i < mapThemeCards.Length; i++)
+        {
+            MapThemeCardView card = mapThemeCards[i];
+            if (card == null || i >= MapThemeCatalog.Entries.Count)
+            {
+                continue;
+            }
+
+            MapThemeCatalog.Entry entry = MapThemeCatalog.Entries[i];
+            bool selected = (int)entry.Id == selectedThemeId;
+            card.Root?.EnableInClassList("jl-map-theme-card--selected", selected);
+            if (card.Name != null)
+            {
+                card.Name.text = selected ? $"{entry.DisplayName} · 선택됨" : entry.DisplayName;
+            }
+        }
+    }
+
+    private void SetKingPortrait(VisualElement portrait, int kingKeyHash, int fallbackVisualIndex)
+    {
+        if (portrait == null)
+        {
+            return;
+        }
+
+        if (kingSprites.TryGetValue(kingKeyHash, out Sprite sprite) && sprite != null)
+        {
+            RemovePortraitClasses(portrait);
+            SetBackgroundSprite(portrait, sprite);
+            return;
+        }
+
+        SetBackgroundSprite(portrait, null);
+        SetPortraitClass(portrait, fallbackVisualIndex);
+    }
+
+    private void BeginLoadKingIcons()
+    {
+        int version = ++kingIconLoadVersion;
+        for (int i = 0; i < kingCards.Length && i < KingSelectionCatalog.Entries.Count; i++)
+        {
+            LoadKingIconAsync(i, version).Forget();
+        }
+    }
+
+    private async UniTask LoadKingIconAsync(int catalogIndex, int version)
+    {
+        KingSelectionCatalog.Entry entry = KingSelectionCatalog.Entries[catalogIndex];
+        AddressableAssetLease<Sprite> lease = await AssetLoader.AcquireAssetAsync<Sprite>(entry.IconKey);
+        if (this == null || !isActiveAndEnabled || version != kingIconLoadVersion)
+        {
+            lease?.Dispose();
+            return;
+        }
+
+        kingIconLeases[catalogIndex]?.Dispose();
+        kingIconLeases[catalogIndex] = lease;
+        if (lease?.Asset != null)
+        {
+            kingSprites[entry.KeyHash] = lease.Asset;
+        }
+
+        UpdatePlayerList();
+    }
+
+    private void ReleaseKingIcons()
+    {
+        kingIconLoadVersion++;
+        kingSprites.Clear();
+        for (int i = 0; i < kingIconLeases.Length; i++)
+        {
+            kingIconLeases[i]?.Dispose();
+            kingIconLeases[i] = null;
+        }
+    }
+
+    private void BeginLoadDemonIcons()
+    {
+        int version = ++demonIconLoadVersion;
+        for (int i = 0; i < demonCards.Length && i < DemonSelectionCatalog.Entries.Count; i++)
+        {
+            LoadDemonIconAsync(i, version).Forget();
+        }
+    }
+
+    private async UniTask LoadDemonIconAsync(int catalogIndex, int version)
+    {
+        DemonSelectionCatalog.Entry entry = DemonSelectionCatalog.Entries[catalogIndex];
+        AddressableAssetLease<Sprite> lease = await AssetLoader.AcquireAssetAsync<Sprite>(entry.IconKey);
+        if (this == null || !isActiveAndEnabled || version != demonIconLoadVersion)
+        {
+            lease?.Dispose();
+            return;
+        }
+
+        demonIconLeases[catalogIndex]?.Dispose();
+        demonIconLeases[catalogIndex] = lease;
+        if (lease?.Asset != null)
+        {
+            demonSprites[entry.KeyHash] = lease.Asset;
+        }
+
+        RenderDemonSelection();
+    }
+
+    private void ReleaseDemonIcons()
+    {
+        demonIconLoadVersion++;
+        demonSprites.Clear();
+        for (int i = 0; i < demonIconLeases.Length; i++)
+        {
+            demonIconLeases[i]?.Dispose();
+            demonIconLeases[i] = null;
+        }
     }
 
     private void RefreshNetworkBlockOverlay()
     {
         ResolveNetworkManager();
-        bool shouldBlock = networkManager != null && networkManager.IsNetworkUiBlocked;
-        SetDisplay(networkBlockOverlay, shouldBlock);
+        List<NetworkPlayer> players = CollectActiveLobbyPlayers(out _, out _);
+        int matchLoadRevision = ResolveActiveMatchLoadingRevision(players);
+        bool matchLoading = matchStartInProgress || matchLoadRevision > 0;
+        bool shouldBlock = (networkManager != null && networkManager.IsNetworkUiBlocked) || matchLoading;
+        if (matchLoading)
+        {
+            MatchLoadingScreenController.Show(document?.panelSettings);
+            int revision = activeMatchLoadRevision > 0 ? activeMatchLoadRevision : matchLoadRevision;
+            int readyCount = players.Count(player => player.IsMatchContentReadyFor(revision));
+            MatchLoadingScreenController.SetPeerReadiness(readyCount, players.Count);
+        }
+        else
+        {
+            MatchLoadingScreenController.CancelFromLobby();
+        }
+
+        if (networkBlockLabel != null)
+        {
+            if (matchLoading)
+            {
+                int revision = activeMatchLoadRevision > 0 ? activeMatchLoadRevision : matchLoadRevision;
+                int readyCount = players.Count(player => player.IsMatchContentReadyFor(revision));
+                networkBlockLabel.text = $"전투 데이터를 준비하고 있습니다... ({readyCount}/{players.Count})";
+            }
+            else
+            {
+                networkBlockLabel.text = "네트워크 처리 중입니다...";
+            }
+        }
+
+        SetDisplay(networkBlockOverlay, shouldBlock && !matchLoading);
         SetControlsEnabled(!shouldBlock);
+    }
+
+    private static bool IsMatchLoadingActive(IEnumerable<NetworkPlayer> players)
+    {
+        return ResolveActiveMatchLoadingRevision(players) > 0;
+    }
+
+    private static int ResolveActiveMatchLoadingRevision(IEnumerable<NetworkPlayer> players)
+    {
+        if (players == null)
+        {
+            return 0;
+        }
+
+        return players
+            .Where(player => player != null
+                             && player.MatchContentLoadRevision > 0
+                             && player.MatchContentLoadState != LobbyMatchLoadingState.Idle)
+            .Select(player => player.MatchContentLoadRevision)
+            .DefaultIfEmpty(0)
+            .Max();
     }
 
     private void SetControlsEnabled(bool enabled)
@@ -550,6 +1646,14 @@ public sealed class JoinLobbyUI : MonoBehaviour
         gameStartButton?.SetEnabled(enabled);
         readyButton?.SetEnabled(enabled);
         leaveRoomButton?.SetEnabled(enabled);
+        for (int i = 0; i < kingCards.Length; i++)
+        {
+            kingCards[i]?.Root?.SetEnabled(enabled);
+        }
+        for (int i = 0; i < mapThemeCards.Length; i++)
+        {
+            mapThemeCards[i]?.Root?.SetEnabled(enabled);
+        }
     }
 
     private void UpdateDesignScale()
@@ -649,11 +1753,26 @@ public sealed class JoinLobbyUI : MonoBehaviour
             return;
         }
 
+        RemovePortraitClasses(portrait);
+        portrait.AddToClassList($"jl-player-portrait--{visualIndex % SlotCount}");
+    }
+
+    private static void RemovePortraitClasses(VisualElement portrait)
+    {
         portrait.RemoveFromClassList("jl-player-portrait--0");
         portrait.RemoveFromClassList("jl-player-portrait--1");
         portrait.RemoveFromClassList("jl-player-portrait--2");
         portrait.RemoveFromClassList("jl-player-portrait--3");
-        portrait.AddToClassList($"jl-player-portrait--{visualIndex % SlotCount}");
+    }
+
+    private static void SetBackgroundSprite(VisualElement element, Sprite sprite)
+    {
+        if (element != null)
+        {
+            element.style.backgroundImage = sprite != null
+                ? new StyleBackground(sprite)
+                : new StyleBackground(StyleKeyword.Null);
+        }
     }
 
     private static void SetDisplay(VisualElement element, bool visible)

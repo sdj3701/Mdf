@@ -1,0 +1,79 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bbb281ee3bf0b054c82ac2347e9e782c, type: 3}
+  m_Name: MDF VFX Projectiles
+  m_EditorClassIdentifier: 
+  m_GroupName: MDF VFX Projectiles
+  m_Data:
+    m_SerializedData: []
+  m_GUID: 83e17495fa4f71d4a8ce66d25d621e4c
+  m_SerializeEntries:
+  - m_GUID: 3e0b667176390ec48af7e1a45f2a1ca6
+    m_Address: VFX_Projectile_Fire4_Projectile
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-projectile
+  - m_GUID: 8a5881744d44dd546a327527e9b89900
+    m_Address: VFX_Projectile_Fire4_Hit
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-projectile
+  - m_GUID: c81bf136e2dd0f6488b25b30e0a5de9e
+    m_Address: VFX_Projectile_Fire4_Flash
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-projectile
+  - m_GUID: e2aecc938d1dabe4b83b473864616866
+    m_Address: VFX_Projectile_Ice5_Projectile
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-projectile
+  - m_GUID: 4eabe4bed225c604db7e3aaa9cf36681
+    m_Address: VFX_Projectile_Ice5_Hit
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-projectile
+  - m_GUID: a841b6e5feb94d64998972ee0c9d4a5f
+    m_Address: VFX_Projectile_Ice5_Flash
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-projectile
+  - m_GUID: c4ef3641155e0b34794e29c197f57ea9
+    m_Address: VFX_Projectile_Wind7_Projectile
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-projectile
+  - m_GUID: 864df08caf13ad04cb694efaeeeaaba3
+    m_Address: VFX_Projectile_Wind7_Hit
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-projectile
+  - m_GUID: db738b5c07915ce4eb3fbe91be7ff552
+    m_Address: VFX_Projectile_Wind7_Flash
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - VFX
+    - mdf-vfx-projectile
+  m_ReadOnly: 0
+  m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
+  m_SchemaSet:
+    m_Schemas:
+    - {fileID: 11400000, guid: 5a78eba9d9421474ca1d21f49088e8bf, type: 2}
+    - {fileID: 11400000, guid: 7f5f41bec2166b343b9cf2fff5335703, type: 2}

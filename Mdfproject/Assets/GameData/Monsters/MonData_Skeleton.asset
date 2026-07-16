@@ -12,8 +12,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 12b791e63b46fab4aa386d75dd5b687d, type: 3}
   m_Name: MonData_Skeleton
   m_EditorClassIdentifier: 
+  contentId: monster.skeleton
   monsterName: Skeleton
   monsterType: 0
+  monsterRank: 0
+  blackMagicCost: 3
   monsterIcon: Spr_Port_Skeleton
   monsterPrefab: Skeleton
   attackDamage: 30

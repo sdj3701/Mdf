@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: AI/HumanBot
 Created: 2026-05-06
-Last used: 2026-06-09
+Last used: 2026-07-15
 Last verified: 2026-06-09
-Use count: 13
+Use count: 14
 Review after: 2026-08-04
 Triggers: 4-player HumanBot, build host + 3 build clients, random-aware host-vs-client comparison
 Applies to: `tools/harness/mp/run_human_bot_4p_progression.py`, Phase 21 HumanBot progression smoke
@@ -49,3 +49,4 @@ Lifecycle notes:
 - 2026-06-09: Consulted for 2 HumanBot + 2 AI flow; basic smoke PASS at artifacts/mp/20260609-024600-two-humanbot-two-ai-smoke/result.json, but bounded 3-round run failed on player.2 augment host/client mismatch at artifacts/mp/20260609-024708-two-humanbot-two-ai-smoke/result.json.
 - 2026-06-09: Verified bounded 3-round 2 HumanBot + 2 AI progression after final max-round stable snapshot wait; finalStatus=PASS comparisonSuccess=true boundedProgressionPass=true cleanupStatus=PASS orphanedPids=[].
 - 2026-06-09: verified artifact `artifacts/mp/20260609-032334-two-humanbot-two-ai-smoke/result.json`
+- 2026-07-15: Reused the HumanBot progression/checkpoint workflow in a two-peer lobby-gate smoke.

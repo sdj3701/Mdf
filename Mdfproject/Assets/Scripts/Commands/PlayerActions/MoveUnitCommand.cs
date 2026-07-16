@@ -54,6 +54,12 @@ public class MoveUnitCommand : ICommand
             return;
         }
 
+        if (field.IsGoalCell(To))
+        {
+            Reject("unit_goal_cell_blocked");
+            return;
+        }
+
         bool hasFieldStateAuthority = player.Object != null && player.Object.HasStateAuthority;
         Unit sourceUnit = field.GetUnitAt(From);
         UnitData sourceUnitData = sourceUnit != null ? sourceUnit.Data : null;

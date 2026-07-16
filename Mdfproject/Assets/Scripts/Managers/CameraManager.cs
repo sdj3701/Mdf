@@ -1,6 +1,7 @@
 ﻿// Assets/Scripts/Managers/CameraManager.cs
 using UnityEngine;
 using Cysharp.Threading.Tasks;
+using System.Linq;
 
 /// <summary>
 /// 카메라 전환을 관리하는 매니저.
@@ -51,26 +52,29 @@ public class CameraManager : MonoBehaviour
 
     private PlayerManager _ownField;
     private PlayerManager _currentViewingField;
+    private int _ownPlayerId = -1;
+    private int _currentViewingPlayerId = -1;
     private bool _isTransitioning;
     private bool _isAttackMode;
+    private int _transitionRequestVersion;
     private Vector3 _originalPosition;  // 자신의 필드를 보는 수비 모드 카메라 위치
     private Quaternion _originalRotation;  // 자신의 필드를 보는 수비 모드 카메라 회전
-    private Vector3 _ownFieldCenter;  // 본인 필드 중심 위치
     private bool _hasSceneCameraPose;
     private Vector3 _sceneCameraPosition;  // 씬에 배치된 호스트 필드 기준 카메라 위치
     private Quaternion _sceneCameraRotation;  // 씬에 배치된 호스트 필드 기준 카메라 회전
     
-    [Header("필드 간격 설정")]
-    [Tooltip("플레이어 간 필드 Z 오프셋 (GameManagers의 Player Offset.z와 동일해야 함)")]
-    [SerializeField] private float fieldZOffset = -14f;
     #endregion
 
     #region 안전 유틸
     private static bool IsPlayerReadable(PlayerManager player)
     {
-        return player != null
-            && player.Object != null
-            && player.Object.IsValid;
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return false;
+        }
+
+        var gm = GameManagers.Instance;
+        return gm == null || gm.Runner == null || player.Runner == gm.Runner;
     }
 
     private static bool TryGetPlayerId(PlayerManager player, out int playerId)
@@ -94,25 +98,59 @@ public class CameraManager : MonoBehaviour
 
     private bool TryRebindOwnField(string context)
     {
-        if (IsPlayerReadable(_ownField))
+        var gm = GameManagers.Instance;
+        var candidate = gm?.localPlayer;
+        if (!IsPlayerReadable(candidate) && gm != null)
         {
-            return true;
+            candidate = gm.AllPlayers.FirstOrDefault(player =>
+                IsPlayerReadable(player) &&
+                player.Object != null &&
+                (player.Object.HasInputAuthority ||
+                 (gm.Runner != null && player.Object.InputAuthority == gm.Runner.LocalPlayer)));
         }
 
-        var candidate = GameManagers.Instance?.localPlayer;
+        if (!IsPlayerReadable(candidate) && IsPlayerReadable(_ownField))
+        {
+            candidate = _ownField;
+        }
+
         if (!IsPlayerReadable(candidate))
         {
             return false;
         }
 
-        _ownField = candidate;
-        if (!IsPlayerReadable(_currentViewingField))
+        if (!TryGetPlayerId(candidate, out int candidatePlayerId))
         {
-            SetCurrentViewingField(candidate);
+            return false;
+        }
+
+        bool ownFieldChanged = _ownField != candidate || _ownPlayerId != candidatePlayerId;
+        _ownField = candidate;
+        _ownPlayerId = candidatePlayerId;
+
+        PlayerManager reboundViewingField = ResolveActivePlayer(_currentViewingPlayerId);
+        if (!IsPlayerReadable(reboundViewingField))
+        {
+            reboundViewingField = candidate;
+        }
+
+        if (ownFieldChanged || _currentViewingField != reboundViewingField)
+        {
+            SetCurrentViewingField(reboundViewingField);
         }
 
         // Debug.Log($"[CameraManager] ownField 재바인딩 완료 ({context})");
         return true;
+    }
+
+    private static PlayerManager ResolveActivePlayer(int playerId)
+    {
+        if (playerId < 0)
+        {
+            return null;
+        }
+
+        return GameManagers.Instance?.GetPlayer(playerId);
     }
 
     private bool TryResolveMainCamera()
@@ -123,6 +161,36 @@ public class CameraManager : MonoBehaviour
         }
 
         return mainCamera != null;
+    }
+
+    private int BeginTransitionRequest()
+    {
+        _transitionRequestVersion = _transitionRequestVersion >= int.MaxValue - 1
+            ? 1
+            : _transitionRequestVersion + 1;
+        _isTransitioning = true;
+        return _transitionRequestVersion;
+    }
+
+    private bool IsCurrentTransitionRequest(int requestVersion)
+    {
+        return requestVersion > 0 && requestVersion == _transitionRequestVersion;
+    }
+
+    private void CompleteTransitionRequest(int requestVersion)
+    {
+        if (IsCurrentTransitionRequest(requestVersion))
+        {
+            _isTransitioning = false;
+        }
+    }
+
+    private void SupersedeActiveTransition()
+    {
+        _transitionRequestVersion = _transitionRequestVersion >= int.MaxValue - 1
+            ? 1
+            : _transitionRequestVersion + 1;
+        _isTransitioning = false;
     }
 
     private void CaptureSceneCameraPoseIfNeeded()
@@ -137,6 +205,24 @@ public class CameraManager : MonoBehaviour
         _hasSceneCameraPose = true;
         _originalPosition = _sceneCameraPosition;
         _originalRotation = _sceneCameraRotation;
+    }
+
+    private static Vector3 CalculateFieldTranslation(Vector3 sourceFieldCenter, Vector3 targetFieldCenter)
+    {
+        return targetFieldCenter - sourceFieldCenter;
+    }
+
+    private static Vector3 ResolveConfiguredFieldTranslation(int sourcePlayerId, int targetPlayerId)
+    {
+        GameManagers managers = GameManagers.Instance;
+        if (managers == null)
+        {
+            return Vector3.zero;
+        }
+
+        return CalculateFieldTranslation(
+            managers.GetPlayerFieldPosition(sourcePlayerId),
+            managers.GetPlayerFieldPosition(targetPlayerId));
     }
     #endregion
 
@@ -158,15 +244,15 @@ public class CameraManager : MonoBehaviour
 
     /// <summary>
     /// 카메라 매니저 초기화. 본인 필드 설정.
-    /// 씬 카메라 위치(호스트 필드 기준)에서 playerId * fieldZOffset만큼 z값을 이동합니다.
+    /// 씬 카메라 위치(호스트 필드 기준)에 GameManagers가 사용하는 실제 필드 위치 차이를 적용합니다.
     /// </summary>
     public void Initialize(PlayerManager ownField)
     {
+        SupersedeActiveTransition();
         _ownField = ownField;
+        _ownPlayerId = TryGetPlayerId(ownField, out int initializedPlayerId) ? initializedPlayerId : -1;
         SetCurrentViewingField(ownField);
         
-        // 본인 필드 중심 위치 계산
-        _ownFieldCenter = GetFieldCenter(ownField);
         CaptureSceneCameraPoseIfNeeded();
         
         if (mainCamera != null && _hasSceneCameraPose)
@@ -175,26 +261,22 @@ public class CameraManager : MonoBehaviour
             Vector3 sceneCameraPos = _sceneCameraPosition;
             Quaternion sceneCameraRot = _sceneCameraRotation;
             
-            // playerId에 따라 z 오프셋 계산
-            // Player 0: z값 변화 없음
-            // Player 1: z값 -14
-            // Player 2: z값 -28
             int ownId = 0;
             if (!TryGetPlayerId(ownField, out ownId))
             {
                 ownId = 0;
             }
-            float zOffset = ownId * fieldZOffset;
+            Vector3 fieldTranslation = ResolveConfiguredFieldTranslation(0, ownId);
             
             // 자신의 필드로 카메라 이동
-            _originalPosition = sceneCameraPos + new Vector3(0f, 0f, zOffset);
+            _originalPosition = sceneCameraPos + fieldTranslation;
             _originalRotation = sceneCameraRot;
             
             mainCamera.transform.position = _originalPosition;
             mainCamera.transform.rotation = _originalRotation;
             
             // Debug.Log($"<color=cyan>[CameraManager] 초기화 완료. Player {ownId}, " +
-                // $"z오프셋: {zOffset}, 카메라 위치: {_originalPosition}</color>");
+                // $"필드 이동량: {fieldTranslation}, 카메라 위치: {_originalPosition}</color>");
         }
     }
     #endregion
@@ -219,38 +301,33 @@ public class CameraManager : MonoBehaviour
     /// <param name="isAttackMode">공격 모드 여부 (인스펙터 설정값 사용). 기본값: false (관전/수비 모드)</param>
     public async UniTask MoveToPlayerField(PlayerManager targetPlayer, bool isAttackMode = false)
     {
-        if (targetPlayer == null || _isTransitioning) return;
-        if (mainCamera == null) return;
+        if (TryGetPlayerId(targetPlayer, out int durableTargetPlayerId))
+        {
+            targetPlayer = ResolveActivePlayer(durableTargetPlayerId) ?? targetPlayer;
+        }
+
+        if (!IsPlayerReadable(targetPlayer)) return;
+        if (!TryResolveMainCamera()) return;
         if (!TryRebindOwnField("MoveToPlayerField")) return;
 
-        _isTransitioning = true;
+        if (!TryGetPlayerId(targetPlayer, out durableTargetPlayerId)) return;
+
+        int transitionRequestVersion = BeginTransitionRequest();
         SetCurrentViewingField(targetPlayer);
         _isAttackMode = isAttackMode;
 
         Vector3 startPosition = mainCamera.transform.position;
         Quaternion startRotation = mainCamera.transform.rotation;
         
-        // playerId 차이로 z 오프셋 계산
-        // Player 1 → Player 0: (0 - 1) * -14 = +14 (위로)
-        // Player 3 → Player 1: (1 - 3) * -14 = +28 (위로)
-        float zOffset;
-        if (TryGetPlayerId(targetPlayer, out int targetPlayerId) && TryGetPlayerId(_ownField, out int ownPlayerId))
-        {
-            int playerIdDiff = targetPlayerId - ownPlayerId;
-            zOffset = playerIdDiff * fieldZOffset;
-        }
-        else
-        {
-            // Host Migration 직후 Spawned 전 객체가 섞이는 구간에서는 월드 좌표 차이로 폴백한다.
-            zOffset = GetFieldCenter(targetPlayer).z - GetFieldCenter(_ownField).z;
-            // Debug.LogWarning($"[CameraManager] playerId 접근 불가로 월드 좌표 폴백 사용. zOffset={zOffset:F2}");
-        }
+        Vector3 fieldTranslation = CalculateFieldTranslation(
+            GetFieldCenter(_ownField),
+            GetFieldCenter(targetPlayer));
         
         Vector3 targetPosition;
         Quaternion targetRotation;
         
         // 수비 모드 위치 계산 (기본)
-        Vector3 defensePosition = _originalPosition + new Vector3(0f, 0f, zOffset);
+        Vector3 defensePosition = _originalPosition + fieldTranslation;
         
         if (isAttackMode)
         {
@@ -269,22 +346,62 @@ public class CameraManager : MonoBehaviour
         }
         
         // Lerp를 사용한 부드러운 이동 + 회전
-        float elapsed = 0f;
-        while (elapsed < transitionDuration)
+        try
         {
-            elapsed += Time.deltaTime;
-            float t = Mathf.SmoothStep(0f, 1f, elapsed / transitionDuration);
-            mainCamera.transform.position = Vector3.Lerp(startPosition, targetPosition, t);
-            mainCamera.transform.rotation = Quaternion.Slerp(startRotation, targetRotation, t);
-            await UniTask.Yield();
-        }
-        
-        mainCamera.transform.position = targetPosition;
-        mainCamera.transform.rotation = targetRotation;
-        _isTransitioning = false;
+            float elapsed = 0f;
+            while (elapsed < transitionDuration)
+            {
+                if (!IsCurrentTransitionRequest(transitionRequestVersion))
+                {
+                    return;
+                }
 
-        string targetIdText = TryGetPlayerId(targetPlayer, out int targetId) ? targetId.ToString() : "unknown";
+                elapsed += Time.deltaTime;
+                float t = Mathf.SmoothStep(0f, 1f, elapsed / transitionDuration);
+                mainCamera.transform.position = Vector3.Lerp(startPosition, targetPosition, t);
+                mainCamera.transform.rotation = Quaternion.Slerp(startRotation, targetRotation, t);
+                await UniTask.Yield();
+            }
+
+            if (!IsCurrentTransitionRequest(transitionRequestVersion))
+            {
+                return;
+            }
+
+            mainCamera.transform.position = targetPosition;
+            mainCamera.transform.rotation = targetRotation;
+        }
+        finally
+        {
+            CompleteTransitionRequest(transitionRequestVersion);
+        }
+
+        string targetIdText = durableTargetPlayerId.ToString();
         // Debug.Log($"<color=yellow>[CameraManager] Player {targetIdText} 필드로 이동 완료 (공격모드: {isAttackMode}, 위치: {targetPosition})</color>");
+    }
+
+    /// <summary>
+    /// Resolves the current PlayerManager by durable playerId before moving. Host Migration
+    /// can replace every PlayerManager instance while preserving this id.
+    /// </summary>
+    public async UniTask MoveToPlayerField(int targetPlayerId, bool isAttackMode = false)
+    {
+        var targetPlayer = ResolveActivePlayer(targetPlayerId);
+        if (!IsPlayerReadable(targetPlayer))
+        {
+            return;
+        }
+
+        await MoveToPlayerField(targetPlayer, isAttackMode);
+    }
+
+    /// <summary>
+    /// Reconnects local presentation references after the authoritative player registry is rebuilt.
+    /// This method never mutates gameplay or network state.
+    /// </summary>
+    public void RebindAfterPlayerRegistryChanged()
+    {
+        TryRebindOwnField("PlayerRegistryChanged");
     }
 
     /// <summary>
@@ -313,7 +430,7 @@ public class CameraManager : MonoBehaviour
         if (!TryRebindOwnField("ReturnToOwnField")) return;
         
         _isAttackMode = false;
-        MoveToPlayerField(_ownField, isAttackMode: false).Forget();
+        MoveToPlayerField(_ownPlayerId, isAttackMode: false).Forget();
         // Debug.Log("<color=green>[CameraManager] 본인 필드로 복귀 (수비 모드)</color>");
     }
 
@@ -324,6 +441,7 @@ public class CameraManager : MonoBehaviour
     {
         if (targetPlayer == null || mainCamera == null) return;
 
+        SupersedeActiveTransition();
         _isAttackMode = isAttackMode;
         Vector3 currentOffset = isAttackMode ? attackOffset : defenseOffset;
         Vector3 currentRotation = isAttackMode ? attackRotation : defenseRotation;
@@ -347,19 +465,25 @@ public class CameraManager : MonoBehaviour
     #endregion
 
     #region 공개 프로퍼티
-    public bool IsViewingOwnField => _currentViewingField == _ownField;
+    public bool IsViewingOwnField => _ownPlayerId >= 0 && _currentViewingPlayerId == _ownPlayerId;
     public PlayerManager CurrentViewingField => _currentViewingField;
+    public int CurrentViewingPlayerId => _currentViewingPlayerId;
     public PlayerManager OwnField => _ownField;
+    public int OwnPlayerId => _ownPlayerId;
+    public bool IsTransitioning => _isTransitioning;
+    public bool IsAttackMode => _isAttackMode;
     #endregion
 
     private void SetCurrentViewingField(PlayerManager targetPlayer)
     {
-        if (_currentViewingField == targetPlayer)
+        int targetPlayerId = TryGetPlayerId(targetPlayer, out int playerId) ? playerId : -1;
+        if (_currentViewingField == targetPlayer && _currentViewingPlayerId == targetPlayerId)
         {
             return;
         }
 
         _currentViewingField = targetPlayer;
+        _currentViewingPlayerId = targetPlayerId;
         OnCurrentViewingFieldChanged?.Invoke(targetPlayer);
     }
 }

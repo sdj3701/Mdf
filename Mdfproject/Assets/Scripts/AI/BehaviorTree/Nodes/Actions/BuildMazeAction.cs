@@ -81,7 +81,7 @@ namespace AI.BehaviorTree.Nodes.Actions
                 {
                     _planRetryCount++;
                     _nextPlanRetryAt = Time.time + PlanRetryDelay;
-                    int planningStock = _playerManager.GetWallCount();
+                    int planningStock = GetTotalWallStock();
                     int planningReserve = _playerManager.GetWallReserveK();
                     int budget = Mathf.Max(0, planningStock - planningReserve);
                     int pathLen = planResult?.ValidatedPath?.Count ?? 0;
@@ -94,7 +94,7 @@ namespace AI.BehaviorTree.Nodes.Actions
 
                 if (plannedOrder.Count == 0)
                 {
-                    int planningStock = _playerManager.GetWallCount();
+                    int planningStock = GetTotalWallStock();
                     int planningReserve = _playerManager.GetWallReserveK();
                     int budget = Mathf.Max(0, planningStock - planningReserve);
                     int pathLen = planResult?.ValidatedPath?.Count ?? 0;
@@ -128,7 +128,6 @@ namespace AI.BehaviorTree.Nodes.Actions
                             _playerManager.goalTransform);
                     }
 
-                    Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} entry gap fixed at {planResult.Start}, gapWalls={planResult.GapWalls?.Count ?? 0}</color>");
                 }
 
                 // Debug.Log($"<color=magenta>[BuildMazeAction] Player {_playerManager.playerId} planned {_playerManager.mazePlannedOrder.Count} walls</color>");
@@ -204,7 +203,7 @@ namespace AI.BehaviorTree.Nodes.Actions
                 _skipClearTime = Time.time + 1.5f;
             }
 
-            int stock = _playerManager.GetWallCount();
+            int stock = GetTotalWallStock();
             int reserve = _playerManager.GetWallReserveK();
             bool hasMissing = false;
             bool hasAffordable = false;
@@ -269,15 +268,19 @@ namespace AI.BehaviorTree.Nodes.Actions
             var placeAt = target.Value;
 
             // 스폰/골 셀인지 확인 (안전장치)
-            Vector3Int goalCell = fm.WorldToGridInt(_playerManager.goalTransform != null ? _playerManager.goalTransform.position : Vector3.zero);
-            if (placeAt == goalCell)
+            if (fm.IsGoalCell(placeAt))
             {
                 // 스폰/골 위치는 건너뜀
                 _temporarilySkipped.Add(placeAt);
                 return status = NodeStatus.Failure;
             }
 
-            var cmd = new PlaceWallCommand(_playerManager.playerId, placeAt);
+            var cmd = new PlaceWallCommand(
+                _playerManager.playerId,
+                placeAt,
+                _playerManager.GetPermanentWallPlacementCount() > 0
+                    ? WallPlacementKind.Permanent
+                    : WallPlacementKind.Destructible);
             _commandProcessor.RequestCommandExecution(cmd);
 
             _builtAtLeastOnce.Add(placeAt);
@@ -287,6 +290,12 @@ namespace AI.BehaviorTree.Nodes.Actions
             AIPacer.Arm(_playerManager.playerId, AIPacer.CatWall, _minInterval, _maxInterval);
 
             return status = NodeStatus.Success;
+        }
+
+        private int GetTotalWallStock()
+        {
+            return Mathf.Max(0, _playerManager.GetWallCount()) +
+                   Mathf.Max(0, _playerManager.GetPermanentWallPlacementCount());
         }
     }
 }

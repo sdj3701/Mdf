@@ -19,11 +19,21 @@ public class RemoveWallCommand : ICommand
             Debug.Log($"[RemoveWallCommand] Ignored on non-server peer. Player={PlayerId}, Pos={Position}");
             return;
         }
+        if (gm.Object == null || !gm.Object.IsValid || !gm.Object.HasStateAuthority ||
+            gm.currentState != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning)
+        {
+            Debug.LogWarning($"[RemoveWallCommand] Rejected outside authoritative stable Prepare. Player={PlayerId}, Pos={Position}");
+            return;
+        }
 
         var player = gm.GetPlayer(PlayerId);
         if (player == null)
         {
             Debug.LogError($"[RemoveWallCommand] Player not found for PlayerId {PlayerId}");
+            return;
+        }
+        if (player.Object == null || !player.Object.IsValid || !player.Object.HasStateAuthority)
+        {
             return;
         }
 
@@ -52,22 +62,47 @@ public class RemoveWallCommand : ICommand
             return;
         }
 
-        if (fm.GetWallAt(Position) == null)
+        DestructibleWall destructibleWall = fm.GetWallAt(Position);
+        bool hasDestructibleWall = destructibleWall != null;
+        bool hasPlayerPermanentWall = fm.IsPlayerPlacedPermanentWallAt(Position);
+        if (!hasDestructibleWall && !hasPlayerPermanentWall)
         {
-            Debug.LogWarning($"[RemoveWallCommand] No destructible wall at {Position} for Player {PlayerId}");
+            Debug.LogWarning($"[RemoveWallCommand] No removable wall at {Position} for Player {PlayerId}");
             return;
         }
 
-        fm.RemoveWallAt(Position);
-        if (fm.GetWallAt(Position) == null)
+        int upgradeRefund = hasDestructibleWall
+            ? Mathf.Max(0, destructibleWall.InvestedUpgradeGold)
+            : 0;
+        bool removed;
+        if (hasPlayerPermanentWall)
         {
-            player.ReturnWall();
-            gm.NotifyWallRemovalSucceeded(player.playerId, Position.x, Position.y);
-            Debug.Log($"[RemoveWallCommand] SUCCESS player={player.playerId}, pos={Position}");
+            removed = fm.TryRemovePlayerPlacedPermanentWallAt(Position);
         }
         else
         {
-            Debug.LogError($"[RemoveWallCommand] RemoveWallAt failed at {Position} for Player {PlayerId}. Wall stock not refunded.");
+            fm.RemoveWallAt(Position);
+            removed = fm.GetWallAt(Position) == null;
+        }
+
+        if (removed)
+        {
+            if (hasPlayerPermanentWall)
+            {
+                player.ReturnPermanentWallPlacement();
+                player.NotifyPermanentWallLayoutChanged("remove_player_permanent_wall");
+            }
+            else
+            {
+                player.ReturnWall();
+                player.AddGold(upgradeRefund);
+            }
+            gm.NotifyWallRemovalSucceeded(player.playerId, Position.x, Position.y);
+            Debug.Log($"[RemoveWallCommand] SUCCESS player={player.playerId}, pos={Position}, kind={(hasPlayerPermanentWall ? WallPlacementKind.Permanent : WallPlacementKind.Destructible)}, upgradeRefund={upgradeRefund}");
+        }
+        else
+        {
+            Debug.LogError($"[RemoveWallCommand] Remove wall failed at {Position} for Player {PlayerId}. Wall stock not refunded.");
         }
     }
 }

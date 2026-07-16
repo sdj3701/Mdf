@@ -34,6 +34,9 @@ public static class GameEvents
     public static event Action<int, int> OnPlayerWallCountChanged;
     public static void TriggerPlayerWallCountChanged(int playerID, int newWallCount) => OnPlayerWallCountChanged?.Invoke(playerID, newWallCount);
 
+    public static event Action<int, int> OnPlayerPermanentWallCountChanged;
+    public static void TriggerPlayerPermanentWallCountChanged(int playerID, int newWallCount) => OnPlayerPermanentWallCountChanged?.Invoke(playerID, newWallCount);
+
     // --- 증강(Augment) 관련 이벤트 ---
     public static event Action<PlayerManager, List<AugmentData>> OnAugmentPhaseStart;
     public static void TriggerAugmentPhaseStart(PlayerManager localPlayer, List<AugmentData> augments) => OnAugmentPhaseStart?.Invoke(localPlayer, augments);
@@ -66,8 +69,9 @@ public static class GameEvents
         }
     }
 
-    public static event Action<int, string> OnPurchaseFailed; // playerID, 실패 사유
-    public static void TriggerPurchaseFailed(int playerID, string reason) => OnPurchaseFailed?.Invoke(playerID, reason);
+    public static event Action<int, int, string> OnPurchaseFailed; // playerID, slotIndex, 실패 사유
+    public static void TriggerPurchaseFailed(int playerID, int slotIndex, string reason) =>
+        OnPurchaseFailed?.Invoke(playerID, slotIndex, reason);
 
     public static event Action<PlayerManager> OnShopRefreshed;
     public static void TriggerShopRefreshed(PlayerManager owner) => OnShopRefreshed?.Invoke(owner);
@@ -112,6 +116,29 @@ public static class GameEvents
         }
     }
 
+    public static event Action<int, int, int, int, int> OnBlackMagicChanged;
+    public static void TriggerBlackMagicChanged(int playerID, int current, int maximum, int maxBonus, int revision)
+    {
+        var handlers = OnBlackMagicChanged;
+        if (handlers == null)
+        {
+            return;
+        }
+
+        foreach (Action<int, int, int, int, int> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(playerID, current, maximum, maxBonus, revision);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[GameEvents] OnBlackMagicChanged handler failed: {handler.Method.DeclaringType?.Name}.{handler.Method.Name}");
+                Debug.LogException(ex);
+            }
+        }
+    }
+
     /// <summary>
     /// 마법 스크롤 보유 목록이 변경되었을 때 (UI 갱신용)
     /// </summary>
@@ -144,6 +171,10 @@ public static class GameEvents
     /// <param name="isNewHost">true면 새 Host가 됨, false면 일반 클라이언트</param>
     public static event Action<bool> OnHostMigrationCompleted;
     public static void TriggerHostMigrationCompleted(bool isNewHost) => OnHostMigrationCompleted?.Invoke(isNewHost);
+
+    public static event Action<string> OnHostMigrationFailed;
+    public static void TriggerHostMigrationFailed(string reason) =>
+        OnHostMigrationFailed?.Invoke(string.IsNullOrWhiteSpace(reason) ? "host_migration_failed" : reason);
     
     /// <summary>
     /// Host Migration 후 게임 상태 복원 완료 시 발생

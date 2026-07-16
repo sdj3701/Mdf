@@ -4,7 +4,16 @@ using UnityEngine;
 
 public partial class GameManagers
 {
+    private const float CombatExitDebtRetrySeconds = 0.1f;
     private bool _sequenceTransitionCompletionStarted;
+    [Networked] private NetworkBool SequenceTransitionSideEffectsApplied { get; set; }
+    [Networked] private NetworkBool CombatExitDebtGateActive { get; set; }
+    [Networked] private int CombatExitDebtPendingCount { get; set; }
+    [Networked] private NetworkBool CombatExitDebtTerminalFailureSafeStop { get; set; }
+
+    public bool IsCombatExitDebtGateActive => CombatExitDebtGateActive;
+    public int UnresolvedCombatExitDebtCount => CombatExitDebtPendingCount;
+    public bool IsCombatExitDebtTerminalFailureSafeStopped => CombatExitDebtTerminalFailureSafeStop;
 
     /// <summary>
     /// Host Migration snapshot gap을 줄이기 위해 중요 전환 직전 수동 snapshot push를 시도합니다.
@@ -67,6 +76,34 @@ public partial class GameManagers
         return Mathf.Max(0f, sequenceTransitionDelaySeconds);
     }
 
+    internal static float ResolveDisplayedPhaseTime(float phaseRemaining, bool sequenceTransitioning)
+    {
+        return MatchFlowPolicy.ResolveDisplayedPhaseTime(phaseRemaining, sequenceTransitioning);
+    }
+
+    internal static GameState? ResolveExpiredPhaseTransitionTarget(
+        GameState state,
+        bool sequenceTransitioning,
+        bool roundTransitioning)
+    {
+        if (sequenceTransitioning)
+        {
+            return null;
+        }
+
+        switch (state)
+        {
+            case GameState.Prepare:
+                return GameState.Battle1;
+            case GameState.Battle1:
+                return GameState.Battle2;
+            case GameState.Battle2:
+                return roundTransitioning ? (GameState?)null : GameState.Prepare;
+            default:
+                return null;
+        }
+    }
+
     private void BeginSequenceTransition(GameState nextState, string reason)
     {
         if (Runner == null || Object == null || !Object.HasStateAuthority)
@@ -74,27 +111,71 @@ public partial class GameManagers
             return;
         }
 
-        if (currentState == GameState.GameOver || currentState == nextState || IsSequenceTransitioning)
+        if (MatchFlowPolicy.ShouldIgnoreTransitionRequest(
+                currentState == GameState.GameOver,
+                currentState == nextState,
+                IsSequenceTransitioning))
         {
             return;
         }
 
         GameState fromState = currentState;
+        if (IsBattleSequenceState(fromState) &&
+            TryGetCombatExitTerminalFailure(out string terminalFailureReason))
+        {
+            phaseTimer = TickTimer.None;
+            TransitionFromState = fromState;
+            TransitionToStateTarget = nextState;
+            SequenceTransitionSideEffectsApplied = false;
+            CombatExitDebtGateActive = false;
+            CombatExitDebtPendingCount = 0;
+            sequenceTransitionTimer = TickTimer.None;
+            IsSequenceTransitioning = true;
+            _sequenceTransitionCompletionStarted = false;
+            EnterCombatExitTerminalFailureSafeStop(fromState, nextState, terminalFailureReason);
+            return;
+        }
+
         float delaySeconds = GetSequenceTransitionDelaySeconds();
+        int dueDebtCount = 0;
+        bool leavingBattle = IsBattleSequenceState(fromState);
+        bool hasUnresolvedCombatDebt = leavingBattle &&
+                                       TryGetUnresolvedCombatExitDebt(out dueDebtCount);
+        bool waitForCombatDebt = MatchFlowPolicy.ShouldWaitForCombatDebt(
+            leavingBattle,
+            hasUnresolvedCombatDebt);
 
         phaseTimer = TickTimer.None;
         TransitionFromState = fromState;
         TransitionToStateTarget = nextState;
-        sequenceTransitionTimer = delaySeconds > 0f
-            ? TickTimer.CreateFromSeconds(Runner, delaySeconds)
-            : TickTimer.None;
+        SequenceTransitionSideEffectsApplied = false;
+        CombatExitDebtTerminalFailureSafeStop = false;
+        CombatExitDebtGateActive = waitForCombatDebt;
+        CombatExitDebtPendingCount = MatchFlowPolicy.ResolvePendingCombatDebt(
+            waitForCombatDebt,
+            dueDebtCount);
+        sequenceTransitionTimer = waitForCombatDebt
+            ? TickTimer.CreateFromSeconds(Runner, CombatExitDebtRetrySeconds)
+            : delaySeconds > 0f
+                ? TickTimer.CreateFromSeconds(Runner, delaySeconds)
+                : TickTimer.None;
         IsSequenceTransitioning = true;
         _sequenceTransitionCompletionStarted = false;
 
-        ApplySequenceTransitionStartSideEffects(fromState, nextState, reason);
+        if (!waitForCombatDebt)
+        {
+            ApplySequenceTransitionStartSideEffects(fromState, nextState, reason);
+            SequenceTransitionSideEffectsApplied = true;
+        }
+        else
+        {
+            Debug.LogWarning(
+                $"[GameManagers] Sequence transition is waiting for due zone debt. " +
+                $"from={fromState},to={nextState},dueTicks={dueDebtCount},reason={reason}");
+        }
         Debug.Log($"[GameManagers] Sequence transition started: {fromState} -> {nextState}, delay={delaySeconds:F1}s, reason={reason}");
 
-        if (delaySeconds <= 0f)
+        if (MatchFlowPolicy.ShouldCompleteImmediately(waitForCombatDebt, delaySeconds))
         {
             CompleteSequenceTransition();
         }
@@ -112,9 +193,40 @@ public partial class GameManagers
             return;
         }
 
-        _sequenceTransitionCompletionStarted = true;
         GameState fromState = TransitionFromState;
         GameState targetState = TransitionToStateTarget;
+
+        if (IsBattleSequenceState(fromState) &&
+            TryGetCombatExitTerminalFailure(out string terminalFailureReason))
+        {
+            EnterCombatExitTerminalFailureSafeStop(fromState, targetState, terminalFailureReason);
+            return;
+        }
+
+        if (!SequenceTransitionSideEffectsApplied)
+        {
+            if (TryGetUnresolvedCombatExitDebt(out int dueDebtCount))
+            {
+                CombatExitDebtGateActive = true;
+                CombatExitDebtPendingCount = Mathf.Max(1, dueDebtCount);
+                sequenceTransitionTimer = TickTimer.CreateFromSeconds(Runner, CombatExitDebtRetrySeconds);
+                return;
+            }
+
+            CombatExitDebtGateActive = false;
+            CombatExitDebtPendingCount = 0;
+            ApplySequenceTransitionStartSideEffects(fromState, targetState, "CombatExitDebtDrained");
+            SequenceTransitionSideEffectsApplied = true;
+
+            float delaySeconds = GetSequenceTransitionDelaySeconds();
+            if (delaySeconds > 0f)
+            {
+                sequenceTransitionTimer = TickTimer.CreateFromSeconds(Runner, delaySeconds);
+                return;
+            }
+        }
+
+        _sequenceTransitionCompletionStarted = true;
 
         if (targetState == GameState.Prepare)
         {
@@ -124,15 +236,16 @@ public partial class GameManagers
             return;
         }
 
+        bool transitionCompleted = true;
         try
         {
             switch (targetState)
             {
                 case GameState.Battle1:
-                    StartBattle1Phase();
+                    transitionCompleted = StartBattle1Phase();
                     break;
                 case GameState.Battle2:
-                    StartBattle2Phase();
+                    transitionCompleted = StartBattle2Phase();
                     break;
                 case GameState.GameOver:
                     TransitionToGameOverState("SequenceTransition");
@@ -144,7 +257,10 @@ public partial class GameManagers
         }
         finally
         {
-            EndSequenceTransition(fromState, targetState);
+            if (transitionCompleted)
+            {
+                EndSequenceTransition(fromState, targetState);
+            }
         }
     }
 
@@ -163,6 +279,10 @@ public partial class GameManagers
     private void EndSequenceTransition(GameState fromState, GameState targetState)
     {
         sequenceTransitionTimer = TickTimer.None;
+        CombatExitDebtGateActive = false;
+        CombatExitDebtPendingCount = 0;
+        CombatExitDebtTerminalFailureSafeStop = false;
+        SequenceTransitionSideEffectsApplied = false;
         IsSequenceTransitioning = false;
         _sequenceTransitionCompletionStarted = false;
 
@@ -184,6 +304,7 @@ public partial class GameManagers
         {
             CleanupCombatForSequenceTransition(reason);
             RespawnUnitsForSequenceTransition(reason);
+            CameraManager.Instance?.ReturnToOwnField();
         }
     }
 
@@ -205,11 +326,53 @@ public partial class GameManagers
                 attackSeqMgr.EndAttackSequence();
             }
         }
+    }
 
-        if (CameraManager.Instance != null)
+    private static bool IsBattleSequenceState(GameState state)
+    {
+        return state == GameState.Battle1 || state == GameState.Battle2;
+    }
+
+    private static bool TryGetUnresolvedCombatExitDebt(out int dueTickCount)
+    {
+        CombatScheduler scheduler = CombatScheduler.Instance;
+        if (scheduler == null)
         {
-            CameraManager.Instance.ReturnToOwnField();
+            dueTickCount = 0;
+            return false;
         }
+
+        return scheduler.HasUnresolvedDueZoneDebt(out dueTickCount);
+    }
+
+    private static bool TryGetCombatExitTerminalFailure(out string reason)
+    {
+        CombatScheduler scheduler = CombatScheduler.Instance;
+        if (scheduler == null)
+        {
+            reason = null;
+            return false;
+        }
+
+        return scheduler.TryGetZoneDebtTerminalFailure(out reason);
+    }
+
+    private void EnterCombatExitTerminalFailureSafeStop(
+        GameState fromState,
+        GameState targetState,
+        string reason)
+    {
+        sequenceTransitionTimer = TickTimer.None;
+        CombatExitDebtGateActive = false;
+        CombatExitDebtPendingCount = 0;
+        if (!CombatExitDebtTerminalFailureSafeStop)
+        {
+            Debug.LogError(
+                $"[GameManagers] Combat exit entered terminal safe-stop. " +
+                $"from={fromState},to={targetState},reason={reason}");
+        }
+
+        CombatExitDebtTerminalFailureSafeStop = true;
     }
 
     private void RespawnUnitsForSequenceTransition(string reason)

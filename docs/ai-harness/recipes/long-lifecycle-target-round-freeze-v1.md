@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: host-migration, reconnect
 Created: 2026-05-08
-Last used: 2026-05-08
-Last verified: 2026-05-08
-Use count: 1
+Last used: 2026-07-13
+Last verified: 2026-07-13
+Use count: 2
 Review after: 2026-08-06
 Triggers: lifecycle insertion happens immediately after `round-complete`, especially R4 Prepare after a 3-round run
 Applies to: `tools/harness/mp/long_lifecycle_common.py`, `run_3round_*`, Host Migration/reconnect/disconnect insertion after long progression
-Verified by: see Verification section below; migrated from old Status: verified
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260713-063204-human-bot-3round-progression/result.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -36,3 +36,6 @@ Pitfalls:
 - If the bot keeps running into R4 Prepare, it can select a new augment between the completion snapshot and the lifecycle kill. That race can make Host Migration either restore a different baseline or fall back to lobby before proof counters advance.
 - `GameManagers.AllPlayers` can hide duplicate runtime `PlayerManager` objects because it reads the canonical network array. Always check object counts as well as logical player snapshots after migration.
 - A clean C# compile does not update an already-built player; rebuild and pass the fresh `--player-path` after Host Migration or PlayerManager changes.
+
+Lifecycle notes:
+- 2026-07-13: verified artifact `artifacts/mp/20260713-063204-human-bot-3round-progression/result.json`

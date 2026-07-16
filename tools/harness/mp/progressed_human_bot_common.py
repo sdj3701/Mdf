@@ -94,6 +94,9 @@ def meaningful_deltas(before_snapshot: Any, after_snapshot: Any, player_id: int)
     fields = [
         ("gold", ("gold",)),
         ("wallCount", ("wallCount",)),
+        ("permanentWallPlacementCount", ("permanentWallPlacementCount",)),
+        ("permanentWallStockRevision", ("permanentWallStockRevision",)),
+        ("permanentWallLayoutRevision", ("permanentWallLayoutRevision",)),
         ("shop.revision", ("shop", "revision")),
         ("shop.itemsHash", ("shop", "itemsHash")),
         ("augment.selectedCount", ("augment", "selectedCount")),
@@ -379,6 +382,9 @@ PRESERVED_TARGET_FIELDS = [
     ("health", ("health",)),
     ("gold", ("gold",)),
     ("wallCount", ("wallCount",)),
+    ("permanentWallPlacementCount", ("permanentWallPlacementCount",)),
+    ("permanentWallStockRevision", ("permanentWallStockRevision",)),
+    ("permanentWallLayoutRevision", ("permanentWallLayoutRevision",)),
     ("shop.available", ("shop", "available")),
     ("shop.revision", ("shop", "revision")),
     ("shop.round", ("shop", "round")),
@@ -395,6 +401,8 @@ PRESERVED_TARGET_FIELDS = [
     ("field.placedUnitsHash", ("field", "placedUnitsHash")),
     ("field.destructibleWallCount", ("field", "destructibleWallCount")),
     ("field.permanentWallCount", ("field", "permanentWallCount")),
+    ("field.playerPlacedPermanentWallCount", ("field", "playerPlacedPermanentWallCount")),
+    ("field.playerPlacedPermanentWallHash", ("field", "playerPlacedPermanentWallHash")),
     ("field.wallHash", ("field", "wallHash")),
 ]
 

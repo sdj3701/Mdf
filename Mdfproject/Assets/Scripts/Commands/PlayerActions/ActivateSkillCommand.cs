@@ -1,9 +1,13 @@
 using Fusion;
+using Cysharp.Threading.Tasks;
+using System;
 using System.Linq;
+using System.Threading;
 
-public class ActivateSkillCommand : ICommand
+public class ActivateSkillCommand : ICommand, IAsyncCommand
 {
     private const CommandType Type = CommandType.ActivateSkill;
+    private const string CapacityBackpressureError = "skill_capacity_backpressure";
 
     public int PlayerId { get; set; }
     public uint UnitNetworkId { get; private set; }
@@ -16,68 +20,115 @@ public class ActivateSkillCommand : ICommand
 
     public void Execute()
     {
-        var gm = GameManagers.Instance;
-        if (gm == null || gm.Runner == null)
-        {
-            return;
-        }
+        ExecuteAsync(CancellationToken.None).Forget();
+    }
 
-        if (gm.Object != null && !gm.Object.HasStateAuthority)
+    public async UniTask<CommandExecutionResult> ExecuteAsync(CancellationToken cancellationToken)
+    {
+        try
         {
-            return;
-        }
-
-        const CommandExecutionScope scope = CommandExecutionScope.ServerAuthorityOnly;
-        const string source = "command_stream";
-        SkillCommandMpTestLogger.Request(this, scope, source);
-
-        if (!TryValidate(
-                gm,
-                PlayerId,
-                UnitNetworkId,
-                scope,
-                source,
-                requireStateAuthority: true,
-                out Unit unit,
-                out SkillData skillData,
-                out BattleCommandResult validationResult))
-        {
-            if (IsVolatileNoOp(validationResult))
+            cancellationToken.ThrowIfCancellationRequested();
+            var gm = GameManagers.Instance;
+            if (gm == null || gm.Runner == null)
             {
-                SkillCommandMpTestLogger.Skipped(validationResult, UnitNetworkId, ResolveSkillName(skillData));
-                return;
+                return CommandExecutionResult.Completed();
             }
 
-            var rejected = RecordRejected(validationResult, source);
-            SkillCommandMpTestLogger.Rejected(rejected, UnitNetworkId, ResolveSkillName(skillData));
+            if (gm.Object != null && !gm.Object.HasStateAuthority)
+            {
+                return CommandExecutionResult.Completed();
+            }
+
+            const CommandExecutionScope scope = CommandExecutionScope.ServerAuthorityOnly;
+            const string source = "command_stream";
+            SkillCommandMpTestLogger.Request(this, scope, source);
+
+            if (!TryValidate(
+                    gm,
+                    PlayerId,
+                    UnitNetworkId,
+                    scope,
+                    source,
+                    requireStateAuthority: true,
+                    out Unit unit,
+                    out SkillData skillData,
+                    out BattleCommandResult validationResult))
+            {
+                if (IsVolatileNoOp(validationResult))
+                {
+                    SkillCommandMpTestLogger.Skipped(validationResult, UnitNetworkId, ResolveSkillName(skillData));
+                    return CommandExecutionResult.Completed();
+                }
+
+                var rejected = RecordRejected(validationResult, source);
+                SkillCommandMpTestLogger.Rejected(rejected, UnitNetworkId, ResolveSkillName(skillData));
+                SyncTelemetryToClients();
+                return CommandExecutionResult.Completed();
+            }
+
+            int acceptedSequence = BattleCommandTelemetry.RecordAccepted(Type);
+            var accepted = BattleCommandResult.Accepted(
+                Type,
+                PlayerId,
+                "activate_skill_validated",
+                -1,
+                scope,
+                source,
+                acceptedSequence);
+            SkillCommandMpTestLogger.Accepted(accepted, UnitNetworkId, ResolveSkillName(skillData));
+
+            SkillActivationResult activationResult = await unit.ActivateSkillAsync(cancellationToken);
+            if (!activationResult.Executed)
+            {
+                string errorCode = activationResult.CapacityBackpressured
+                    ? CapacityBackpressureError
+                    : string.IsNullOrWhiteSpace(activationResult.ErrorCode)
+                        ? "skill_activation_not_committed"
+                        : activationResult.ErrorCode;
+                var executionFailure = BattleCommandResult.Rejected(
+                    Type,
+                    PlayerId,
+                    errorCode,
+                    activationResult.CapacityBackpressured
+                        ? "Scheduler capacity is full; mana and skill state were not consumed."
+                        : null,
+                    -1,
+                    scope,
+                    source);
+
+                if (IsVolatileNoOp(executionFailure))
+                {
+                    SkillCommandMpTestLogger.Skipped(executionFailure, UnitNetworkId, ResolveSkillName(skillData));
+                    return CommandExecutionResult.Completed();
+                }
+
+                var rejected = RecordRejected(executionFailure, source);
+                SkillCommandMpTestLogger.Rejected(rejected, UnitNetworkId, ResolveSkillName(skillData));
+                SyncTelemetryToClients();
+                return CommandExecutionResult.Completed();
+            }
+
+            int executedSequence = BattleCommandTelemetry.RecordActivateSkillExecuted();
+            var executed = BattleCommandResult.Executed(
+                Type,
+                PlayerId,
+                $"activate_skill_executed;unit={UnitNetworkId};skill={ResolveSkillName(skillData)}",
+                -1,
+                scope,
+                source,
+                executedSequence);
+            SkillCommandMpTestLogger.Executed(executed, UnitNetworkId, ResolveSkillName(skillData));
             SyncTelemetryToClients();
-            return;
+            return CommandExecutionResult.Completed();
         }
-
-        int acceptedSequence = BattleCommandTelemetry.RecordAccepted(Type);
-        var accepted = BattleCommandResult.Accepted(
-            Type,
-            PlayerId,
-            "activate_skill_validated",
-            -1,
-            scope,
-            source,
-            acceptedSequence);
-        SkillCommandMpTestLogger.Accepted(accepted, UnitNetworkId, ResolveSkillName(skillData));
-
-        unit.ActivateSkill();
-
-        int executedSequence = BattleCommandTelemetry.RecordActivateSkillExecuted();
-        var executed = BattleCommandResult.Executed(
-            Type,
-            PlayerId,
-            $"activate_skill_executed;unit={UnitNetworkId};skill={ResolveSkillName(skillData)}",
-            -1,
-            scope,
-            source,
-            executedSequence);
-        SkillCommandMpTestLogger.Executed(executed, UnitNetworkId, ResolveSkillName(skillData));
-        SyncTelemetryToClients();
+        catch (OperationCanceledException)
+        {
+            return CommandExecutionResult.Canceled();
+        }
+        catch (Exception exception)
+        {
+            return CommandExecutionResult.Failed($"activate_skill_exception:{exception.GetType().Name}");
+        }
     }
 
     public static bool TryValidate(

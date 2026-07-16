@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 854c6d2b89fe346489caf756386b4481, type: 3}
   m_Name: Aug_Spawn_Dragon_Normal
   m_EditorClassIdentifier: 
+  contentId: augment.boss.dragon.normal
   augmentName: "\uBCF4\uC2A4\uBAAC\uC2A4\uD130 \uC18C\uD658(\uACF5\uC911)"
   description: "\uC0C1\uB300\uC758 \uC655\uAD6D\uC5D0 \uB4DC\uB798\uACE4\uC744 \uC18C\uD658\uD569\uB2C8\uB2E4.
     \uB4DC\uB798\uACE4\uC740 \uC18C\uD658\uC7A5\uC18C \uC774\uC678\uC5D4 \uD1B5\uC81C\uD560
@@ -22,7 +23,29 @@ MonoBehaviour:
   targetType: 1
   effectType: 6
   value: 0
+  effects:
+  - targetType: 1
+    effectType: 6
+    value: 0
+    isBossSummon: 1
+    bossMonsterData: {fileID: 11400000, guid: de424966012fe7e409174b2afc10c29f, type: 2}
+    monsterSpawnEntries: []
+    strengthenedMonsterData: {fileID: 0}
+    monsterHealthBonusPercent: 0
+    monsterDamageBonusPercent: 0
+    monsterMoveSpeedBonusPercent: 0
+    kingDamageBonusPercent: 0
+    kingAttackSpeedBonusPercent: 0
+    kingSkillPowerBonusPercent: 0
+    magicScrollData: {fileID: 0}
   isBossSummon: 1
   bossMonsterData: {fileID: 11400000, guid: de424966012fe7e409174b2afc10c29f, type: 2}
   monsterSpawnEntries: []
+  strengthenedMonsterData: {fileID: 0}
+  monsterHealthBonusPercent: 0
+  monsterDamageBonusPercent: 0
+  monsterMoveSpeedBonusPercent: 0
+  kingDamageBonusPercent: 0
+  kingAttackSpeedBonusPercent: 0
+  kingSkillPowerBonusPercent: 0
   magicScrollData: {fileID: 0}

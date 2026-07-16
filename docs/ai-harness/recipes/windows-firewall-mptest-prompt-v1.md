@@ -4,9 +4,9 @@ Status: active
 Pinned: true
 Category: security, multiplayer
 Created: 2026-05-09
-Last used: 2026-05-10
+Last used: 2026-07-13
 Last verified: 2026-05-09
-Use count: 2
+Use count: 3
 Review after: 2026-08-07
 Triggers: Windows Defender Firewall prompt, MDF-MPTest.exe, graphical MP test, repeated timestamped player builds
 Applies to: `tools/harness/mp/configure_windows_firewall.py`, `tools/harness/mp/build_player.py`, Windows graphical MP E2E

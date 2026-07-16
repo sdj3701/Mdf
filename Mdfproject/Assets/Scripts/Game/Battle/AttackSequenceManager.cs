@@ -22,6 +22,7 @@ public class AttackSequenceManager : MonoBehaviour
     private int _selectedMonsterSlotIndex = -1;
     private int _pendingBattleSpawnSlotIndex = -1;
     private int _pendingBattleSpawnRevision = -1;
+    private int _pendingBattleSpawnBlackMagicRevision = -1;
     private float _pendingBattleSpawnStartedAt;
     private const float PendingBattleSpawnTimeoutSeconds = 1.25f;
 
@@ -29,9 +30,7 @@ public class AttackSequenceManager : MonoBehaviour
     private MagicScrollData _selectedScroll;
     
     [Tooltip("홀드 소환 간격 (초)")]
-    [SerializeField] private float holdSpawnInterval = 0.3f;
-    
-    private float _lastSpawnTime;
+    private float _lastSpawnRequestTime = float.NegativeInfinity;
     private bool _isHolding;
     private bool _suppressMapInputUntilPointerRelease;
     private int _suppressMapInputThroughFrame = -1;
@@ -81,6 +80,7 @@ public class AttackSequenceManager : MonoBehaviour
         _selectedMonster = null;
         _selectedMonsterSlotIndex = -1;
         ClearPendingBattleSpawn();
+        _lastSpawnRequestTime = float.NegativeInfinity;
         _selectedScroll = null;
         IsScrollMode = false;
         
@@ -96,6 +96,7 @@ public class AttackSequenceManager : MonoBehaviour
         _selectedScroll = null;
         _opponentFieldManager = null;
         _isHolding = false;
+        _lastSpawnRequestTime = float.NegativeInfinity;
         _suppressMapInputUntilPointerRelease = false;
         _suppressMapInputThroughFrame = -1;
         IsScrollMode = false;
@@ -210,14 +211,20 @@ public class AttackSequenceManager : MonoBehaviour
     private void HandleInput()
     {
         // UI 위에서 클릭하면 스폰 처리 스킵 (UI 관통 방지)
-        bool isPointerOverUI = IsPointerOverBattleActionBlocker();
-        if (ShouldSuppressBattleMapInput())
+        bool pointerPressed = MdfInput.PrimaryPointerWasPressedThisFrame();
+        bool pointerHeld = MdfInput.PrimaryPointerIsPressed();
+        bool pointerReleased = MdfInput.PrimaryPointerWasReleasedThisFrame();
+        bool pointerActive = pointerPressed || pointerHeld || pointerReleased;
+        if (ShouldSuppressBattleMapInput(pointerActive))
         {
             return;
         }
 
+        bool needsPointerBlocker = pointerPressed || (pointerHeld && _isHolding);
+        bool isPointerOverUI = needsPointerBlocker && IsPointerOverBattleActionBlocker();
+
         // 마우스 왼쪽 버튼 클릭/홀드
-        if (MdfInput.PrimaryPointerWasPressedThisFrame())
+        if (pointerPressed)
         {
             if (!isPointerOverUI)
             {
@@ -231,9 +238,8 @@ public class AttackSequenceManager : MonoBehaviour
                 }
             }
             _isHolding = !isPointerOverUI && !IsScrollMode;
-            _lastSpawnTime = Time.time;
         }
-        else if (MdfInput.PrimaryPointerIsPressed() && _isHolding)
+        else if (pointerHeld && _isHolding)
         {
             // UI 위로 마우스가 이동했으면 홀드 중단
             if (isPointerOverUI)
@@ -241,13 +247,12 @@ public class AttackSequenceManager : MonoBehaviour
                 _isHolding = false;
             }
             // 홀드 중 연속 소환
-            else if (Time.time - _lastSpawnTime >= holdSpawnInterval)
+            else if (Time.unscaledTime - _lastSpawnRequestTime >= BattleSpawnCadence.SpawnIntervalSeconds)
             {
                 TrySpawnMonsterAtMousePosition();
-                _lastSpawnTime = Time.time;
             }
         }
-        else if (MdfInput.PrimaryPointerWasReleasedThisFrame())
+        else if (pointerReleased)
         {
             _isHolding = false;
         }
@@ -265,12 +270,8 @@ public class AttackSequenceManager : MonoBehaviour
         }
     }
 
-    private bool ShouldSuppressBattleMapInput()
+    private bool ShouldSuppressBattleMapInput(bool pointerActive)
     {
-        bool pointerActive = MdfInput.PrimaryPointerIsPressed() ||
-                             MdfInput.PrimaryPointerWasPressedThisFrame() ||
-                             MdfInput.PrimaryPointerWasReleasedThisFrame();
-
         if (!_suppressMapInputUntilPointerRelease && Time.frameCount > _suppressMapInputThroughFrame)
         {
             return false;
@@ -397,29 +398,42 @@ public class AttackSequenceManager : MonoBehaviour
     #endregion
 
     #region 몬스터 소환
-    private void TrySpawnMonsterAtMousePosition()
+    private bool TrySpawnMonsterAtMousePosition()
     {
         if (!EnsureRuntimeReferences("TrySpawnMonsterAtMousePosition", true))
         {
-            return;
+            return false;
+        }
+
+        if (Time.unscaledTime - _lastSpawnRequestTime < BattleSpawnCadence.SpawnIntervalSeconds)
+        {
+            return false;
+        }
+
+        // TickTimer is replicated, so host and client held-click input can both avoid an
+        // early request. The authority command still revalidates this before any mutation.
+        if (!_playerManager.IsBattleSpawnCadenceReady(out _))
+        {
+            return false;
         }
 
         if (!TryResolveSelectedMonster(out _, out _))
         {
             // Debug.Log("[AttackSequenceManager] 선택된 몬스터가 없거나 수량이 0입니다");
-            return;
+            return false;
         }
 
         if (TryGetSpawnPositionUnderPointer(out Vector3 resolvedSpawnPosition))
         {
+            _lastSpawnRequestTime = Time.unscaledTime;
             SpawnMonsterAsync(resolvedSpawnPosition).Forget();
-            return;
+            return true;
         }
 
         if (_playerCamera == null)
         {
             // Debug.LogWarning("[AttackSequenceManager] 카메라가 없습니다");
-            return;
+            return false;
         }
 
         // 마우스 위치에서 레이캐스트
@@ -431,33 +445,44 @@ public class AttackSequenceManager : MonoBehaviour
             // 스폰 가능 영역인지 확인
             if (IsValidSpawnZone(spawnPosition))
             {
+                _lastSpawnRequestTime = Time.unscaledTime;
                 SpawnMonsterAsync(spawnPosition).Forget();
+                return true;
             }
             else
             {
                 // Debug.Log("[AttackSequenceManager] 유효하지 않은 스폰 영역입니다");
             }
         }
+
+        return false;
     }
 
     private bool IsPointerOverBattleActionBlocker()
     {
-        if (GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition))
+        Vector2 pointerPosition = MdfInput.PointerPosition;
+        bool toolkitBlocks = GamePrepareUIToolkitController.IsPointerOverBlockingElement(pointerPosition);
+        if (toolkitBlocks)
         {
             return true;
         }
 
-        if (!MdfInput.IsPointerOverUI())
+        if (!MdfInput.IsPointerOverUI(pointerPosition, toolkitBlocks))
         {
             return false;
         }
 
         // UIToolkit panels and some legacy canvases can raycast across the screen.
         // If the pointer still resolves to a valid battle spawn ground point, keep the map click alive.
-        return !TryGetSpawnPositionUnderPointer(out _);
+        return !TryGetSpawnPositionUnderPointer(pointerPosition, out _);
     }
 
     private bool TryGetSpawnPositionUnderPointer(out Vector3 spawnPosition)
+    {
+        return TryGetSpawnPositionUnderPointer(MdfInput.PointerPosition, out spawnPosition);
+    }
+
+    private bool TryGetSpawnPositionUnderPointer(Vector2 pointerPosition, out Vector3 spawnPosition)
     {
         spawnPosition = default;
         if (_playerCamera == null)
@@ -465,7 +490,7 @@ public class AttackSequenceManager : MonoBehaviour
             return false;
         }
 
-        Ray ray = _playerCamera.ScreenPointToRay(MdfInput.PointerPosition);
+        Ray ray = _playerCamera.ScreenPointToRay(pointerPosition);
         if (!Physics.Raycast(ray, out RaycastHit hit, 100f, spawnAreaLayerMask))
         {
             return false;
@@ -527,7 +552,8 @@ public class AttackSequenceManager : MonoBehaviour
                 position,
                 1,
                 "human_host_attack_sequence",
-                _playerManager.AppliedAttackMonsterPoolRevision);
+                _playerManager.AppliedAttackMonsterPoolRevision,
+                _playerManager.AppliedBlackMagicRevision);
 
             BattleCommandResult result = await gameManagers.ExecuteBattleSpawnMonsterCommandAsync(
                 command,
@@ -565,6 +591,7 @@ public class AttackSequenceManager : MonoBehaviour
                     position,
                     1,
                     _playerManager.AppliedAttackMonsterPoolRevision,
+                    _playerManager.AppliedBlackMagicRevision,
                     "human_client_attack_sequence"
                 );
                 MarkPendingBattleSpawn(poolSlotIndex);
@@ -685,6 +712,7 @@ public class AttackSequenceManager : MonoBehaviour
 
         if (_playerManager == null
             || _playerManager.AppliedAttackMonsterPoolRevision != _pendingBattleSpawnRevision
+            || _playerManager.AppliedBlackMagicRevision != _pendingBattleSpawnBlackMagicRevision
             || Time.unscaledTime - _pendingBattleSpawnStartedAt > PendingBattleSpawnTimeoutSeconds)
         {
             ClearPendingBattleSpawn();
@@ -700,6 +728,9 @@ public class AttackSequenceManager : MonoBehaviour
         _pendingBattleSpawnRevision = _playerManager != null
             ? _playerManager.AppliedAttackMonsterPoolRevision
             : -1;
+        _pendingBattleSpawnBlackMagicRevision = _playerManager != null
+            ? _playerManager.AppliedBlackMagicRevision
+            : -1;
         _pendingBattleSpawnStartedAt = Time.unscaledTime;
     }
 
@@ -707,6 +738,7 @@ public class AttackSequenceManager : MonoBehaviour
     {
         _pendingBattleSpawnSlotIndex = -1;
         _pendingBattleSpawnRevision = -1;
+        _pendingBattleSpawnBlackMagicRevision = -1;
         _pendingBattleSpawnStartedAt = 0f;
     }
     #endregion

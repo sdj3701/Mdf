@@ -75,7 +75,7 @@ public class AttackSequenceUIController : MonoBehaviour
     [SerializeField] private MagicScrollSlotUI scrollSlotPrefab;
     
     [Header("설정")]
-    [SerializeField] private int maxSlots = 9;
+    [SerializeField] private int maxSlots = 12;
     [SerializeField] private int maxScrollSlots = 5;
     #endregion
 
@@ -182,6 +182,7 @@ public class AttackSequenceUIController : MonoBehaviour
     private void OnEnable()
     {
         GameEvents.OnMonsterPoolChanged += HandleMonsterPoolChanged;
+        GameEvents.OnBlackMagicChanged += HandleBlackMagicChanged;
         GameEvents.OnMagicScrollPoolChanged += HandleMagicScrollPoolChanged;
         GameEvents.OnBattleSequenceStarted += HandleBattleSequenceStarted;
         GameEvents.OnGameStateChanged += HandleGameStateChanged;
@@ -190,6 +191,7 @@ public class AttackSequenceUIController : MonoBehaviour
     private void OnDisable()
     {
         GameEvents.OnMonsterPoolChanged -= HandleMonsterPoolChanged;
+        GameEvents.OnBlackMagicChanged -= HandleBlackMagicChanged;
         GameEvents.OnMagicScrollPoolChanged -= HandleMagicScrollPoolChanged;
         GameEvents.OnBattleSequenceStarted -= HandleBattleSequenceStarted;
         GameEvents.OnGameStateChanged -= HandleGameStateChanged;
@@ -476,6 +478,20 @@ public class AttackSequenceUIController : MonoBehaviour
         }
 
         RefreshScrollSlots(scrolls);
+    }
+
+    private void HandleBlackMagicChanged(int playerId, int current, int maximum, int maxBonus, int revision)
+    {
+        if (!TryRebindPlayerReference("HandleBlackMagicChanged", false)) return;
+        if (!TryGetPlayerIdSafe(_playerManager, out int localPlayerId) || playerId != localPlayerId) return;
+
+        if (GamePrepareUIToolkitController.TryRefreshAttackSequenceFromLegacy(_playerManager, _attackSequenceManager))
+        {
+            SetLegacyContentVisibilityOnly(false);
+            return;
+        }
+
+        RefreshSlots(_playerManager.AttackMonsterPool);
     }
 
     private void HandleBattleSequenceStarted(bool isAttacking)

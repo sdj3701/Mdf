@@ -1,4 +1,5 @@
 // Assets/Scripts/Game/Game Rules/FindLoad/AstarGrid.cs
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -47,6 +48,91 @@ public class AstarGrid : MonoBehaviour
     private Vector2Int worldBottomLeft; // 셀 좌표 기준 최소값
     private Vector2Int worldTopRight;   // 셀 좌표 기준 최대값
     private bool initialized = false;
+
+    private const int MaxCachedPathCount = 512;
+    private readonly List<AstarNode> _openList = new List<AstarNode>(256);
+    private readonly HashSet<AstarNode> _openSet = new HashSet<AstarNode>();
+    private readonly HashSet<AstarNode> _closedSet = new HashSet<AstarNode>();
+    private readonly Dictionary<PathCacheKey, CachedPathResult> _pathCache =
+        new Dictionary<PathCacheKey, CachedPathResult>(128);
+    private int _appliedWallTopologyRevision = int.MinValue;
+    private long _pathCacheHitCount;
+    private long _pathCacheMissCount;
+    private long _wallTopologyRefreshCount;
+
+    private readonly struct PathCacheKey : IEquatable<PathCacheKey>
+    {
+        private readonly Vector2Int _start;
+        private readonly Vector2Int _end;
+        private readonly bool _ignoreWalls;
+        private readonly bool _ignoreBreakableWalls;
+        private readonly bool _allowDiagonal;
+        private readonly bool _dontCrossCorner;
+        private readonly int _wallBreakCost;
+
+        public PathCacheKey(
+            Vector2Int start,
+            Vector2Int end,
+            bool ignoreWalls,
+            bool ignoreBreakableWalls,
+            bool allowDiagonal,
+            bool dontCrossCorner,
+            int wallBreakCost)
+        {
+            _start = start;
+            _end = end;
+            _ignoreWalls = ignoreWalls;
+            _ignoreBreakableWalls = ignoreBreakableWalls;
+            _allowDiagonal = allowDiagonal;
+            _dontCrossCorner = dontCrossCorner;
+            _wallBreakCost = wallBreakCost;
+        }
+
+        public bool Equals(PathCacheKey other)
+        {
+            return _start == other._start &&
+                   _end == other._end &&
+                   _ignoreWalls == other._ignoreWalls &&
+                   _ignoreBreakableWalls == other._ignoreBreakableWalls &&
+                   _allowDiagonal == other._allowDiagonal &&
+                   _dontCrossCorner == other._dontCrossCorner &&
+                   _wallBreakCost == other._wallBreakCost;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is PathCacheKey other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = _start.GetHashCode();
+                hash = hash * 397 ^ _end.GetHashCode();
+                hash = hash * 397 ^ (_ignoreWalls ? 1 : 0);
+                hash = hash * 397 ^ (_ignoreBreakableWalls ? 1 : 0);
+                hash = hash * 397 ^ (_allowDiagonal ? 1 : 0);
+                hash = hash * 397 ^ (_dontCrossCorner ? 1 : 0);
+                hash = hash * 397 ^ _wallBreakCost;
+                return hash;
+            }
+        }
+    }
+
+    private readonly struct CachedPathResult
+    {
+        public readonly bool Found;
+        public readonly List<AstarNode> Path;
+        public readonly List<Vector2Int> WallsToBreak;
+
+        public CachedPathResult(bool found, List<AstarNode> path, List<Vector2Int> wallsToBreak)
+        {
+            Found = found;
+            Path = path;
+            WallsToBreak = wallsToBreak;
+        }
+    }
 
     // 플레이 중에는 PlayerManager가 FieldManager 초기화 이후 호출하도록 두고,
     // 에디터 미플레이 상태에서는 미리 초기화하여 프리뷰를 보이게 합니다.
@@ -104,65 +190,111 @@ public class AstarGrid : MonoBehaviour
 
     public bool FindPath(Vector2Int start, Vector2Int end, bool ignoreWalls = false, bool ignoreBreakableWalls = false)
     {
-        // 런타임에 벽 정보가 바뀔 수 있으므로, 경로 탐색 시마다 벽 상태를 다시 확인합니다.
-        // 벽을 무시하는 경우, 이 업데이트를 건너뛰어 성능을 최적화하고 그리드를 '깨끗한' 상태로 둡니다.
-        if (!ignoreWalls)
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        long performanceStart = MPTestPerformanceRecorder.StartTimestamp();
+#endif
+        try
         {
-            UpdateGridWallStatus();
-        }
-
-        if (!IsValidPosition(start) || !IsValidPosition(end))
-        {
-            Debug.LogError($"[AstarGrid] 시작점({start}) 또는 끝점({end})이 그리드 범위를 벗어났습니다. 그리드 경계: {worldBottomLeft} ~ {worldTopRight}");
-            return false;
-        }
-
-        AstarNode StartNode = GetNode(start);
-        AstarNode TargetNode = GetNode(end);
-
-        List<AstarNode> OpenList = new List<AstarNode>();
-        HashSet<AstarNode> ClosedList = new HashSet<AstarNode>();
-
-        for (int i = 0; i < sizeX; i++)
-        {
-            for (int j = 0; j < sizeY; j++)
+            // Runtime walls are refreshed once per FieldManager topology revision. Isolated
+            // grids keep the legacy per-query scan because they have no revision source.
+            if (!ignoreWalls)
             {
-                NodeArray[i, j].G = int.MaxValue;
-                NodeArray[i, j].ParentNode = null;
+                EnsureWallStatusCurrent();
             }
-        }
 
-        StartNode.G = 0;
-        StartNode.H = GetManhattanDistance(start, end);
-        OpenList.Add(StartNode);
-
-        while (OpenList.Count > 0)
-        {
-            AstarNode CurNode = OpenList[0];
-            for (int i = 1; i < OpenList.Count; i++)
+            if (!IsValidPosition(start) || !IsValidPosition(end))
             {
-                if (OpenList[i].F < CurNode.F || (OpenList[i].F == CurNode.F && OpenList[i].H < CurNode.H))
+                Debug.LogError($"[AstarGrid] 시작점({start}) 또는 끝점({end})이 그리드 범위를 벗어났습니다. 그리드 경계: {worldBottomLeft} ~ {worldTopRight}");
+                return false;
+            }
+
+            AstarNode startNode = GetNode(start);
+            AstarNode targetNode = GetNode(end);
+            bool canUseCache = fieldManager != null;
+            PathCacheKey cacheKey = new PathCacheKey(
+                start,
+                end,
+                ignoreWalls,
+                ignoreBreakableWalls,
+                allowDiagonal,
+                dontCrossCorner,
+                wallBreakCost);
+            if (canUseCache && _pathCache.TryGetValue(cacheKey, out CachedPathResult cached))
+            {
+                _pathCacheHitCount++;
+                FinalPath = cached.Path;
+                WallsToBreakInPath = cached.WallsToBreak;
+                return cached.Found;
+            }
+
+            if (canUseCache)
+            {
+                _pathCacheMissCount++;
+            }
+
+            _openList.Clear();
+            _openSet.Clear();
+            _closedSet.Clear();
+
+            for (int i = 0; i < sizeX; i++)
+            {
+                for (int j = 0; j < sizeY; j++)
                 {
-                    CurNode = OpenList[i];
+                    NodeArray[i, j].G = int.MaxValue;
+                    NodeArray[i, j].ParentNode = null;
                 }
             }
 
-            OpenList.Remove(CurNode);
-            ClosedList.Add(CurNode);
+            startNode.G = 0;
+            startNode.H = GetManhattanDistance(start, end);
+            _openList.Add(startNode);
+            _openSet.Add(startNode);
 
-            if (CurNode == TargetNode)
+            while (_openList.Count > 0)
             {
-                BuildFinalPath(StartNode, TargetNode);
-                return true;
+                AstarNode currentNode = _openList[0];
+                for (int i = 1; i < _openList.Count; i++)
+                {
+                    // Preserve the legacy exact tie-break: equal F/H keeps earlier insertion.
+                    if (_openList[i].F < currentNode.F ||
+                        _openList[i].F == currentNode.F && _openList[i].H < currentNode.H)
+                    {
+                        currentNode = _openList[i];
+                    }
+                }
+
+                _openList.Remove(currentNode);
+                _openSet.Remove(currentNode);
+                _closedSet.Add(currentNode);
+
+                if (currentNode == targetNode)
+                {
+                    BuildFinalPath(startNode, targetNode);
+                    CachePathResult(cacheKey, canUseCache, true);
+                    return true;
+                }
+
+                ExploreNeighbors(
+                    currentNode,
+                    targetNode,
+                    _openList,
+                    _closedSet,
+                    ignoreWalls,
+                    ignoreBreakableWalls);
             }
 
-            ExploreNeighbors(CurNode, TargetNode, OpenList, ClosedList, ignoreWalls, ignoreBreakableWalls);
+            Debug.LogWarning($"[AstarGrid] 경로를 찾을 수 없습니다: {start} -> {end}");
+            FinalPath = null;
+            WallsToBreakInPath = null;
+            CachePathResult(cacheKey, canUseCache, false);
+            return false;
         }
-
-        Debug.LogWarning($"[AstarGrid] 경로를 찾을 수 없습니다: {start} -> {end}");
-        FinalPath = null;
-        WallsToBreakInPath = null;
-        return false;
+        finally
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestPerformanceRecorder.RecordDuration("astar_find_path", performanceStart);
+#endif
+        }
     }
 
     private void InitializeGrid()
@@ -171,6 +303,11 @@ public class AstarGrid : MonoBehaviour
         sizeX = worldTopRight.x - worldBottomLeft.x + 1;
         sizeY = worldTopRight.y - worldBottomLeft.y + 1;
         NodeArray = new AstarNode[sizeX, sizeY];
+        _pathCache.Clear();
+        _openList.Clear();
+        _openSet.Clear();
+        _closedSet.Clear();
+        _appliedWallTopologyRevision = int.MinValue;
 
         for (int i = 0; i < sizeX; i++)
         {
@@ -222,6 +359,44 @@ public class AstarGrid : MonoBehaviour
                 }
             }
         }
+    }
+
+    private void EnsureWallStatusCurrent()
+    {
+        if (fieldManager == null)
+        {
+            UpdateGridWallStatus();
+            return;
+        }
+
+        int currentRevision = fieldManager.WallTopologyRevision;
+        if (_appliedWallTopologyRevision == currentRevision)
+        {
+            return;
+        }
+
+        // Creation/removal may happen before the next FixedUpdate. Synchronize once per
+        // topology revision instead of rescanning physics for every path request.
+        Physics.SyncTransforms();
+        UpdateGridWallStatus();
+        _appliedWallTopologyRevision = currentRevision;
+        _wallTopologyRefreshCount++;
+        _pathCache.Clear();
+    }
+
+    private void CachePathResult(PathCacheKey key, bool canUseCache, bool found)
+    {
+        if (!canUseCache)
+        {
+            return;
+        }
+
+        if (_pathCache.Count >= MaxCachedPathCount)
+        {
+            _pathCache.Clear();
+        }
+
+        _pathCache[key] = new CachedPathResult(found, FinalPath, WallsToBreakInPath);
     }
 
 
@@ -281,7 +456,7 @@ public class AstarGrid : MonoBehaviour
                 }
 
                 // 이웃 노드까지의 새로운 G 비용이 기존보다 저렴하거나, OpenList에 아직 없다면 정보를 갱신합니다.
-                bool inOpenList = OpenList.Contains(NeighborNode);
+                bool inOpenList = _openSet.Contains(NeighborNode);
                 if (tentativeGCost < NeighborNode.G || !inOpenList)
                 {
                     NeighborNode.ParentNode = CurNode;
@@ -291,6 +466,7 @@ public class AstarGrid : MonoBehaviour
                     if (!inOpenList)
                     {
                         OpenList.Add(NeighborNode);
+                        _openSet.Add(NeighborNode);
                     }
                 }
             }

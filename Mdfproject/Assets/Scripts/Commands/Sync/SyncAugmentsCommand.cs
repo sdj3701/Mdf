@@ -5,15 +5,16 @@ using Cysharp.Threading.Tasks;
 using Fusion;
 using System.Linq;
 using System.Collections.Generic;
+using System.Threading;
 
 /// <summary>
 /// 서버에서 생성한 증강체 목록을 클라이언트에 동기화하는 커맨드입니다.
 /// 동기화 완료 후 로컬 플레이어인 경우 증강 UI 이벤트를 트리거합니다.
 /// </summary>
-public class SyncAugmentsCommand : ICommand
+public class SyncAugmentsCommand : ICommand, IAsyncCommand
 {
     public int PlayerId { get; set; }
-    public string[] AugmentNames { get; private set; }
+    public string[] AugmentContentIds { get; private set; }
     private static readonly Dictionary<string, float> RecentUiTriggerKeys = new Dictionary<string, float>();
     private const float UiTriggerDedupWindowSeconds = 1.5f;
 
@@ -22,26 +23,27 @@ public class SyncAugmentsCommand : ICommand
         BuildDebugGUI.LogClient($"[SyncAugments] {message}");
     }
 
-    public SyncAugmentsCommand(int playerId, string[] augmentNames)
+    public SyncAugmentsCommand(int playerId, string[] augmentContentIds)
     {
         PlayerId = playerId;
-        AugmentNames = augmentNames ?? System.Array.Empty<string>();
+        AugmentContentIds = augmentContentIds ?? System.Array.Empty<string>();
     }
 
-    private async UniTask<PlayerManager> WaitForPlayerAsync(GameManagers gm)
+    private async UniTask<PlayerManager> WaitForPlayerAsync(GameManagers gm, CancellationToken cancellationToken)
     {
         const float timeoutSeconds = 12f;
         float waited = 0f;
 
         while (waited < timeoutSeconds)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var player = gm.GetPlayer(PlayerId);
             if (player != null)
             {
                 return player;
             }
 
-            await UniTask.Delay(100);
+            await UniTask.Delay(100, cancellationToken: cancellationToken);
             waited += 0.1f;
         }
 
@@ -142,13 +144,17 @@ public class SyncAugmentsCommand : ICommand
         return $"target={targetPlayerId}, local={localId}, targetInput={targetInput}, runnerLocal={runnerLocal}";
     }
 
-    private async UniTask<bool> WaitForLocalMatchAsync(GameManagers gm, PlayerManager player)
+    private async UniTask<bool> WaitForLocalMatchAsync(
+        GameManagers gm,
+        PlayerManager player,
+        CancellationToken cancellationToken)
     {
         const int maxAttempts = 60;
         int lastKnownLocalId = -1;
 
         for (int i = 0; i < maxAttempts; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var resolvedLocal = ResolveLocalPlayer(gm);
             if (resolvedLocal != null && gm.localPlayer != resolvedLocal)
             {
@@ -198,7 +204,7 @@ public class SyncAugmentsCommand : ICommand
                     0.7f);
             }
 
-            await UniTask.Delay(100);
+            await UniTask.Delay(100, cancellationToken: cancellationToken);
         }
 
         bool targetHasInputAuthority = player.Object != null && player.Object.IsValid && player.Object.HasInputAuthority;
@@ -226,7 +232,32 @@ public class SyncAugmentsCommand : ICommand
         return false;
     }
 
-    public async void Execute()
+    public void Execute()
+    {
+        ExecuteAsync(CancellationToken.None).Forget();
+    }
+
+    public async UniTask<CommandExecutionResult> ExecuteAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await ExecuteCoreAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            return CommandExecutionResult.Completed();
+        }
+        catch (System.OperationCanceledException)
+        {
+            return CommandExecutionResult.Canceled();
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[SyncAugmentsCommand] Execution failed. target={PlayerId}, error={ex}");
+            return CommandExecutionResult.Failed(ex.Message);
+        }
+    }
+
+    private async UniTask ExecuteCoreAsync(CancellationToken cancellationToken)
     {
         var gm = GameManagers.Instance;
         if (gm == null)
@@ -235,9 +266,9 @@ public class SyncAugmentsCommand : ICommand
             return;
         }
 
-        TraceClient($"Execute enter target={PlayerId}, incomingChoices={AugmentNames.Length}");
+        TraceClient($"Execute enter target={PlayerId}, incomingChoices={AugmentContentIds.Length}");
 
-        var player = await WaitForPlayerAsync(gm);
+        var player = await WaitForPlayerAsync(gm, cancellationToken);
         if (player == null)
         {
             // Debug.LogWarning($"[SyncAugmentsCommand] Player {PlayerId} not ready. Sync skipped.");
@@ -267,7 +298,14 @@ public class SyncAugmentsCommand : ICommand
         {
             try
             {
-                await player.augmentManager.SetPresentedAugmentsByNamesAsync(AugmentNames);
+                bool applied = await player.augmentManager.SetPresentedAugmentsByContentIdsAsync(AugmentContentIds);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!applied)
+                {
+                    Debug.LogError($"[SyncAugmentsCommand] Exact presented augment sync rejected. target={PlayerId}");
+                    TraceClient($"Exact presented augment sync rejected. target={PlayerId}");
+                    return;
+                }
             }
             catch (System.Exception ex)
             {
@@ -276,8 +314,45 @@ public class SyncAugmentsCommand : ICommand
                 return;
             }
 
-            TraceClient($"SetPresentedAugments applied. target={PlayerId}, count={AugmentNames.Length}");
+            // State Authority is already running the bounded Prepare prewarm in GameManagers.
+            // This command owns the client-side presentation warmup only.
+            if (player.monsterSpawner != null &&
+                (player.Object == null || !player.Object.IsValid || !player.Object.HasStateAuthority))
+            {
+                MonsterData[] presentedBosses = player.augmentManager.GetPresentedAugments()
+                    .Select(augment => augment != null && augment.TryGetBossMonster(out MonsterData boss) ? boss : null)
+                    .Where(boss => boss != null)
+                    .Distinct()
+                    .ToArray();
+                if (presentedBosses.Length > 0)
+                {
+                    try
+                    {
+                        // Client providers must be warm too: replicated monster spawns instantiate
+                        // locally even though only State Authority may choose or spawn the boss.
+                        await player.monsterSpawner.PrewarmMonsterDataSetAsync(
+                            presentedBosses,
+                            isBoss: true,
+                            requestedCount: 1,
+                            context: $"SyncPresentedBosses.P{PlayerId}",
+                            cancellationToken: cancellationToken);
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+                    catch (System.OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        Debug.LogWarning(
+                            $"[SyncAugmentsCommand] Boss presentation prewarm skipped. target={PlayerId}, error={ex.Message}");
+                    }
+                }
+            }
+
+            TraceClient($"SetPresentedAugments applied. target={PlayerId}, count={AugmentContentIds.Length}");
             bool uiReady = await gm.EnsureGameUIReadyForSyncCommands();
+            cancellationToken.ThrowIfCancellationRequested();
             if (!uiReady)
             {
                 Debug.LogWarning($"[SyncAugmentsCommand] UI readiness timeout before augment trigger. {BuildLocalDebugSnapshot(gm, player, PlayerId)}");
@@ -287,10 +362,10 @@ public class SyncAugmentsCommand : ICommand
             {
                 TraceClient("UI readiness confirmed.");
             }
-            // Debug.Log($"<color=magenta>[SyncAugmentsCommand] Player {PlayerId}: {AugmentNames.Length}개 증강체 동기화 완료</color>");
+            // Debug.Log($"<color=magenta>[SyncAugmentsCommand] Player {PlayerId}: {AugmentContentIds.Length} augments synchronized</color>");
         }
 
-        bool isLocalPlayer = await WaitForLocalMatchAsync(gm, player);
+        bool isLocalPlayer = await WaitForLocalMatchAsync(gm, player, cancellationToken);
         if (!isLocalPlayer)
         {
             TraceClient("Abort augment UI trigger: non-local target.");
@@ -305,10 +380,16 @@ public class SyncAugmentsCommand : ICommand
         {
             Debug.Log($"[SyncAugmentsCommand] Delay initial local augment UI trigger by 2s. {BuildLocalDebugSnapshot(gm, player, PlayerId)}");
             TraceClient("Delay initial local augment UI trigger by 2s.");
-            await UniTask.Delay(2000, DelayType.Realtime);
+            await UniTask.Delay(2000, DelayType.Realtime, cancellationToken: cancellationToken);
         }
 
         var presentedAugments = player.augmentManager.GetPresentedAugments();
+        if (presentedAugments == null || presentedAugments.Count == 0)
+        {
+            TraceClient("Skip augment UI trigger: choices were already consumed.");
+            return;
+        }
+
         string triggerKey = BuildUiTriggerKey(gm);
         if (IsDuplicateUiTrigger(triggerKey))
         {
@@ -321,11 +402,19 @@ public class SyncAugmentsCommand : ICommand
         GameEvents.TriggerAugmentPhaseStart(player, presentedAugments);
 
         // Build client에서는 Awake/구독 타이밍이 늦을 수 있어 짧게 재시도합니다.
-        if (UIManagers.Instance != null && presentedAugments != null && presentedAugments.Count > 0)
+        if (UIManagers.Instance != null
+            && !GamePrepareUIToolkitController.IsToolkitActive
+            && presentedAugments.Count > 0)
         {
             for (int retry = 0; retry < 3; retry++)
             {
-                await UniTask.Delay(120);
+                await UniTask.Delay(120, cancellationToken: cancellationToken);
+                if (presentedAugments.Count == 0)
+                {
+                    TraceClient($"Stop augment UI retry={retry}: choices were consumed.");
+                    break;
+                }
+
                 if (UIManagers.Instance.IsUIElementActive("UI_Pnl_Augment"))
                 {
                     TraceClient($"Augment panel active after retry={retry}");
@@ -354,8 +443,8 @@ public class SyncAugmentsCommand : ICommand
             }
         }
         string state = gm != null ? gm.currentState.ToString() : "Unknown";
-        string names = AugmentNames != null ? string.Join(",", AugmentNames) : "none";
-        return $"round={round}|state={state}|player={PlayerId}|augments={names}";
+        string ids = AugmentContentIds != null ? string.Join(",", AugmentContentIds) : "none";
+        return $"round={round}|state={state}|player={PlayerId}|augments={ids}";
     }
 
     private static bool IsDuplicateUiTrigger(string key)

@@ -13,8 +13,12 @@ public static class MPTestCommandLine
     {
         get
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             var options = GetOptions();
             return options.Enabled;
+#else
+            return false;
+#endif
         }
     }
 
@@ -22,13 +26,20 @@ public static class MPTestCommandLine
     {
         get
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             var options = GetOptions();
             return options.Enabled && options.FreezeGameFlow;
+#else
+            return false;
+#endif
         }
     }
 
     public static Options GetOptions()
     {
+#if !(UNITY_EDITOR || DEVELOPMENT_BUILD)
+        return default;
+#else
         if (_parsed)
         {
             return _cachedOptions;
@@ -37,10 +48,14 @@ public static class MPTestCommandLine
         _cachedOptions = Parse(Environment.GetCommandLineArgs());
         _parsed = true;
         return _cachedOptions;
+#endif
     }
 
     public static Options SetFreezeGameFlowForRuntime(bool freeze)
     {
+#if !(UNITY_EDITOR || DEVELOPMENT_BUILD)
+        return default;
+#else
         var options = GetOptions();
         if (!options.Enabled)
         {
@@ -51,10 +66,14 @@ public static class MPTestCommandLine
         _cachedOptions = options;
         _parsed = true;
         return _cachedOptions;
+#endif
     }
 
     public static Options Parse(string[] args)
     {
+#if !(UNITY_EDITOR || DEVELOPMENT_BUILD)
+        return default;
+#else
         var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var flags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -107,8 +126,11 @@ public static class MPTestCommandLine
             BotSkipPrepare = enabled && (flags.Contains("--mpBotSkipPrepare") || values.ContainsKey("--mpBotSkipPrepare")),
             BotPrepareAugmentOnly = enabled && (flags.Contains("--mpBotPrepareAugmentOnly") || values.ContainsKey("--mpBotPrepareAugmentOnly")),
             BotPreferScrollAugment = enabled && (flags.Contains("--mpBotPreferScrollAugment") || values.ContainsKey("--mpBotPreferScrollAugment")),
-            BotRecordJournal = Get(values, "--mpBotRecordJournal", string.Empty)
+            BotRecordJournal = Get(values, "--mpBotRecordJournal", string.Empty),
+            PerformanceCapture = enabled && !flags.Contains("--mpDisablePerformanceCapture") && !values.ContainsKey("--mpDisablePerformanceCapture"),
+            PerformanceWarmupSeconds = Mathf.Max(0, GetInt(values, "--mpPerformanceWarmupSeconds", 3))
         };
+#endif
     }
 
     private static string Get(Dictionary<string, string> values, string key, string fallback)
@@ -156,9 +178,11 @@ public static class MPTestCommandLine
         public bool BotPrepareAugmentOnly;
         public bool BotPreferScrollAugment;
         public string BotRecordJournal;
+        public bool PerformanceCapture;
+        public int PerformanceWarmupSeconds;
 
         public string SafeRole => string.IsNullOrEmpty(Role) ? "unknown" : Role.ToLowerInvariant();
         public string AutomationTokenHash => MPTestLogger.HashForLog(AutomationToken);
-        public string ConnectionTokenHash => MPTestLogger.HashForLog(ConnectionToken);
+        public string ConnectionTokenHash => DurableConnectionTokenIdentity.BuildHash(ConnectionToken);
     }
 }

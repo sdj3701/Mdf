@@ -4,9 +4,9 @@ Status: active
 Pinned: true
 Category: cleanup
 Created: 2026-05-06
-Last used: 2026-05-06
+Last used: 2026-07-12
 Last verified: 2026-05-06
-Use count: 1
+Use count: 3
 Review after: 2026-08-04
 Triggers: `client_trust`, `rpc_all`, `rpc_persistent_state`, `tick_debug_log`, warning cleanup
 Applies to: `tools/harness/precommit.py`, command/RPC/tick-log WARN reduction

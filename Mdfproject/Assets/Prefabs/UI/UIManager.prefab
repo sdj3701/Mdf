@@ -196,6 +196,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   leftSideContainer: {fileID: 1283395779487649320}
   rightSideContainer: {fileID: 2535300852283280095}
+  useToolkitRanking: 1
+  toolkitDocument: {fileID: 0}
+  toolkitLayout: {fileID: 0}
+  toolkitStyle: {fileID: 0}
 --- !u!1 &1107696316802597907
 GameObject:
   m_ObjectHideFlags: 0
@@ -849,6 +853,7 @@ MonoBehaviour:
   - {fileID: 37613086633180501, guid: 18e65b521fc35fa4f9dbdb1d3461950b, type: 3}
   - {fileID: 37613086633180501, guid: 6eaa42a01ce5cac4bb0de7380bb59d26, type: 3}
   - {fileID: 5554514500885127117, guid: 023e86bb5d5919544951bbfa65ef4240, type: 3}
+  - {fileID: 926802358058869177, guid: 416304d695ee4924f9eee2b172fc3219, type: 3}
   mainCanvas: {fileID: 2218765290028887320}
   preferredMainCanvasName: MainCanvas
   preferredMainCanvasTag: MainCanvas

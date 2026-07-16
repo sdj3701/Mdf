@@ -1,6 +1,8 @@
 ﻿using UnityEngine;
-using AI.BehaviorTree.Nodes.Actions;
-public class BuyUnitCommand : ICommand
+using Cysharp.Threading.Tasks;
+using System.Threading;
+
+public class BuyUnitCommand : ICommand, IAsyncCommand
 {
     public int PlayerId { get; set; }
     public int ShopSlotIndex { get; private set; }
@@ -13,39 +15,54 @@ public class BuyUnitCommand : ICommand
 
     public void Execute()
     {
+        ExecuteAsync(CancellationToken.None).Forget();
+    }
+
+    public async UniTask<CommandExecutionResult> ExecuteAsync(CancellationToken cancellationToken)
+    {
         var gm = GameManagers.Instance;
         if (gm == null || gm.Runner == null || !gm.Runner.IsServer)
         {
-            // Debug.Log($"[BuyUnitCommand] Ignored on non-server peer. Player={PlayerId}, Slot={ShopSlotIndex}");
-            return;
+            return CommandExecutionResult.Completed();
         }
 
         var player = gm.GetPlayer(PlayerId);
-        if (player == null || player.shopManager == null) return;
-
-        var shopItems = player.shopManager.GetCurrentShopItems();
-        if (ShopSlotIndex < 0 || ShopSlotIndex >= shopItems.Count) return;
-
-        var itemToBuy = shopItems[ShopSlotIndex];
-        
-
-        // 기존 PlayerManager의 구매 로직을 이곳으로 가져옵니다.
-        if (player.SpendGold(itemToBuy.CalculatedCost))
+        if (player == null || player.shopManager == null)
         {
-            
-            player.AddUnit(itemToBuy.UnitData, itemToBuy.StarLevel);
+            return CommandExecutionResult.Failed("player_or_shop_missing");
+        }
 
-            // 상점의 상태를 갱신합니다.
-            player.shopManager.MarkSlotAsPurchased(ShopSlotIndex);
+        cancellationToken.ThrowIfCancellationRequested();
+        PlayerManager.PurchaseUnitResult result = await player.TryPurchaseShopUnitAsync(ShopSlotIndex, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!result.Succeeded)
+        {
+            string reason = string.IsNullOrEmpty(result.FailureReason)
+                ? "purchase_failed"
+                : result.FailureReason;
+            gm.NotifyPurchaseFailed(PlayerId, ShopSlotIndex, reason);
+            return CommandExecutionResult.Failed(reason);
+        }
 
-            // ⭐ 서버에서 모든 피어에게 '구매 성공'을 네트워크로 알립니다 (Command Pattern 사용)
-            gm.NotifyPurchaseSucceeded(PlayerId, ShopSlotIndex);
+        // The sold flag lives in the durable Networked shop snapshot, while each peer also
+        // keeps a non-networked ShopManager cache for presentation. Reconcile that cache after
+        // every committed purchase just as reroll already does; the success notification below
+        // remains the immediate UI event and is idempotent with this snapshot application.
+        if (player.TryGetShopSnapshot(
+                out string[] names,
+                out int[] stars,
+                out _,
+                out int revision,
+                out int round))
+        {
+            player.RPC_SyncShopItems(names, stars, revision, round);
         }
         else
         {
-            // Debug.Log($"Player {PlayerId}: 골드가 부족하여 구매에 실패했습니다.");
-            // (선택적) 골드 부족 이벤트 발생
-            GameEvents.TriggerPurchaseFailed(PlayerId, "골드 부족");
+            Debug.LogError($"[BuyUnitCommand] Authoritative shop snapshot unavailable after purchase for P{PlayerId}.");
         }
+
+        gm.NotifyPurchaseSucceeded(PlayerId, ShopSlotIndex);
+        return CommandExecutionResult.Completed();
     }
 }

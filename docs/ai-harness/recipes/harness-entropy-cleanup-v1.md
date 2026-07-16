@@ -4,9 +4,9 @@ Status: active
 Pinned: true
 Category: cleanup
 Created: 2026-05-08
-Last used: 2026-05-10
+Last used: 2026-07-15
 Last verified: 2026-05-10
-Use count: 2
+Use count: 7
 Review after: 2026-08-06
 Triggers: context bundle drift, stale prompts, generated session state, root BAT cleanup, precommit guardrails
 Applies to: `.gitignore`, `_context_packer`, `.codex/session-state`, `tools/harness/precommit.py`, harness docs
@@ -15,7 +15,7 @@ Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
 Problem:
-Generated local state can leak into context bundles or make future agents follow stale paths. In this pass, `.codex/session-state` JSON files and `_context_packer/output` bundles were generated artifacts, while current docs needed explicit labels for historical phase prompts and obsolete HumanBot adapters.
+Generated local state can leak into context bundles or make future agents follow stale paths. In this pass, `.codex/session-state` JSON files and `_context_packer/output` bundles were generated artifacts, while current docs needed explicit labels for historical phase prompts and temporary compatibility adapters.
 
 Recipe:
 - Ignore generated outputs with `.gitignore`: `artifacts/`, `_context_packer/output/`, `_context_bundles/`, `.codex/session-state/`, and root `nul`.
@@ -23,7 +23,7 @@ Recipe:
 - Remove generated context outputs and session-state JSON files after verifying their resolved paths are inside the repo. Keep the directories, but keep them empty unless a local run is actively using them.
 - Keep only `MDF_PACK_CONTEXT.bat` at the repo root for context packing; helper BAT/scripts live under `_context_packer/`.
 - Mark old MVP phase docs as historical and point active readers to `content-development-routine.md`, `verification-profile-selector.md`, `feature-implementation-loop.md`, and `randomized-progression-test-plan.md`.
-- Keep `MPTestHumanBotPolicy` as an explicit obsolete adapter only; runtime HumanBot uses `PrepareDecisionPolicy`, `BattleDecisionPolicy`, and `HumanClientCommandEmitter`.
+- Remove temporary compatibility adapters once every caller uses the shared production policy; runtime HumanBot uses `PrepareDecisionPolicy`, `BattleDecisionPolicy`, and `HumanClientCommandEmitter` directly.
 - Do not remove field registry entries from `Unit.OnDisable`. Battle death disables units for later respawn. Actual destroy/despawn cleanup should unregister through `Unit.OnDestroy` or explicit merge/sell paths.
 
 Guardrails:
@@ -49,7 +49,7 @@ Cleanup performed:
 - Updated `.gitignore`, context packer config/default excludes, current docs, and precommit guardrails.
 
 Remaining intentional legacy:
-- `MPTestHumanBotPolicy` remains as an obsolete compatibility adapter for legacy test callers.
+- The former HumanBot policy compatibility adapter was removed after its final journal/test-only callers were migrated.
 - `run_matrix.py --case all` still means the existing default case subset; profile split is the next matrix phase.
 - `Mdfproject/Assembly-CSharp-Editor.csproj` is a generated/tracked Unity file with pre-existing ordering churn. Do not hand-edit it; prefer ignoring future generated churn in review unless the team decides to untrack generated project files.
 

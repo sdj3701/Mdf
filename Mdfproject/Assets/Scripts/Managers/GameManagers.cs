@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -7,10 +8,12 @@ using Cysharp.Threading.Tasks;
 using Fusion;
 using System.Threading;
 using System.Threading.Tasks;
+using MDF.Runtime.Assets;
 
 // MonoBehaviour 대신 NetworkBehaviour를 상속받아 네트워크 객체로 만듭니다.
 public partial class GameManagers : NetworkBehaviour
 {
+    private readonly AddressableAssetOwner _addressableAssets = new AddressableAssetOwner();
     // 싱글톤 패턴은 유지하되, 초기화는 Spawned()에서 수행합니다.
     // ★ Host Migration 지원을 위해 internal set 사용
     public static GameManagers Instance { get; internal set; }
@@ -51,6 +54,11 @@ public partial class GameManagers : NetworkBehaviour
             ? sequenceTransitionTimer.RemainingTime(Runner) ?? 0f
             : 0f;
 
+    // The sequence-transition timer is an internal pacing delay for cleanup/transition UI.
+    // It must never replace the phase countdown after the phase itself has reached zero.
+    public float currentDisplayedPhaseTimer =>
+        ResolveDisplayedPhaseTime(currentPhaseTimer, IsSequenceTransitioning);
+
     // 세션은 최대 4명까지 지원
     private const int MAX_PLAYERS = 4;
 
@@ -74,7 +82,7 @@ public partial class GameManagers : NetworkBehaviour
 
     [Header("자동 생성 위치 설정")]
     public Vector3 player1BasePosition = new Vector3(0, 0, 0);
-    public Vector3 playerOffset = new Vector3(0, 10, 0);
+    public Vector3 playerOffset = new Vector3(0, 0, -20);
     private bool _loggedOffsetNormalization;
 
     public Vector3 GetResolvedPlayerOffset()
@@ -96,14 +104,19 @@ public partial class GameManagers : NetworkBehaviour
         return normalized;
     }
 
+    public Vector3 GetPlayerFieldPosition(int playerId)
+    {
+        return player1BasePosition + GetResolvedPlayerOffset() * Mathf.Max(0, playerId);
+    }
+
     #region 단계별 시간 및 보상
     [Header("단계별 시간 설정 (초)")]
     [Tooltip("게임 시작 후 첫 번째 준비 단계 시간 (초)")]
     public float firstPreparePhaseTime = 60f;
     public float preparePhaseTime = 45f;
     public float combatTime = 60f;
-    [Tooltip("Delay before applying Prepare/Battle sequence transitions.")]
-    public float sequenceTransitionDelaySeconds = 1.5f;
+    [Tooltip("Optional presentation delay before applying Prepare/Battle sequence transitions. Keep at zero for immediate phase changes.")]
+    public float sequenceTransitionDelaySeconds = 0f;
 
     [Header("폭주 모드 설정")]
     [Tooltip("전투 종료 N초 전에 폭주 모드 발동")]
@@ -161,6 +174,22 @@ public partial class GameManagers : NetworkBehaviour
     /// </summary>
     public bool IsReadyForNetworkAccess => Object != null && Object.IsValid && _isSpawned;
 
+    /// <summary>
+    /// HostMigrationHandler가 비동기 복구의 실제 완료를 기다릴 수 있도록 노출하는 읽기 전용 상태입니다.
+    /// 호출자는 문자열 로그가 아니라 이 terminal 상태를 성공 gate로 사용해야 합니다.
+    /// </summary>
+    public bool IsHostMigrationRecoveryTerminal =>
+        _migrationRestoreStage == MigrationRestoreStage.FlowResumed ||
+        _migrationRestoreStage == MigrationRestoreStage.Failed;
+
+    public bool IsHostMigrationFlowResumed =>
+        _migrationRestoreStage == MigrationRestoreStage.FlowResumed;
+
+    public bool HasHostMigrationRecoveryFailed =>
+        _migrationRestoreStage == MigrationRestoreStage.Failed;
+
+    public string HostMigrationRecoveryStageName => _migrationRestoreStage.ToString();
+
     private bool IsMigrationRestoreInProgress =>
         _migrationRestoreStage != MigrationRestoreStage.None &&
         _migrationRestoreStage != MigrationRestoreStage.FlowResumed &&
@@ -175,6 +204,29 @@ public partial class GameManagers : NetworkBehaviour
     private bool hasCombatBeenShortened = false;
     private bool firstPrepareDurationUsed = false;
     private bool isTransitioningRound = false; // 라운드 전환 중 중복 호출 방지
+    private const float LocalMonsterPrewarmTimeoutSeconds = 20f;
+    private const float RemoteMonsterPrewarmAckTimeoutSeconds = 22f;
+
+    private readonly struct RemoteMonsterPrewarmAck
+    {
+        public int PlayerId { get; }
+        public int Round { get; }
+        public int Revision { get; }
+        public bool Succeeded { get; }
+        public string Summary { get; }
+
+        public RemoteMonsterPrewarmAck(int playerId, int round, int revision, bool succeeded, string summary)
+        {
+            PlayerId = playerId;
+            Round = round;
+            Revision = revision;
+            Succeeded = succeeded;
+            Summary = summary ?? string.Empty;
+        }
+    }
+
+    private readonly Dictionary<PlayerRef, RemoteMonsterPrewarmAck> _remoteMonsterPrewarmAcks =
+        new Dictionary<PlayerRef, RemoteMonsterPrewarmAck>();
     private bool _hasBerserkTriggered = false;  // 폭주 모드 트리거 여부
     private bool _hasBerserkTriggeredBattle2 = false;  // Battle2 폭주 모드 트리거 여부
     
@@ -287,6 +339,7 @@ public partial class GameManagers : NetworkBehaviour
 
     private void OnDestroy()
     {
+        _addressableAssets.Dispose();
         bool wasStaticInstance = Instance == this;
         bool isMigrating = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
         // Debug.LogWarning($"<color=orange>[GameManagers.OnDestroy] 파괴됨: {BuildDebugSummary(this)} | wasStaticInstance={wasStaticInstance} | isMigrating={isMigrating}</color>");
@@ -299,6 +352,7 @@ public partial class GameManagers : NetworkBehaviour
 
         CancelAndDisposeToken(ref _migrationCts);
         CancelAndDisposeToken(ref _lifecycleCts);
+        CommandProcessor?.CancelPendingCommands();
     }
 
     private void EnsureLifecycleCancellationToken()
@@ -718,6 +772,173 @@ public partial class GameManagers : NetworkBehaviour
         }
     }
 
+    internal void RecordRemoteMonsterPrewarmCompletion(
+        PlayerRef source,
+        int playerId,
+        int round,
+        int revision,
+        bool succeeded,
+        string summary)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority || Runner == null || !Runner.IsRunning)
+        {
+            return;
+        }
+
+        PlayerManager player = GetPlayer(playerId);
+        bool sourceIsActive = source != PlayerRef.None && Runner.ActivePlayers.Contains(source);
+        bool sourceOwnsPlayer = player?.Object != null && player.Object.IsValid && player.Object.InputAuthority == source;
+        if (!sourceIsActive || !sourceOwnsPlayer)
+        {
+            Debug.LogWarning(
+                $"[StartNextRound] Rejected monster prewarm acknowledgement. " +
+                $"source={source}, playerId={playerId}, sourceActive={sourceIsActive}, sourceOwnsPlayer={sourceOwnsPlayer}");
+            return;
+        }
+
+        if (round != currentRound || revision != player.AttackMonsterPoolRevision)
+        {
+            Debug.LogWarning(
+                $"[StartNextRound] Ignored stale monster prewarm acknowledgement. " +
+                $"source={source}, playerId={playerId}, round={round}/{currentRound}, " +
+                $"revision={revision}/{player.AttackMonsterPoolRevision}");
+            return;
+        }
+
+        _remoteMonsterPrewarmAcks[source] = new RemoteMonsterPrewarmAck(
+            playerId,
+            round,
+            revision,
+            succeeded,
+            summary);
+    }
+
+    private async UniTask<MonsterPrewarmReport> AwaitMonsterPrewarmBoundedAsync(
+        System.Func<CancellationToken, UniTask<MonsterPrewarmReport>> prewarmFactory,
+        string context)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(GetLifecycleCancellationToken());
+        timeoutCts.CancelAfter(System.TimeSpan.FromSeconds(LocalMonsterPrewarmTimeoutSeconds));
+        try
+        {
+            return await prewarmFactory(timeoutCts.Token);
+        }
+        catch (System.OperationCanceledException)
+        {
+            string reason = _lifecycleCts != null && _lifecycleCts.IsCancellationRequested
+                ? "lifecycle canceled"
+                : $"timeout after {LocalMonsterPrewarmTimeoutSeconds:F0}s";
+            var canceled = MonsterPrewarmReport.Failed(context, 1, reason);
+            Debug.LogWarning($"[StartNextRound] Monster prewarm canceled; Prepare will continue. {canceled}");
+            return canceled;
+        }
+        catch (System.Exception exception)
+        {
+            var failure = MonsterPrewarmReport.Failed(context, 1, exception.Message);
+            Debug.LogWarning($"[StartNextRound] Monster prewarm failed; Prepare will continue. {failure}");
+            return failure;
+        }
+    }
+
+    private static void LogMonsterPrewarmReports(IReadOnlyList<MonsterPrewarmReport> reports, int round)
+    {
+        if (reports == null || reports.Count == 0)
+        {
+            Debug.LogWarning($"[StartNextRound] No monster prewarm work was scheduled for round {round}.");
+            return;
+        }
+
+        int failed = reports.Sum(report => report.FailedPrefabCount);
+        int requestedPrefabs = reports.Sum(report => report.RequestedPrefabCount);
+        int completedPrefabs = reports.Sum(report => report.CompletedPrefabCount);
+        if (failed > 0)
+        {
+            string details = string.Join(" || ", reports.Where(report => !report.Succeeded).Select(report => report.ToString()));
+            Debug.LogWarning(
+                $"[StartNextRound] Monster prewarm finished with failures; Prepare will continue. " +
+                $"round={round}, prefabs={completedPrefabs}/{requestedPrefabs}, failed={failed}, details={details}");
+            return;
+        }
+
+        Debug.Log(
+            $"[StartNextRound] Monster prewarm ready. round={round}, " +
+            $"prefabs={completedPrefabs}/{requestedPrefabs}");
+    }
+
+    private async UniTask WaitForRemoteMonsterPrewarmAcksAsync(int round)
+    {
+        if (Application.isBatchMode ||
+            Runner == null ||
+            !Runner.IsRunning ||
+            Runner.GameMode == GameMode.Single ||
+            Object == null ||
+            !Object.IsValid ||
+            !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        PlayerRef localRef = Runner.LocalPlayer;
+        var expectedPlayers = AllPlayers
+            .Where(player => player?.Object != null &&
+                             player.Object.IsValid &&
+                             player.GetHealth() > 0 &&
+                             player.Object.InputAuthority != PlayerRef.None &&
+                             player.Object.InputAuthority != localRef &&
+                             Runner.ActivePlayers.Contains(player.Object.InputAuthority))
+            .ToList();
+        if (expectedPlayers.Count == 0)
+        {
+            return;
+        }
+
+        float startedAt = Time.realtimeSinceStartup;
+        while (Time.realtimeSinceStartup - startedAt < RemoteMonsterPrewarmAckTimeoutSeconds)
+        {
+            if (Object == null ||
+                !Object.IsValid ||
+                !Object.HasStateAuthority ||
+                currentState != GameState.Prepare ||
+                currentRound != round)
+            {
+                return;
+            }
+
+            bool allCompleted = expectedPlayers.All(player =>
+                _remoteMonsterPrewarmAcks.TryGetValue(player.Object.InputAuthority, out RemoteMonsterPrewarmAck ack) &&
+                ack.PlayerId == player.playerId &&
+                ack.Round == round &&
+                ack.Revision == player.AttackMonsterPoolRevision);
+            if (allCompleted)
+            {
+                foreach (PlayerManager player in expectedPlayers)
+                {
+                    RemoteMonsterPrewarmAck ack = _remoteMonsterPrewarmAcks[player.Object.InputAuthority];
+                    if (!ack.Succeeded)
+                    {
+                        Debug.LogWarning(
+                            $"[StartNextRound] Remote monster prewarm reported failure; Prepare will continue. " +
+                            $"source={player.Object.InputAuthority}, playerId={ack.PlayerId}, round={round}, " +
+                            $"revision={ack.Revision}, summary={ack.Summary}");
+                    }
+                }
+                return;
+            }
+
+            await UniTask.Delay(50, DelayType.Realtime);
+        }
+
+        string pending = string.Join(", ", expectedPlayers
+            .Where(player => !_remoteMonsterPrewarmAcks.TryGetValue(player.Object.InputAuthority, out RemoteMonsterPrewarmAck ack) ||
+                             ack.PlayerId != player.playerId ||
+                             ack.Round != round ||
+                             ack.Revision != player.AttackMonsterPoolRevision)
+            .Select(player => $"{player.Object.InputAuthority}/P{player.playerId}/rev{player.AttackMonsterPoolRevision}"));
+        Debug.LogWarning(
+            $"[StartNextRound] Remote monster prewarm acknowledgement timeout after " +
+            $"{RemoteMonsterPrewarmAckTimeoutSeconds:F0}s; Prepare will continue. round={round}, pending={pending}");
+    }
+
     private float _lastStateAuthorityLogTime = 0f;
     private bool _wasStateAuthorityLastFrame = false;
     
@@ -778,23 +999,24 @@ public partial class GameManagers : NetworkBehaviour
                 LogMigrationTrace("FixedUpdateNetwork:PrepareExpiredBeforeUI");
             }
 
+            GameState expiredState = currentState;
+            GameState? targetState = ResolveExpiredPhaseTransitionTarget(
+                expiredState,
+                IsSequenceTransitioning,
+                isTransitioningRound);
+
             phaseTimer = TickTimer.None;
             // Debug.Log($"<color=yellow>[GameManagers] 타이머 만료! 상태: {currentState}</color>");
-            switch (currentState)
+            if (targetState.HasValue)
             {
-                case GameState.Prepare:
-                    BeginSequenceTransition(GameState.Battle1, "FixedUpdateNetwork/PrepareExpired");
-                    break;
-                case GameState.Battle1:
-                    BeginSequenceTransition(GameState.Battle2, "FixedUpdateNetwork/Battle1Expired");
-                    break;
-                case GameState.Battle2:
-                    if (!isTransitioningRound)
-                    {
-                        isTransitioningRound = true;
-                        BeginSequenceTransition(GameState.Prepare, "FixedUpdateNetwork/Battle2Expired");
-                    }
-                    break;
+                if (expiredState == GameState.Battle2)
+                {
+                    isTransitioningRound = true;
+                }
+
+                BeginSequenceTransition(
+                    targetState.Value,
+                    $"FixedUpdateNetwork/{expiredState}Expired");
             }
         }
         // 전투 단축: 모든 플레이어의 전투가 끝났을 때 남은 시간을 3초로
@@ -993,9 +1215,14 @@ public partial class GameManagers : NetworkBehaviour
             Debug.LogError("[GameManagers] AddressablesManager.Instance is null.");
             return;
         }
-        await AddressablesManager.Instance.LoadGamePrefabsAsync();
+        bool gamePrefabsReady = await AddressablesManager.Instance.LoadGamePrefabsAsync();
         if (Object == null || !Object.IsValid || Instance != this)
         {
+            return;
+        }
+        if (!gamePrefabsReady || !AddressablesManager.Instance.GamePrefabsLoaded)
+        {
+            Debug.LogError("[GameManagers] Required Addressables failed after retry. Game flow remains safely stopped in Setup.");
             return;
         }
         
@@ -1044,13 +1271,16 @@ public partial class GameManagers : NetworkBehaviour
         if (BuildDebugGUI.Instance != null) 
             BuildDebugGUI.Instance.Log("호스트가 플레이어와 그리드 생성을 시작합니다.");
 
-        var playerRefs = Runner.ActivePlayers.ToList();
+        var playerRefs = Runner.ActivePlayers
+            .OrderBy(playerRef => playerRef.PlayerId)
+            .ToList();
+
         int playersToCreate = DeterminePlayerCount();
         bool isSinglePlayer = Runner.GameMode == GameMode.Single;
 
         for (int i = 0; i < playersToCreate; i++)
         {
-            Vector3 playerPosition = player1BasePosition + playerOffset * i;
+            Vector3 playerPosition = GetPlayerFieldPosition(i);
             bool isAI = isSinglePlayer ? (i > 0) : (i >= playerRefs.Count);
             PlayerRef inputAuthority = (!isAI && i < playerRefs.Count) ? playerRefs[i] : PlayerRef.None;
 
@@ -1076,6 +1306,43 @@ public partial class GameManagers : NetworkBehaviour
             PlayerManager newPlayer = playerNO.GetComponent<PlayerManager>();
             if (newPlayer != null)
             {
+                int selectedKingHash = KingSelectionCatalog.DefaultKeyHash;
+                int selectedDemonHash = DemonSelectionCatalog.Entries[
+                    i % DemonSelectionCatalog.Entries.Count].KeyHash;
+                int selectedMapThemeId = MapThemeCatalog.DefaultId;
+                if (inputAuthority != PlayerRef.None
+                    && NetworkManager.Instance != null
+                    && NetworkManager.Instance.TryGetLobbyKingSelectionForGameplay(
+                        Runner,
+                        inputAuthority,
+                        out int lobbySelectedKingHash)
+                    && KingSelectionCatalog.IsAllowedHash(lobbySelectedKingHash))
+                {
+                    selectedKingHash = lobbySelectedKingHash;
+                }
+                if (inputAuthority != PlayerRef.None
+                    && NetworkManager.Instance != null
+                    && NetworkManager.Instance.TryGetLobbyDemonSelectionForGameplay(
+                        Runner,
+                        inputAuthority,
+                        out int lobbySelectedDemonHash)
+                    && DemonSelectionCatalog.IsAllowedHash(lobbySelectedDemonHash))
+                {
+                    selectedDemonHash = lobbySelectedDemonHash;
+                }
+                if (inputAuthority != PlayerRef.None
+                    && NetworkManager.Instance != null
+                    && NetworkManager.Instance.TryGetLobbyMapThemeForGameplay(
+                        Runner,
+                        inputAuthority,
+                        out int lobbyMapThemeId)
+                    && MapThemeCatalog.IsAllowed(lobbyMapThemeId))
+                {
+                    selectedMapThemeId = lobbyMapThemeId;
+                }
+                newPlayer.SetSelectedKingKeyHashAuthoritative(selectedKingHash);
+                newPlayer.SetSelectedDemonKeyHashAuthoritative(selectedDemonHash);
+                newPlayer.SetSelectedMapThemeIdAuthoritative(selectedMapThemeId);
                 newPlayer.SetAiControlled(isAI);
                 newPlayer.Rpc_InitializePlayer(i, gridNO);
             }
@@ -1198,12 +1465,28 @@ public partial class GameManagers : NetworkBehaviour
         CommandProcessor.RequestCommandExecution(cmd);
     }
 
+    public void NotifyPurchaseFailed(int playerID, int slotIndex, string reason)
+    {
+        if (Object == null || !Object.IsValid || !Object.HasStateAuthority)
+        {
+            return;
+        }
+
+        RPC_NotifyPurchaseFailed(playerID, slotIndex, reason ?? "purchase_failed");
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void RPC_NotifyPurchaseFailed(int playerID, int slotIndex, string reason)
+    {
+        GameEvents.TriggerPurchaseFailed(playerID, slotIndex, reason);
+    }
+
     /// <summary>
     /// 증강 선택을 모든 클라이언트에 알립니다.
     /// </summary>
-    public void NotifyAugmentSelected(int playerID, string augmentName)
+    public void NotifyAugmentSelected(int playerID, string augmentContentId)
     {
-        var cmd = new NotifyAugmentSelectedCommand(playerID, augmentName);
+        var cmd = new NotifyAugmentSelectedCommand(playerID, augmentContentId);
         CommandProcessor.RequestCommandExecution(cmd);
     }
 
@@ -1236,18 +1519,26 @@ public partial class GameManagers : NetworkBehaviour
 
     [System.Obsolete("Use NotifyAugmentSelected() instead. This RPC will be removed in future versions.")]
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public void RPC_NotifyAugmentSelected(int playerID, string augmentName)
+    public void RPC_NotifyAugmentSelected(int playerID, string augmentReference)
     {
         var player = GetPlayer(playerID);
         if (player != null)
         {
             var augments = player.augmentManager?.GetPresentedAugments();
-            AugmentData chosenAugment = augments?.FirstOrDefault(a => a?.augmentName == augmentName);
+            string contentId = StableDataKeyUtility.NormalizeContentId(augmentReference);
+            AugmentData chosenAugment = augments?.FirstOrDefault(
+                augment => augment != null
+                    && string.Equals(augment.ContentId, contentId, StringComparison.Ordinal));
             
             if (chosenAugment != null)
             {
                 GameEvents.TriggerAugmentApplied(player, chosenAugment);
-                // Debug.Log($"<color=green>[RPC_NotifyAugmentSelected] Player {playerID}: '{augmentName}' 선택 알림</color>");
+                // Debug.Log($"<color=green>[RPC_NotifyAugmentSelected] Player {playerID}: '{augmentReference}' selected</color>");
+            }
+            else
+            {
+                Debug.LogWarning(
+                    $"[RPC_NotifyAugmentSelected] Rejected unknown/non-presented ContentId for P{playerID}: '{augmentReference}'.");
             }
         }
     }
@@ -1273,12 +1564,27 @@ public partial class GameManagers : NetworkBehaviour
     /// 각 클라이언트는 자신이 해당 플레이어인 경우 카메라/UI 처리를 수행합니다.
     /// </summary>
     [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
-    public void RPC_NotifyBattleStart(int playerId, bool isAttacker, int opponentId)
+    public void RPC_NotifyBattleStart(
+        int playerId,
+        bool isAttacker,
+        int opponentId,
+        int blackMagicCurrent,
+        int blackMagicMaximum,
+        int blackMagicMaxBonus,
+        int blackMagicRevision,
+        int blackMagicSequenceId)
     {
         RecordBattleStartSnapshotFromRpc(playerId, isAttacker, opponentId);
 
         // 로컬 플레이어가 아니면 무시
         if (!TryGetPlayerIdSafe(localPlayer, out int localPlayerId) || localPlayerId != playerId) return;
+
+        localPlayer.ApplyBlackMagicPresentationSnapshot(
+            blackMagicCurrent,
+            blackMagicMaximum,
+            blackMagicMaxBonus,
+            blackMagicRevision,
+            blackMagicSequenceId);
 
         localPlayer.monsterSpawner?.EnsureRuntimeReferencesForMigration("RPC_NotifyBattleStart(local)");
         
@@ -1292,7 +1598,6 @@ public partial class GameManagers : NetworkBehaviour
                 localPlayer.opponentManager = opponent;
                 
                 // 클라이언트에서도 AttackMonsterPool 갱신 (UI 표시를 위해)
-                localPlayer.RefreshAttackMonsterPool(currentRound, opponentId);
                 
                 // AttackSequenceManager 시작
                 var attackSeqMgr = localPlayer.GetComponent<AttackSequenceManager>();
@@ -1450,7 +1755,7 @@ public partial class GameManagers : NetworkBehaviour
 
     private async UniTask CreateScrollPresentationLocal(int attackerPlayerId, string scrollDataName, Vector3 position)
     {
-        var scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName);
+        var scrollData = await AssetLoader.LoadAssetAsync<MagicScrollData>(scrollDataName, _addressableAssets);
         if (scrollData == null || scrollData.skillData == null)
         {
             return;
@@ -1580,6 +1885,7 @@ public partial class GameManagers : NetworkBehaviour
 
         TryPushMigrationSnapshotForCriticalTransition($"StartNextRound:BeforePrepareTransition:R{currentRound}");
         TransitionToPrepareState("StartNextRound");
+        int preparePrewarmRound = currentRound;
 
         foreach (var player in AllPlayers)
         {
@@ -1587,6 +1893,16 @@ public partial class GameManagers : NetworkBehaviour
             player?.fieldManager?.BroadcastAuthoritativeUnitRoster("StartNextRound.RespawnAllUnits");
         }
 
+        List<PlayerManager> activePrewarmPlayers = AllPlayers
+            .Where(player => player != null && player.GetHealth() > 0)
+            .ToList();
+        int activePrewarmPlayerCount = Mathf.Max(1, activePrewarmPlayers.Count);
+        int maximumProjectedBlackMagic = activePrewarmPlayers
+            .Select(player => player.GetProjectedBlackMagicMaximumForRound(currentRound))
+            .DefaultIfEmpty(0)
+            .Max();
+        RoundWaveData nextWaveData = AddressablesManager.Instance?.WaveDatabase?.GetWaveForRound(currentRound);
+        var monsterPrewarmTasks = new List<UniTask<MonsterPrewarmReport>>();
         foreach (var player in AllPlayers)
         {
             if (player == null) continue;
@@ -1626,11 +1942,25 @@ public partial class GameManagers : NetworkBehaviour
             }
 
             // 상점 아이템 동기화 (Command Pattern 사용)
-            var shopItems = player.shopManager != null ? player.shopManager.GetCurrentShopItems() : new List<ShopItem>();
-            string[] shopNames = shopItems.Select(i => i.UnitData?.name ?? "").ToArray();
-            int[] shopStars = shopItems.Select(i => i.StarLevel).ToArray();
-            var syncShopCmd = new SyncShopItemsCommand(player.playerId, shopNames, shopStars);
-            CommandProcessor.RequestCommandExecution(syncShopCmd);
+            if (player.TryGetShopSnapshot(
+                    out string[] shopNames,
+                    out int[] shopStars,
+                    out _,
+                    out int shopRevision,
+                    out int shopRound))
+            {
+                var syncShopCmd = new SyncShopItemsCommand(
+                    player.playerId,
+                    shopNames,
+                    shopStars,
+                    shopRevision,
+                    shopRound);
+                CommandProcessor.RequestCommandExecution(syncShopCmd);
+            }
+            else
+            {
+                Debug.LogError($"[StartNextRound] Authoritative shop snapshot unavailable for P{player.playerId}.");
+            }
 
             // AI 준비 단계 플래그 리셋
             player.mazeConstructionComplete = false;
@@ -1662,13 +1992,115 @@ public partial class GameManagers : NetworkBehaviour
                 // Debug.LogWarning($"[StartNextRound] Player {player.playerId}: augmentManager가 null입니다. 빈 증강 목록으로 동기화합니다.");
             }
             
-            var augmentNames = presentedAugments
-                .Select(a => a != null ? a.augmentName : string.Empty)
+            var augmentContentIds = presentedAugments
+                .Select(a => a != null ? a.ContentId : string.Empty)
                 .ToArray();
-            player.PublishPresentedAugmentSnapshot(augmentNames);
+            player.PublishPresentedAugmentSnapshot(augmentContentIds);
             
-            var syncAugmentCmd = new SyncAugmentsCommand(player.playerId, augmentNames);
+            var syncAugmentCmd = new SyncAugmentsCommand(player.playerId, augmentContentIds);
             CommandProcessor.RequestCommandExecution(syncAugmentCmd);
+
+            if (player.monsterSpawner != null)
+            {
+                MonsterData[] presentedBosses = presentedAugments
+                    .Select(augment => augment != null && augment.TryGetBossMonster(out MonsterData boss) ? boss : null)
+                    .Where(boss => boss != null)
+                    .Distinct()
+                    .ToArray();
+                if (presentedBosses.Length > 0)
+                {
+                    // A boss acquired from this Prepare's choices is absent from the owned pool
+                    // until selection. Warm every offered candidate before the countdown starts.
+                    string bossPrewarmContext =
+                        $"StartNextRound.PresentedBosses.R{currentRound}.P{player.playerId}";
+                    monsterPrewarmTasks.Add(
+                        AwaitMonsterPrewarmBoundedAsync(
+                            cancellationToken => player.monsterSpawner.PrewarmMonsterDataSetAsync(
+                                presentedBosses,
+                                isBoss: true,
+                                requestedCount: 1,
+                                context: bossPrewarmContext,
+                                cancellationToken: cancellationToken),
+                            bossPrewarmContext));
+                }
+            }
+        }
+
+        // Build the next attack catalog during Prepare, not after Battle has already begun. The
+        // replicated snapshot makes every peer preload the same non-boss catalog; the authority
+        // also waits for its bounded pools and hidden shader warmup before arming the phase timer.
+        foreach (var player in AllPlayers)
+        {
+            if (player == null || !player.IsReadyForPlayerActions)
+            {
+                continue;
+            }
+
+            player.RefreshAttackMonsterPool(currentRound, schedulePrewarm: false);
+            if (player.monsterSpawner != null && player.AttackMonsterPool != null)
+            {
+                string catalogPrewarmContext =
+                    $"StartNextRound.Prepare.R{currentRound}.P{player.playerId}";
+                monsterPrewarmTasks.Add(
+                    AwaitMonsterPrewarmBoundedAsync(
+                        cancellationToken => player.monsterSpawner.PrewarmAttackMonsterPoolAsync(
+                            player.AttackMonsterPool,
+                            catalogPrewarmContext,
+                            activePrewarmPlayerCount,
+                            maximumProjectedBlackMagic,
+                            nextWaveData,
+                            cancellationToken),
+                        catalogPrewarmContext));
+            }
+        }
+        MonsterSpawner wavePrewarmSpawner = activePrewarmPlayers
+            .Select(player => player.monsterSpawner)
+            .FirstOrDefault(spawner => spawner != null);
+        if (nextWaveData != null && wavePrewarmSpawner != null)
+        {
+            string wavePrewarmContext = $"StartNextRound.NextWave.R{currentRound}";
+            monsterPrewarmTasks.Add(
+                AwaitMonsterPrewarmBoundedAsync(
+                    cancellationToken => wavePrewarmSpawner.PrewarmWaveAsync(
+                        nextWaveData,
+                        wavePrewarmContext,
+                        activePrewarmPlayerCount,
+                        cancellationToken),
+                    wavePrewarmContext));
+        }
+        else
+        {
+            Debug.LogWarning(
+                $"[StartNextRound] Next wave prewarm could not be scheduled. " +
+                $"round={currentRound}, waveReady={nextWaveData != null}, spawnerReady={wavePrewarmSpawner != null}");
+        }
+
+        if (monsterPrewarmTasks.Count > 0)
+        {
+            MonsterPrewarmReport[] monsterPrewarmReports = await UniTask.WhenAll(monsterPrewarmTasks);
+            LogMonsterPrewarmReports(monsterPrewarmReports, currentRound);
+        }
+
+        if (Object == null ||
+            !Object.IsValid ||
+            !Object.HasStateAuthority ||
+            currentState != GameState.Prepare ||
+            currentRound != preparePrewarmRound)
+        {
+            Debug.LogWarning(
+                $"[StartNextRound] Prepare generation changed during monster prewarm; timer will not be armed. " +
+                $"expectedRound={preparePrewarmRound}, actualRound={currentRound}, state={currentState}");
+            return;
+        }
+
+        await WaitForRemoteMonsterPrewarmAcksAsync(preparePrewarmRound);
+        if (Object == null ||
+            !Object.IsValid ||
+            !Object.HasStateAuthority ||
+            currentState != GameState.Prepare ||
+            currentRound != preparePrewarmRound)
+        {
+            return;
         }
 
         // UI 로직이 완료될 때까지 대기
@@ -1766,7 +2198,13 @@ public partial class GameManagers : NetworkBehaviour
         }
 
         const float retrySeconds = 0.75f;
-        phaseTimer = TickTimer.CreateFromSeconds(Runner, retrySeconds);
+        // A failed battle-start precheck is still part of the same sequence boundary.
+        // Keep the public phase countdown expired and retry through the private
+        // transition timer so the UI cannot count 0 -> 1 -> 0 and gameplay
+        // commands cannot reopen for the expired phase.
+        phaseTimer = TickTimer.None;
+        sequenceTransitionTimer = TickTimer.CreateFromSeconds(Runner, retrySeconds);
+        _sequenceTransitionCompletionStarted = false;
         Debug.LogWarning($"[{context}] BattleStartPrecheck failed. retryIn={retrySeconds:F2}s, detail={reason}");
         LogMigrationTrace($"{context}:BattleStartPrecheckRetry", reason);
     }
@@ -1776,12 +2214,22 @@ public partial class GameManagers : NetworkBehaviour
     /// <summary>
     /// Battle1 시퀀스를 시작합니다. 선공 플레이어가 공격, 상대가 수비.
     /// </summary>
-    private void StartBattle1Phase()
+    private bool StartBattle1Phase()
     {
-        if (!Object.HasStateAuthority) return;
-        if (currentState == GameState.GameOver) return;
+        if (!Object.HasStateAuthority) return true;
+        if (currentState == GameState.GameOver) return true;
 
         LogMigrationTrace("StartBattle1Phase:ENTER");
+
+        // Establish the matchup first because readiness validation resolves each
+        // defender through this mapping. No augment mutation is allowed until
+        // every battle dependency is ready.
+        AssignBattleOpponents();
+        if (!TryRunBattleStartPrecheck("StartBattle1Phase", out string precheckReason))
+        {
+            RearmBattleTransitionRetryTimer("StartBattle1Phase", precheckReason);
+            return false;
+        }
 
         // 증강을 선택하지 않은 플레이어에게 첫 번째 증강 자동 선택
         foreach (var player in AllPlayers)
@@ -1795,19 +2243,11 @@ public partial class GameManagers : NetworkBehaviour
                 // Debug.Log($"<color=orange>[StartBattle1Phase] Player {player.playerId}: 시간 초과로 인해 '{firstAugment.augmentName}' 증강 자동 선택</color>");
                 
                 player.augmentManager.SelectAndApplyAugment(firstAugment);
-                NotifyAugmentSelected(player.playerId, firstAugment.augmentName);
+                NotifyAugmentSelected(player.playerId, firstAugment.ContentId);
             }
         }
 
         // 상대 매칭 및 선공 플레이어 결정
-        AssignBattleOpponents();
-
-        if (!TryRunBattleStartPrecheck("StartBattle1Phase", out string precheckReason))
-        {
-            RearmBattleTransitionRetryTimer("StartBattle1Phase", precheckReason);
-            return;
-        }
-
         TryPushMigrationSnapshotForCriticalTransition($"StartBattle1Phase:BeforeBattle1Transition:R{currentRound}");
         TransitionToBattle1State("StartBattle1Phase");
         hasCombatBeenShortened = false;
@@ -1825,16 +2265,17 @@ public partial class GameManagers : NetworkBehaviour
         StartBattleForPlayers(isFirstBattle: true);
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
+        return true;
         // Debug.Log($"<color=cyan>[GameManagers] Battle1 시작! 각 매칭마다 선공자 랜덤 결정됨</color>");
     }
 
     /// <summary>
     /// Battle2 시퀀스를 시작합니다. 공수 역할 교체.
     /// </summary>
-    private void StartBattle2Phase()
+    private bool StartBattle2Phase()
     {
-        if (!Object.HasStateAuthority) return;
-        if (currentState == GameState.GameOver) return;
+        if (!Object.HasStateAuthority) return true;
+        if (currentState == GameState.GameOver) return true;
 
         LogMigrationTrace("StartBattle2Phase:ENTER");
         EnsureBattleMappingAfterMigration();
@@ -1842,7 +2283,7 @@ public partial class GameManagers : NetworkBehaviour
         if (!TryRunBattleStartPrecheck("StartBattle2Phase", out string precheckReason))
         {
             RearmBattleTransitionRetryTimer("StartBattle2Phase", precheckReason);
-            return;
+            return false;
         }
 
         // Battle1에서 남은 몬스터 정리
@@ -1865,6 +2306,7 @@ public partial class GameManagers : NetworkBehaviour
         StartBattleForPlayers(isFirstBattle: false);
 
         phaseTimer = TickTimer.CreateFromSeconds(Runner, combatTime);
+        return true;
         // Debug.Log("<color=cyan>[GameManagers] Battle2 시작! 공수 역할 교체</color>");
     }
 
@@ -2019,6 +2461,8 @@ public partial class GameManagers : NetworkBehaviour
             {
                 if (isAttackerInThisBattle)
                 {
+                    player.BeginAttackSequenceBlackMagic(currentRound, currentState);
+
                     // 공격자 역할: 기본 웨이브 + AttackMonsterPool 소환
                     try
                     {
@@ -2104,7 +2548,15 @@ public partial class GameManagers : NetworkBehaviour
                 // Spawned 이전 객체는 기본값(false)로 처리
             }
 
-            RPC_NotifyBattleStart(playerId, isAttackerFlag, opponentId);
+            RPC_NotifyBattleStart(
+                playerId,
+                isAttackerFlag,
+                opponentId,
+                player.BlackMagicCurrent,
+                player.BlackMagicMaximum,
+                player.BlackMagicMaxBonus,
+                player.BlackMagicRevision,
+                player.BlackMagicSequenceId);
         }
     }
 
@@ -2192,6 +2644,7 @@ public partial class GameManagers : NetworkBehaviour
         if (Runner.IsServer)
         {
              if (currentState == GameState.GameOver) return;
+             failedPlayer.TriggerKingDamageReactionAuthoritative();
              failedPlayer.TakeDamage(1);
         }
     }

@@ -42,6 +42,11 @@ After feasibility passes, an E2E PASS requires:
    - `GameManagers` exists and is bound to the active runner;
    - no duplicate `playerId`;
    - player HP/gold/wall/shop/field state restored;
+   - destructible wall cell/HP/revision hashes match before and after migration;
+   - survivor-boss pending/assignment payload (identity, HP, target, invaded flag, next ID) matches, not only count/hash summaries;
+   - selected and persistent runtime augment identities match;
+   - every connected human has the same valid 64-character SHA-256 connection-token hash before and after migration;
+   - field-unit restoration has reached a terminal success state rather than merely starting asynchronous spawns;
    - AI takeover/reconciliation completed or is explicitly unsupported;
    - stale `PlayerRef` is not used as durable identity;
    - battle/prepare state can continue or is safely paused with documented reason.
@@ -65,3 +70,6 @@ After feasibility passes, an E2E PASS requires:
 - New host starts a fresh match instead of resuming.
 - Snapshot lacks player/field/shop/game state assertions.
 - Raw `PlayerRef` equality is required after migration.
+- Recovery is marked successful before `FlowResumed`, AI reconciliation, and asynchronous field-unit restoration are terminal.
+- A timed-out or failed migration leaves a late `DontDestroyOnLoad` runner alive.
+- Survivor-boss or wall-health payload capacity overflow is silently truncated.

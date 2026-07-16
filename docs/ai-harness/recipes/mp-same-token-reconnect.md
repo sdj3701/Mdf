@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: reconnect, security
 Created: 2026-05-05
-Last used: 2026-05-05
-Last verified: 2026-05-05
-Use count: 1
+Last used: 2026-07-12
+Last verified: 2026-07-12
+Use count: 6
 Review after: 2026-08-03
 Triggers: same `--mpConnectionToken`, reconnect identity, PlayerRef changes
 Applies to: `NetworkManager.TryReassociateDisconnectedPlayer`, `tools/harness/mp/run_same_token_reconnect.py`
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260712-113414-progressed-same-token-reconnect; artifacts/mp/20260712-115502-progressed-same-token-reconnect
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -33,3 +33,7 @@ Pitfalls:
 - Older `full-comparison.json` artifacts exposed non-target late-join wall drift. Do not use Phase 13 target identity PASS as proof that arbitrary late join fully reconstructs the whole match world.
 - Phase 13B requires `fullComparison.success=true`. Use `--target-only` only when intentionally rechecking identity reclaim separately from full-world sync.
 - When applying authoritative permanent-wall cells to late-join clients, destructible wall-map rebuilds must not classify objects in authoritative permanent cells as destructible walls.
+
+Lifecycle notes:
+- 2026-07-12: verified artifact `artifacts/mp/20260712-113414-progressed-same-token-reconnect`
+- 2026-07-12: verified artifact `artifacts/mp/20260712-115502-progressed-same-token-reconnect`

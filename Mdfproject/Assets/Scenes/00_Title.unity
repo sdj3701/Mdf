@@ -3135,14 +3135,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6138ce358d9e10d4aa90851cee6e3966, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  inspectorUnitData:
-  - {fileID: 11400000, guid: afdb119d7f8d3394dade8a6d18888eee, type: 2}
-  - {fileID: 11400000, guid: b294db2481416c64fb9edd6bc0222d6e, type: 2}
-  - {fileID: 11400000, guid: d5f8bf124e30c3944b07bb8b13a7c0c2, type: 2}
-  - {fileID: 11400000, guid: af161e66696ca4742b05891ba27598fd, type: 2}
-  - {fileID: 11400000, guid: ff4a21ca690cb8946904ef398f458322, type: 2}
-  - {fileID: 11400000, guid: 4e7855d10fe859147b90840b76fc592a, type: 2}
-  - {fileID: 11400000, guid: bbcf86331f675644ab2af799f5503f6e, type: 2}
 --- !u!4 &1660193867
 Transform:
   m_ObjectHideFlags: 0
@@ -3766,8 +3758,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4899e616a48886d42b4696e3f88fd470, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  autoPreloadAllOnStart: 0
-  logPreloadProgress: 1
+  autoInitializeOnStart: 1
+  logInitializationProgress: 1
   playerManagerPrefabRef:
     m_AssetGUID: 1831533972272eb408da1971d3a1e504
     m_SubObjectName: 

@@ -466,10 +466,11 @@ BATTLE_COMMAND_REQUIRED_TOKENS = {
         'BattleCommandValidator.IsCurrentBattleDefender',
         'BattleCommandValidator.IsAuthorizedClientSource',
         'BattleCommandValidator.IsServerAiOrTestAuthority',
-        'BattleCommandValidator.IsFiniteTargetPosition',
-        'BattleCommandValidator.IsInsideBattleSpawnZone',
-        'TryConsumeMonsterPoolSlot',
-        'SpawnMonsterAtPositionAsync',
+        'BattleCommandValidator.TryResolveExactBattleSpawnPosition',
+        'TryReserveBattleSpawnResource',
+        'CommitBattleSpawnReservation',
+        'TryRefundBattleSpawnReservation',
+        'SpawnMonsterAtExactPositionAsync',
     ],
     'UseMagicScrollCommand.cs': [
         'ServerBattleCommandExecutor.TryExecuteAsync',
@@ -542,8 +543,8 @@ def custom_errors(txt: str, r: str) -> list[tuple[str, str, str]]:
         if 'HumanBot' in txt or r.startswith('Mdfproject/Assets/Scripts/Testing/MP/'):
             errors.append((r, 'humanbot_ai_registration', 'HumanBot/test human peers must not register or attach AIPlayerController.'))
 
-    if r.startswith('Mdfproject/Assets/Scripts/AI/') and re.search(r'\bSpawnMonsterAtPositionAsync\s*\(', txt):
-        errors.append((r, 'ai_direct_monster_spawn', 'AI strategic monster spawns must emit BattleSpawnMonsterCommand, not call SpawnMonsterAtPositionAsync directly.'))
+    if r.startswith('Mdfproject/Assets/Scripts/AI/') and re.search(r'\bSpawnMonsterAt(?:Exact)?PositionAsync\s*\(', txt):
+        errors.append((r, 'ai_direct_monster_spawn', 'AI strategic monster spawns must emit BattleSpawnMonsterCommand, not call low-level spawn APIs directly.'))
 
     if r.startswith('Mdfproject/Assets/Scripts/AI/') and re.search(r'\.ActivateSkill\s*\(|\bApplyEffect\s*\(', txt):
         errors.append((r, 'ai_direct_skill_effect', 'AI strategic skill decisions must emit ActivateSkillCommand, not call ActivateSkill or ApplyEffect directly.'))
@@ -574,7 +575,10 @@ def custom_errors(txt: str, r: str) -> list[tuple[str, str, str]]:
             'IsManualOrAiStrategicSkill',
             'UnitBelongsToPlayer',
             'unit.Object.HasStateAuthority',
-            'unit.ActivateSkill()',
+            'IAsyncCommand',
+            'await unit.ActivateSkillAsync(',
+            'activationResult.Executed',
+            'skill_capacity_backpressure',
         ]
         missing = [token for token in required if token not in txt]
         if missing:
@@ -587,8 +591,8 @@ def battle_guardrail_warns(txt: str, r: str) -> list[tuple[str, str, str]]:
     warns = []
     if '/Editor/' in r:
         return warns
-    if 'SpawnMonsterAtPositionAsync' in txt and r not in BATTLE_COMMAND_ALLOWED_DIRECT_SPAWN:
-        warns.append((r, 'direct_monster_spawn_review', 'Direct SpawnMonsterAtPositionAsync use must be non-strategic or wrapped by BattleSpawnMonsterCommand.'))
+    if re.search(r'\bSpawnMonsterAt(?:Exact)?PositionAsync\s*\(', txt) and r not in BATTLE_COMMAND_ALLOWED_DIRECT_SPAWN:
+        warns.append((r, 'direct_monster_spawn_review', 'Direct low-level monster spawn use must be non-strategic or wrapped by BattleSpawnMonsterCommand.'))
     if re.search(r'\.\s*RPC_RequestSpawnMonster\s*\(', txt):
         warns.append((r, 'legacy_spawn_rpc_call', 'Legacy RPC_RequestSpawnMonster call detected; use BattleSpawnMonsterCommand/RPC_RequestBattleSpawnMonster.'))
     if re.search(r'\.\s*RPC_RequestUseMagicScroll\s*\(', txt):
@@ -597,8 +601,8 @@ def battle_guardrail_warns(txt: str, r: str) -> list[tuple[str, str, str]]:
         warns.append((r, 'scroll_gameplay_direct_call', 'Scroll gameplay casting should route through UseMagicScrollCommand on State Authority.'))
     if re.search(r'\.\s*TryConsumeMagicScrollSlot\s*\(', txt) and not r.endswith('/Commands/Battle/UseMagicScrollCommand.cs'):
         warns.append((r, 'scroll_inventory_direct_consume', 'Scroll inventory consumption should occur after UseMagicScrollCommand validation.'))
-    if re.search(r'\.\s*TryConsumeMonsterPoolSlot\s*\(', txt) and not r.endswith('/Commands/Battle/BattleSpawnMonsterCommand.cs'):
-        warns.append((r, 'attack_pool_direct_consume', 'Attack monster pool consumption should occur after BattleSpawnMonsterCommand validation.'))
+    if re.search(r'\.\s*(?:TryReserveBattleSpawnResource|CommitBattleSpawnReservation|TryRefundBattleSpawnReservation)\s*\(', txt) and not r.endswith('/Commands/Battle/BattleSpawnMonsterCommand.cs'):
+        warns.append((r, 'attack_resource_direct_transaction', 'Attack pool/Black Magic transactions should occur only inside BattleSpawnMonsterCommand.'))
     return warns
 
 
@@ -1003,6 +1007,15 @@ def self_test() -> int:
         finally:
             try:
                 bad8.unlink()
+            except Exception:
+                pass
+        bad9 = ROOT / 'Mdfproject/Assets/Scripts/AI/Planning/__precommit_self_test_BadAiExactSpawn.cs'
+        bad9.write_text('class BadAiExactSpawn { void X(){ spawner.SpawnMonsterAtExactPositionAsync(data, pos, field); } }')
+        try:
+            cases.append(('ai direct exact spawn block', any(e[1] == 'ai_direct_monster_spawn' for e in check_file(bad9)[0])))
+        finally:
+            try:
+                bad9.unlink()
             except Exception:
                 pass
         cases.append(('context packer session-state block', profile_includes_codex_session_state({

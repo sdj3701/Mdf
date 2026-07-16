@@ -105,6 +105,14 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--request-timeout", type=float, default=20.0)
     parser.add_argument("--stable-samples", type=int, default=2)
     parser.add_argument("--host-migration-timeout", type=int, default=120)
+    parser.add_argument(
+        "--post-migration-performance-stress",
+        action="store_true",
+        help="After a successful Host Migration, resume the promoted host and require a completed 60+ moving-ground-monster stress run.",
+    )
+    parser.add_argument("--post-migration-performance-stress-monsters", type=int, default=60)
+    parser.add_argument("--post-migration-performance-stress-hold-seconds", type=float, default=15.0)
+    parser.add_argument("--post-migration-performance-stress-timeout", type=float, default=180.0)
     parser.add_argument("--takeover-timeout", type=int, default=90)
     parser.add_argument("--reconnect-timeout", type=int, default=120)
     parser.add_argument("--cleanup-timeout-seconds", type=float, default=15.0)
@@ -206,6 +214,229 @@ def local_player(snapshot: Any) -> dict[str, Any] | None:
         if player.get("isLocal") is True and player.get("hasInputAuthority") is True:
             return player
     return None
+
+
+def new_king_skill_verification() -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "success": False,
+        "status": "waiting_for_local_defender",
+        "commandAttempted": False,
+        "commandAccepted": False,
+        "commandPeer": None,
+        "playerId": None,
+        "baseline": None,
+        "observed": None,
+        "commandResponse": None,
+        "errors": [],
+    }
+
+
+def local_king_skill_defender(snapshot: Any) -> dict[str, Any] | None:
+    player = local_player(snapshot)
+    if (
+        in_battle(snapshot)
+        and isinstance(player, dict)
+        and player.get("isActivelyFighting") is True
+        and player.get("isAttackerInCurrentBattle") is False
+        and player.get("kingCanUseSkill") is True
+    ):
+        return player
+    return None
+
+
+def king_skill_observation(player: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(player, dict):
+        return {
+            "present": False,
+            "playerId": None,
+            "kingSkillUsedThisDefense": None,
+            "kingSkillPresentationSequence": None,
+        }
+    return {
+        "present": True,
+        "playerId": player.get("playerId"),
+        "kingSkillUsedThisDefense": player.get("kingSkillUsedThisDefense"),
+        "kingSkillPresentationSequence": player.get("kingSkillPresentationSequence"),
+    }
+
+
+def update_king_skill_verification(
+    verification: dict[str, Any],
+    host: AutomationClient,
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    host_snapshot: Any,
+    client_snapshot: Any,
+) -> None:
+    if verification.get("success") is True:
+        return
+    if (
+        verification.get("commandAttempted") is True
+        and verification.get("commandAccepted") is not True
+    ):
+        write_json(artifact_dir / "king-skill-verification.json", verification)
+        return
+
+    write_json(artifact_dir / "snapshots" / "build-host-king-skill-observed-latest.json", host_snapshot)
+    write_json(artifact_dir / "snapshots" / "build-client-king-skill-observed-latest.json", client_snapshot)
+
+    if verification.get("commandAttempted") is not True:
+        candidate: tuple[str, AutomationClient, dict[str, Any]] | None = None
+        for peer, automation_client, snapshot in (
+            ("build-host", host, host_snapshot),
+            ("build-client", client, client_snapshot),
+        ):
+            local_defender = local_king_skill_defender(snapshot)
+            if isinstance(local_defender, dict):
+                candidate = (peer, automation_client, local_defender)
+                break
+
+        if candidate is None:
+            verification["status"] = "waiting_for_local_defender"
+            verification["errors"] = []
+            write_json(artifact_dir / "king-skill-verification.json", verification)
+            return
+
+        command_peer, command_client, candidate_player = candidate
+        player_id = candidate_player.get("playerId")
+        host_player = player_by_id(host_snapshot, player_id) if isinstance(player_id, int) else None
+        client_player = player_by_id(client_snapshot, player_id) if isinstance(player_id, int) else None
+        host_sequence = host_player.get("kingSkillPresentationSequence") if isinstance(host_player, dict) else None
+        client_sequence = client_player.get("kingSkillPresentationSequence") if isinstance(client_player, dict) else None
+        both_unconsumed = (
+            isinstance(host_player, dict)
+            and isinstance(client_player, dict)
+            and host_player.get("kingSkillUsedThisDefense") is False
+            and client_player.get("kingSkillUsedThisDefense") is False
+        )
+        if (
+            not isinstance(player_id, int)
+            or player_id < 0
+            or not isinstance(host_sequence, int)
+            or not isinstance(client_sequence, int)
+            or not both_unconsumed
+        ):
+            verification["status"] = "waiting_for_shared_baseline"
+            verification["errors"] = []
+            write_json(artifact_dir / "king-skill-verification.json", verification)
+            return
+
+        verification.update({
+            "status": "command_queued",
+            "commandAttempted": True,
+            "commandPeer": command_peer,
+            "playerId": player_id,
+            "baseline": {
+                "host": king_skill_observation(host_player),
+                "client": king_skill_observation(client_player),
+                "localDefender": {
+                    "peer": command_peer,
+                    "playerId": player_id,
+                    "hasInputAuthority": candidate_player.get("hasInputAuthority"),
+                    "hasStateAuthority": candidate_player.get("hasStateAuthority"),
+                    "isActivelyFighting": candidate_player.get("isActivelyFighting"),
+                    "isAttackerInCurrentBattle": candidate_player.get("isAttackerInCurrentBattle"),
+                    "kingCanUseSkill": candidate_player.get("kingCanUseSkill"),
+                },
+            },
+            "errors": [],
+        })
+        write_json(artifact_dir / "snapshots" / "build-host-king-skill-before.json", host_snapshot)
+        write_json(artifact_dir / "snapshots" / "build-client-king-skill-before.json", client_snapshot)
+        try:
+            command_response = command_client.command(name="activate_king_skill", playerId=player_id)
+        except Exception as exc:
+            command_response = {
+                "success": False,
+                "message": "activate_king_skill request failed",
+                "error": {
+                    "code": type(exc).__name__,
+                    "details": str(exc),
+                },
+            }
+        response_data = command_response.get("data") if isinstance(command_response, dict) else None
+        response_player_id = response_data.get("playerId") if isinstance(response_data, dict) else None
+        command_accepted = command_response.get("success") is True and response_player_id == player_id
+        verification["commandResponse"] = command_response
+        verification["commandAccepted"] = command_accepted
+        if not command_accepted:
+            error = command_response.get("error") if isinstance(command_response, dict) else None
+            error_code = error.get("code") if isinstance(error, dict) else None
+            verification["status"] = "command_rejected"
+            verification["errors"] = [
+                f"activate_king_skill_command_rejected:{error_code or command_response.get('message') or 'invalid_response'}"
+            ]
+            write_json(artifact_dir / "king-skill-verification.json", verification)
+            return
+
+    player_id = verification.get("playerId")
+    baseline = verification.get("baseline")
+    baseline_host = nested(baseline, "host", "kingSkillPresentationSequence") if isinstance(baseline, dict) else None
+    baseline_client = nested(baseline, "client", "kingSkillPresentationSequence") if isinstance(baseline, dict) else None
+    host_player = player_by_id(host_snapshot, player_id) if isinstance(player_id, int) else None
+    client_player = player_by_id(client_snapshot, player_id) if isinstance(player_id, int) else None
+    host_observation = king_skill_observation(host_player)
+    client_observation = king_skill_observation(client_player)
+    same_player_on_both = (
+        isinstance(player_id, int)
+        and host_observation.get("playerId") == player_id
+        and client_observation.get("playerId") == player_id
+    )
+    host_used = host_observation.get("kingSkillUsedThisDefense") is True
+    client_used = client_observation.get("kingSkillUsedThisDefense") is True
+    host_sequence = host_observation.get("kingSkillPresentationSequence")
+    client_sequence = client_observation.get("kingSkillPresentationSequence")
+    host_sequence_increased = (
+        isinstance(host_sequence, int)
+        and isinstance(baseline_host, int)
+        and host_sequence > baseline_host
+    )
+    client_sequence_increased = (
+        isinstance(client_sequence, int)
+        and isinstance(baseline_client, int)
+        and client_sequence > baseline_client
+    )
+    errors: list[str] = []
+    if not same_player_on_both:
+        errors.append("same_player_id_not_present_on_both_peers")
+    if not host_used:
+        errors.append("host_king_skill_used_flag_not_observed")
+    if not client_used:
+        errors.append("client_king_skill_used_flag_not_observed")
+    if not host_sequence_increased:
+        errors.append("host_king_skill_presentation_sequence_not_increased")
+    if not client_sequence_increased:
+        errors.append("client_king_skill_presentation_sequence_not_increased")
+
+    success = verification.get("commandAccepted") is True and not errors
+    verification.update({
+        "success": success,
+        "status": "verified" if success else "waiting_for_replication",
+        "observed": {
+            "host": host_observation,
+            "client": client_observation,
+            "samePlayerIdOnBothPeers": same_player_on_both,
+            "hostSequenceIncreased": host_sequence_increased,
+            "clientSequenceIncreased": client_sequence_increased,
+        },
+        "errors": errors,
+    })
+    if success:
+        write_json(artifact_dir / "snapshots" / "build-host-king-skill-after.json", host_snapshot)
+        write_json(artifact_dir / "snapshots" / "build-client-king-skill-after.json", client_snapshot)
+        write_json(
+            artifact_dir / "king-skill-after-comparison.json",
+            compare_snapshots(host_snapshot, client_snapshot),
+        )
+        verification["artifacts"] = {
+            "hostBefore": "snapshots/build-host-king-skill-before.json",
+            "clientBefore": "snapshots/build-client-king-skill-before.json",
+            "hostAfter": "snapshots/build-host-king-skill-after.json",
+            "clientAfter": "snapshots/build-client-king-skill-after.json",
+            "comparison": "king-skill-after-comparison.json",
+        }
+    write_json(artifact_dir / "king-skill-verification.json", verification)
 
 
 def unique_player_ids(snapshot: Any) -> bool:
@@ -523,6 +754,7 @@ def wait_battle_progression(
     require_scroll: bool,
     require_any_battle_command: bool,
     client_human_bot: bool,
+    verify_king_skill: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
     deadline = time.time() + timeout
     host_state: dict[str, Any] = {}
@@ -532,6 +764,7 @@ def wait_battle_progression(
     wrote_battle_start = False
     battle_observed = False
     spawn_semantics_observed = False
+    king_skill_verification = new_king_skill_verification() if verify_king_skill else None
 
     while time.time() < deadline:
         host_state = dump_state(host, artifact_dir, "build-host", "battle-latest")
@@ -608,6 +841,19 @@ def wait_battle_progression(
             client_human_bot,
             spawn_semantics_observed,
         )
+        if king_skill_verification is not None:
+            update_king_skill_verification(
+                king_skill_verification,
+                host,
+                client,
+                artifact_dir,
+                host_state,
+                client_state,
+            )
+            latest_assertions["kingSkillVerification"] = king_skill_verification
+            if king_skill_verification.get("success") is not True:
+                latest_assertions["success"] = False
+                latest_assertions.setdefault("errors", []).append("king_skill_verification_pending")
 
         write_json(artifact_dir / "battle-comparison-latest.json", comparison)
         write_json(artifact_dir / "battle-command-evidence-latest.json", latest_assertions)
@@ -630,6 +876,24 @@ def wait_battle_progression(
             stable_successes = 0
         time.sleep(0.5)
 
+    if king_skill_verification is not None and king_skill_verification.get("success") is not True:
+        waiting_status = king_skill_verification.get("status")
+        if waiting_status != "command_rejected":
+            king_skill_verification["status"] = "timed_out"
+        if not king_skill_verification.get("errors"):
+            if waiting_status == "waiting_for_shared_baseline":
+                king_skill_verification["errors"] = ["shared_king_skill_baseline_not_observed"]
+            else:
+                king_skill_verification["errors"] = ["eligible_local_defender_not_observed"]
+        write_json(artifact_dir / "king-skill-verification.json", king_skill_verification)
+        latest_assertions["kingSkillVerification"] = king_skill_verification
+        latest_assertions["success"] = False
+        latest_errors = latest_assertions.setdefault("errors", [])
+        latest_errors[:] = [error for error in latest_errors if error != "king_skill_verification_pending"]
+        latest_errors.extend(
+            f"king_skill_verification:{error}"
+            for error in king_skill_verification.get("errors") or []
+        )
     return host_state, client_state, latest_assertions, False
 
 
@@ -694,8 +958,16 @@ def player_battle_fingerprint(player: dict[str, Any]) -> dict[str, Any]:
         "health": player.get("health"),
         "gold": player.get("gold"),
         "wallCount": player.get("wallCount"),
+        "permanentWallPlacementCount": player.get("permanentWallPlacementCount"),
+        "permanentWallStockRevision": player.get("permanentWallStockRevision"),
+        "permanentWallLayoutRevision": player.get("permanentWallLayoutRevision"),
         "isActivelyFighting": player.get("isActivelyFighting"),
         "isAttackerInCurrentBattle": player.get("isAttackerInCurrentBattle"),
+        "blackMagicCurrent": player.get("blackMagicCurrent"),
+        "blackMagicMaximum": player.get("blackMagicMaximum"),
+        "blackMagicMaxBonus": player.get("blackMagicMaxBonus"),
+        "blackMagicRevision": player.get("blackMagicRevision"),
+        "blackMagicSequenceId": player.get("blackMagicSequenceId"),
         "attackMonsterPoolHash": player.get("attackMonsterPoolHash"),
         "ownedScrollsHash": player.get("ownedScrollsHash"),
         "ownedScrollRevision": player.get("ownedScrollRevision"),
@@ -830,6 +1102,7 @@ def freeze_battle_checkpoint(
     require_active_zone: bool = False,
     pending_load_payload: dict[str, Any] | None = None,
     require_pending_load: bool = False,
+    require_host_migration_snapshot_push: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
     write_json(artifact_dir / "build-host-bot-stop-after-battle.json", host.bot_stop(reason=reason))
     if client_human_bot:
@@ -862,6 +1135,16 @@ def freeze_battle_checkpoint(
         expected_pending_hit = int(pending_load_payload.get("pendingHitCount") or pending_load_payload.get("pending_hit_count") or 0)
         pending_load_response = host.inject_pending_combat_load(**pending_load_payload)
         write_json(artifact_dir / "build-host-inject-pending-combat-load.json", pending_load_response)
+
+    host_migration_snapshot_push_response: dict[str, Any] | None = None
+    if require_host_migration_snapshot_push:
+        host_migration_snapshot_push_response = host.push_host_migration_snapshot(
+            reason=reason,
+        )
+        write_json(
+            artifact_dir / "build-host-push-host-migration-snapshot.json",
+            host_migration_snapshot_push_response,
+        )
 
     deadline = time.time() + 20
     host_state: dict[str, Any] = {}
@@ -910,6 +1193,20 @@ def freeze_battle_checkpoint(
                 client_pending_hit >= expected_pending_hit
             )
         )
+        snapshot_push_data = (
+            host_migration_snapshot_push_response.get("data")
+            if isinstance(host_migration_snapshot_push_response, dict)
+            else None
+        )
+        host_migration_snapshot_push_ready = (
+            not require_host_migration_snapshot_push or
+            (
+                host_migration_snapshot_push_response is not None and
+                host_migration_snapshot_push_response.get("success") is True and
+                isinstance(snapshot_push_data, dict) and
+                snapshot_push_data.get("committed") is True
+            )
+        )
         write_json(artifact_dir / "battle-checkpoint-freeze-wait-latest.json", {
             "ready": ready,
             "comparison": comparison,
@@ -938,8 +1235,19 @@ def freeze_battle_checkpoint(
             "hostPendingHit": host_pending_hit,
             "clientPendingHit": client_pending_hit,
             "pendingLoadResponse": pending_load_response,
+            "requireHostMigrationSnapshotPush": require_host_migration_snapshot_push,
+            "hostMigrationSnapshotPushReady": host_migration_snapshot_push_ready,
+            "hostMigrationSnapshotPushResponse": host_migration_snapshot_push_response,
         })
-        if ready and comparison.get("success") is True and active_status_ready and active_buff_ready and active_zone_ready and pending_load_ready:
+        if (
+            ready and
+            comparison.get("success") is True and
+            active_status_ready and
+            active_buff_ready and
+            active_zone_ready and
+            pending_load_ready and
+            host_migration_snapshot_push_ready
+        ):
             stable += 1
             if stable >= stable_samples:
                 return host_state, client_state, comparison, True
@@ -1066,6 +1374,295 @@ def poll_host_migration_after_battle(
             return snapshot, result, True
         time.sleep(2)
     return snapshot, result, False
+
+
+def validate_post_migration_performance_stress(
+    response: dict[str, Any],
+    expected_minimum: int,
+) -> dict[str, Any]:
+    payload = response.get("data") if isinstance(response, dict) else None
+    payload = payload if isinstance(payload, dict) else {}
+    errors: list[str] = []
+    if response.get("success") is not True:
+        error = response.get("error") if isinstance(response, dict) else None
+        code = error.get("code") if isinstance(error, dict) else None
+        errors.append(f"request_failed:{code or response.get('message') or 'invalid_response'}")
+    if payload.get("phase") != "completed":
+        errors.append(f"phase_not_completed:{payload.get('phase')}")
+    if payload.get("success") is not True:
+        errors.append(f"stress_success_not_true:{payload.get('reason')}")
+
+    counts = {
+        "requested": payload.get("requestedCount"),
+        "spawned": payload.get("spawnedCount"),
+        "maxAlive": payload.get("maxAliveCount"),
+        "maxMoved": payload.get("maxMovedCount"),
+        "cleaned": payload.get("cleanedCount"),
+    }
+
+    for label, value in counts.items():
+        if not isinstance(value, int) or isinstance(value, bool) or value < expected_minimum:
+            errors.append(f"{label}_below_minimum expected>={expected_minimum} actual={value}")
+
+    return {
+        "success": not errors,
+        "errors": errors,
+        "expectedMinimum": expected_minimum,
+        "counts": counts,
+        "phase": payload.get("phase"),
+        "reason": payload.get("reason"),
+        "evidencePath": payload.get("evidencePath"),
+    }
+
+
+def combat_capacity_recovery_assertions(response: Any) -> dict[str, Any]:
+    errors: list[str] = []
+    payload = response.get("data") if isinstance(response, dict) else None
+    if not isinstance(response, dict) or response.get("success") is not True:
+        errors.append("combat_capacity_recovery.response_failed")
+    if not isinstance(payload, dict):
+        errors.append("combat_capacity_recovery.data_missing")
+        payload = {}
+
+    expected = {
+        "unitExactlyOnce": True,
+        "unitCommitCount": 1,
+        "unitCooldownCommitCount": 1,
+        "monsterExactlyOnce": True,
+        "monsterCommitCount": 1,
+        "pendingHitDropCount": 0,
+    }
+    for key, expected_value in expected.items():
+        actual = payload.get(key)
+        if actual != expected_value:
+            errors.append(
+                f"combat_capacity_recovery.{key} expected={expected_value} actual={actual}"
+            )
+
+    mana_actual = payload.get("unitManaCommitCount")
+    mana_expected = payload.get("unitExpectedManaCommitCount")
+    if mana_actual != mana_expected:
+        errors.append(
+            "combat_capacity_recovery.unitManaCommitCount "
+            f"expected={mana_expected} actual={mana_actual}"
+        )
+    backpressures = payload.get("pendingHitBackpressureCount")
+    if not isinstance(backpressures, int) or backpressures < 2:
+        errors.append(
+            f"combat_capacity_recovery.pendingHitBackpressureCount expected>=2 actual={backpressures}"
+        )
+    if payload.get("initialPendingHitCount") != payload.get("finalPendingHitCount"):
+        errors.append(
+            "combat_capacity_recovery.pendingHitBaselineChanged "
+            f"before={payload.get('initialPendingHitCount')} after={payload.get('finalPendingHitCount')}"
+        )
+
+    return {
+        "success": not errors,
+        "errors": errors,
+        "warnings": [],
+        "evidence": payload,
+    }
+
+
+def run_post_migration_performance_stress(
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    *,
+    monster_count: int,
+    hold_seconds: float,
+    timeout: float,
+    attacker_player_id: int,
+    target_player_id: int,
+) -> dict[str, Any]:
+    def request(call: Any, label: str) -> dict[str, Any]:
+        try:
+            response = call()
+            return response if isinstance(response, dict) else {
+                "success": False,
+                "error": {"code": "invalid_response", "details": type(response).__name__},
+            }
+        except Exception as exc:
+            return {
+                "success": False,
+                "message": f"{label} request failed",
+                "error": {"code": type(exc).__name__, "details": str(exc)},
+            }
+
+    unfreeze = request(
+        lambda: client.freeze_game_flow(False, reason="post_migration_performance_stress"),
+        "unfreeze_game_flow",
+    )
+    write_json(artifact_dir / "post-migration-performance-stress-unfreeze.json", unfreeze)
+    unfreeze_payload = unfreeze.get("data") if isinstance(unfreeze, dict) else None
+    unfreeze_ok = (
+        unfreeze.get("success") is True and
+        isinstance(unfreeze_payload, dict) and
+        unfreeze_payload.get("enabled") is False
+    )
+
+    start: dict[str, Any] = {}
+    final_status: dict[str, Any] = {}
+    polls: list[dict[str, Any]] = []
+    timed_out = False
+    if unfreeze_ok:
+        start = request(
+            lambda: client.performance_stress(
+                action="start",
+                monsterCount=monster_count,
+                holdSeconds=hold_seconds,
+                attackerPlayerId=attacker_player_id,
+                targetPlayerId=target_player_id,
+            ),
+            "performance_stress_start",
+        )
+        final_status = start
+        write_json(artifact_dir / "post-migration-performance-stress-start.json", start)
+        deadline = time.time() + timeout
+        while start.get("success") is True and time.time() < deadline:
+            final_status = request(
+                lambda: client.performance_stress(action="status"),
+                "performance_stress_status",
+            )
+            polls.append(final_status)
+            write_json(artifact_dir / "post-migration-performance-stress-status-latest.json", final_status)
+            if final_status.get("success") is not True:
+                break
+            phase = nested(final_status, "data", "phase")
+            if phase in ("completed", "failed", "cancelled"):
+                break
+            time.sleep(0.25)
+        else:
+            if start.get("success") is True:
+                timed_out = True
+                final_status = request(
+                    lambda: client.performance_stress(action="stop", reason="post_migration_stress_timeout"),
+                    "performance_stress_stop",
+                )
+                polls.append(final_status)
+
+    write_json(artifact_dir / "post-migration-performance-stress-polls.json", polls)
+    validation = validate_post_migration_performance_stress(final_status, monster_count)
+    errors = list(validation.get("errors") or [])
+    if not unfreeze_ok:
+        error = unfreeze.get("error") if isinstance(unfreeze, dict) else None
+        code = error.get("code") if isinstance(error, dict) else None
+        errors.insert(0, f"unfreeze_failed:{code or unfreeze.get('message') or 'invalid_response'}")
+    if timed_out:
+        errors.insert(0, f"stress_timeout:{timeout}")
+
+    report = {
+        "success": not errors,
+        "errors": errors,
+        "expectedMinimum": monster_count,
+        "attackerPlayerId": attacker_player_id,
+        "targetPlayerId": target_player_id,
+        "holdSeconds": hold_seconds,
+        "timeoutSeconds": timeout,
+        "unfreeze": unfreeze,
+        "start": start,
+        "finalStatus": final_status,
+        "validation": validation,
+        "pollCount": len(polls),
+        "timedOut": timed_out,
+    }
+    write_json(artifact_dir / "post-migration-performance-stress-result.json", report)
+    return report
+
+
+def probe_post_migration_portrait_navigation(
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    target_player_id: int,
+    timeout: float = 5.0,
+) -> dict[str, Any]:
+    errors: list[str] = []
+    deadline = time.time() + timeout
+    readiness: dict[str, Any] = {}
+    while time.time() < deadline:
+        readiness = client.command(
+            name="view_player_field",
+            playerId=target_player_id,
+            requestNavigation=False,
+        )
+        readiness_payload = readiness.get("data") if isinstance(readiness, dict) else None
+        if (
+            readiness.get("success") is True and
+            isinstance(readiness_payload, dict) and
+            readiness_payload.get("transitioning") is False
+        ):
+            break
+        time.sleep(0.25)
+
+    readiness_payload = readiness.get("data") if isinstance(readiness, dict) else None
+    if readiness.get("success") is not True:
+        error = readiness.get("error") or {}
+        errors.append(f"portrait_view_readiness_failed:{error.get('code') or readiness.get('message')}")
+    elif not isinstance(readiness_payload, dict) or readiness_payload.get("transitioning") is not False:
+        errors.append("portrait_view_initial_transition_did_not_settle")
+
+    request = client.command(
+        name="view_player_field",
+        playerId=target_player_id,
+        requestNavigation=True,
+    ) if not errors else {}
+    write_json(artifact_dir / "post-migration-portrait-view-command.json", request)
+    if request.get("success") is not True:
+        error = request.get("error") or {}
+        errors.append(f"portrait_view_command_failed:{error.get('code') or request.get('message')}")
+
+    inspection: dict[str, Any] = request
+    deadline = time.time() + timeout
+    while not errors and time.time() < deadline:
+        inspection = client.command(
+            name="view_player_field",
+            playerId=target_player_id,
+            requestNavigation=False,
+        )
+        payload = inspection.get("data") if isinstance(inspection, dict) else None
+        if (
+            inspection.get("success") is True and
+            isinstance(payload, dict) and
+            payload.get("viewingPlayerId") == target_player_id and
+            payload.get("currentViewingMatchesRegistry") is True and
+            payload.get("targetOnCurrentRunner") is True and
+            payload.get("transitioning") is False and
+            payload.get("switched") is True
+        ):
+            break
+        time.sleep(0.25)
+
+    payload = inspection.get("data") if isinstance(inspection, dict) else None
+    if not errors:
+        if inspection.get("success") is not True:
+            error = inspection.get("error") or {}
+            errors.append(f"portrait_view_inspection_failed:{error.get('code') or inspection.get('message')}")
+        elif not isinstance(payload, dict):
+            errors.append("portrait_view_payload_missing")
+        else:
+            if payload.get("viewingPlayerId") != target_player_id:
+                errors.append(
+                    f"portrait_viewing_player_mismatch expected={target_player_id} actual={payload.get('viewingPlayerId')}"
+                )
+            if payload.get("currentViewingMatchesRegistry") is not True:
+                errors.append("portrait_view_not_bound_to_current_registry")
+            if payload.get("targetOnCurrentRunner") is not True:
+                errors.append("portrait_view_target_not_on_current_runner")
+            if payload.get("transitioning") is not False:
+                errors.append("portrait_view_transition_did_not_complete")
+            if payload.get("switched") is not True:
+                errors.append("portrait_view_not_switched")
+
+    report = {
+        "success": not errors,
+        "errors": errors,
+        "targetPlayerId": target_player_id,
+        "readiness": readiness,
+        "request": request,
+        "inspection": inspection,
+    }
+    write_json(artifact_dir / "post-migration-portrait-view-result.json", report)
+    return report
 
 
 def battle_takeover_assertions(
@@ -1320,6 +1917,7 @@ def run_battle_client_lifecycle_case(
     client_b_proc: PlayerProcess | None = None
     failures: list[str] = []
     target_player_id = -1
+    durable_client_connection_hash = "unknown"
     cleanup_baseline_pids = mdf_player_pids()
     cleanup_report: dict[str, Any] = {
         "cleanupStatus": "PASS",
@@ -1543,12 +2141,15 @@ def run_battle_client_lifecycle_case(
         client_local = local_player(client_checkpoint)
         if isinstance(client_local, dict) and isinstance(client_local.get("playerId"), int):
             target_player_id = int(client_local["playerId"])
+            durable_client_connection_hash = str(client_local.get("connectionTokenHash") or "unknown")
+            if durable_client_connection_hash == "unknown":
+                failures.append("client_connection_token_hash_missing")
         else:
             failures.append("target_player_id_invalid")
         write_json(artifact_dir / "client-lifecycle-target.json", {
             "playerId": target_player_id,
-            "connectionTokenHash": client_local.get("connectionTokenHash") if isinstance(client_local, dict) else "unknown",
-            "expectedConnectionTokenHash": client_connection_hash,
+            "connectionTokenHash": durable_client_connection_hash,
+            "redactedConnectionTokenHash": client_connection_hash,
         })
         write_json(artifact_dir / "checkpoint-summary.json", {
             "battleProgressed": {
@@ -1620,7 +2221,7 @@ def run_battle_client_lifecycle_case(
                 artifact_dir,
                 host_checkpoint,
                 target_player_id,
-                client_connection_hash,
+                durable_client_connection_hash,
                 args.reconnect_timeout,
                 args.scene,
                 2,
@@ -1724,6 +2325,8 @@ def run_battle_case(
     apply_stat_buff_before_migration: bool = False,
     apply_zone_before_migration: bool = False,
     inject_pending_load_before_migration: bool = False,
+    verify_capacity_recovery_before_migration: bool = False,
+    probe_portrait_after_migration: bool = False,
 ) -> int:
     normalize_common_args(args)
     player_path = pathlib.Path(args.player_path) if args.player_path else latest_player_path()
@@ -1741,11 +2344,26 @@ def run_battle_case(
     host_bot_seed = args.host_bot_seed if args.host_bot_seed is not None else args.seed
     client_bot_seed = args.client_bot_seed if args.client_bot_seed is not None else args.seed + 1
     client_human_bot = bool(getattr(args, "client_human_bot", False))
+    verify_king_skill = bool(getattr(args, "verify_king_skill", False))
+    post_migration_performance_stress = bool(getattr(args, "post_migration_performance_stress", False))
+    post_migration_stress_monsters = int(getattr(args, "post_migration_performance_stress_monsters", 60))
+    post_migration_stress_hold_seconds = float(getattr(args, "post_migration_performance_stress_hold_seconds", 15.0))
+    post_migration_stress_timeout = float(getattr(args, "post_migration_performance_stress_timeout", 180.0))
+    if post_migration_performance_stress and not migrate_after_battle:
+        raise SystemExit("--post-migration-performance-stress requires a Host Migration battle case.")
+    if post_migration_performance_stress and not 60 <= post_migration_stress_monsters <= 160:
+        raise SystemExit("--post-migration-performance-stress-monsters must be between 60 and 160.")
+    if post_migration_performance_stress and (
+        post_migration_stress_hold_seconds <= 0 or post_migration_stress_timeout <= 0
+    ):
+        raise SystemExit("post-migration performance stress hold/timeout values must be > 0.")
     host_journal_path = artifact_dir / "build-host-bot.jsonl"
     client_journal_path = artifact_dir / "build-client-bot.jsonl"
     host_proc: PlayerProcess | None = None
     client_proc: PlayerProcess | None = None
     host_was_killed = False
+    portrait_view_result: dict[str, Any] | None = None
+    post_migration_stress_result: dict[str, Any] | None = None
     failures: list[str] = []
     cleanup_baseline_pids = mdf_player_pids()
     cleanup_report: dict[str, Any] = {
@@ -1760,7 +2378,7 @@ def run_battle_case(
         [host_token, client_token, host_connection, client_connection],
     )
 
-    write_json(artifact_dir / "run.json", {
+    run_config = {
         "case": case_name,
         "session": session,
         "playerPath": str(player_path),
@@ -1780,6 +2398,12 @@ def run_battle_case(
         "applyStatBuffBeforeMigration": apply_stat_buff_before_migration,
         "applyZoneBeforeMigration": apply_zone_before_migration,
         "injectPendingLoadBeforeMigration": inject_pending_load_before_migration,
+        "verifyCapacityRecoveryBeforeMigration": verify_capacity_recovery_before_migration,
+        "probePortraitAfterMigration": probe_portrait_after_migration,
+        "postMigrationPerformanceStress": post_migration_performance_stress,
+        "postMigrationPerformanceStressMonsters": post_migration_stress_monsters,
+        "postMigrationPerformanceStressHoldSeconds": post_migration_stress_hold_seconds,
+        "postMigrationPerformanceStressTimeout": post_migration_stress_timeout,
         "pendingFireCount": int(getattr(args, "pending_fire_count", 0)),
         "pendingHitCount": int(getattr(args, "pending_hit_count", 0)),
         "pendingDelayTicks": int(getattr(args, "pending_delay_ticks", 0)),
@@ -1792,7 +2416,10 @@ def run_battle_case(
             "strictCleanup": args.strict_cleanup,
         },
         "orphanPressure": orphan_gate,
-    })
+    }
+    if verify_king_skill:
+        run_config["verifyKingSkill"] = True
+    write_json(artifact_dir / "run.json", run_config)
     if orphan_gate.get("blocked") and not args.dry_run:
         failures.append("orphan_pressure_gate_blocked")
         cleanup_report = {
@@ -1991,11 +2618,12 @@ def run_battle_case(
             require_scroll,
             require_any_battle_command,
             client_human_bot,
+            verify_king_skill=verify_king_skill,
         )
         write_json(artifact_dir / "snapshots" / "build-host-battle-progressed.json", host_battle)
         write_json(artifact_dir / "snapshots" / "build-client-battle-progressed.json", client_battle)
         write_json(artifact_dir / "battle-command-evidence.json", assertions)
-        write_json(artifact_dir / "checkpoint-summary.json", {
+        checkpoint_summary = {
             "beforeBattleBot": {
                 "host": "snapshots/build-host-before-battle-bot.json",
                 "client": "snapshots/build-client-before-battle-bot.json",
@@ -2011,10 +2639,36 @@ def run_battle_case(
                 "client": "snapshots/build-client-battle-progressed.json",
                 "evidence": "battle-command-evidence.json",
             },
-        })
+        }
+        if verify_king_skill:
+            checkpoint_summary["kingSkillVerification"] = {
+                "evidence": "king-skill-verification.json",
+            }
+        write_json(artifact_dir / "checkpoint-summary.json", checkpoint_summary)
         if not progressed:
             failures.append("battle_progression_timeout")
             failures.extend(assertions.get("errors") or [])
+
+        if verify_capacity_recovery_before_migration and progressed:
+            capacity_recovery_response = host.combat_capacity_recovery()
+            capacity_recovery_assertion = combat_capacity_recovery_assertions(
+                capacity_recovery_response
+            )
+            write_json(
+                artifact_dir / "build-host-combat-capacity-recovery.json",
+                capacity_recovery_response,
+            )
+            write_json(
+                artifact_dir / "combat-capacity-recovery-assertion.json",
+                capacity_recovery_assertion,
+            )
+            checkpoint_summary["combatCapacityRecovery"] = {
+                "response": "build-host-combat-capacity-recovery.json",
+                "assertion": "combat-capacity-recovery-assertion.json",
+            }
+            write_json(artifact_dir / "checkpoint-summary.json", checkpoint_summary)
+            if not capacity_recovery_assertion.get("success"):
+                failures.extend(capacity_recovery_assertion.get("errors") or [])
 
         if migrate_after_battle and progressed:
             status_effect_payload = {
@@ -2058,6 +2712,7 @@ def run_battle_case(
                 require_active_zone=apply_zone_before_migration,
                 pending_load_payload=pending_load_payload,
                 require_pending_load=inject_pending_load_before_migration,
+                require_host_migration_snapshot_push=True,
             )
             write_json(artifact_dir / "snapshots" / "build-host-battle-checkpoint-frozen.json", host_battle)
             write_json(artifact_dir / "snapshots" / "build-client-battle-checkpoint-frozen.json", client_battle)
@@ -2100,6 +2755,35 @@ def run_battle_case(
             if not migration_ok:
                 failures.append("post_battle_host_migration_failed")
                 failures.extend(migration_result.get("errors") or [])
+            else:
+                if probe_portrait_after_migration and isinstance(killed_host_player_id, int):
+                    portrait_view_result = probe_post_migration_portrait_navigation(
+                        client,
+                        artifact_dir,
+                        killed_host_player_id,
+                    )
+                    failures.extend(
+                        f"post_migration_portrait_view:{error}"
+                        for error in portrait_view_result.get("errors") or []
+                    )
+                if (
+                    post_migration_performance_stress and
+                    isinstance(survivor_player_id, int) and
+                    isinstance(killed_host_player_id, int)
+                ):
+                    post_migration_stress_result = run_post_migration_performance_stress(
+                        client,
+                        artifact_dir,
+                        monster_count=post_migration_stress_monsters,
+                        hold_seconds=post_migration_stress_hold_seconds,
+                        timeout=post_migration_stress_timeout,
+                        attacker_player_id=survivor_player_id,
+                        target_player_id=killed_host_player_id,
+                    )
+                    failures.extend(
+                        f"post_migration_performance_stress:{error}"
+                        for error in post_migration_stress_result.get("errors") or []
+                    )
 
         if args.headless_player:
             skipped_screenshot = {
@@ -2125,13 +2809,18 @@ def run_battle_case(
         write_json(artifact_dir / "build-client-logs-recent.json", client_logs)
         failures.extend(f"mptest_failure_log:{line}" for line in mptest_failures(host_logs, client_logs))
 
-        write_json(artifact_dir / "result.json", {
+        result = {
             "success": not failures,
             "failures": failures,
             "artifactDir": str(artifact_dir),
             "battleCommandEvidence": assertions,
+            "postMigrationPortraitView": portrait_view_result,
+            "postMigrationPerformanceStress": post_migration_stress_result,
             "headlessPlayer": args.headless_player,
-        })
+        }
+        if verify_king_skill:
+            result["kingSkillVerification"] = assertions.get("kingSkillVerification")
+        write_json(artifact_dir / "result.json", result)
         if failures:
             failure_summary(artifact_dir / "failure-summary.md", f"{case_name} failed", failures)
     finally:

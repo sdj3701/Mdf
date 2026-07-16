@@ -34,7 +34,7 @@ public class SelectAugmentCommand : ICommand
             player.augmentManager.SelectAndApplyAugment(chosenAugment);
             
             // 모든 클라이언트에 알림 (Command Pattern 사용)
-            gm.NotifyAugmentSelected(PlayerId, chosenAugment.augmentName);
+            gm.NotifyAugmentSelected(PlayerId, chosenAugment.ContentId);
             
             // Debug.Log($"[SelectAugmentCommand] Player {PlayerId}: '{chosenAugment.augmentName}' 선택 완료");
         }

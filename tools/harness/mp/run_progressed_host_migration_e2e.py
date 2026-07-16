@@ -17,6 +17,7 @@ from common import (
     new_session,
     new_token,
     normalize_snapshot_response,
+    scene_matches,
     wait_build_peer_started,
     write_json,
 )
@@ -46,6 +47,29 @@ from run_host_migration_probe import read_host_migration_config
 
 CASE_NAME = "progressed-host-migration-e2e"
 UNKNOWN = "unknown"
+JOIN_LOBBY_SCENE = "JoinLobby"
+MAP_THEME_CHOICES = {
+    "classic": {"themeId": 1, "contentId": "map.theme.classic"},
+    "map.theme.classic": {"themeId": 1, "contentId": "map.theme.classic"},
+    "arena": {"themeId": 2, "contentId": "map.theme.arena"},
+    "map.theme.arena": {"themeId": 2, "contentId": "map.theme.arena"},
+}
+
+
+def map_theme_argument(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized not in MAP_THEME_CHOICES:
+        raise argparse.ArgumentTypeError(
+            "map theme must be classic, arena, map.theme.classic, or map.theme.arena"
+        )
+    return normalized
+
+
+def as_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def write_result(artifact_dir: pathlib.Path, failures: list[str], cleanup_report: dict[str, Any] | None = None) -> None:
@@ -70,9 +94,147 @@ def snapshot_body(snapshot: Any) -> dict[str, Any]:
     return normalized if isinstance(normalized, dict) else {}
 
 
+def map_theme_command_data(response: Any) -> dict[str, Any]:
+    if not isinstance(response, dict) or response.get("success") is not True:
+        return {}
+    data = response.get("data")
+    return data if isinstance(data, dict) else {}
+
+
+def expected_map_theme(theme: str) -> dict[str, Any]:
+    choice = MAP_THEME_CHOICES[theme]
+    return {
+        "requested": theme,
+        "themeId": choice["themeId"],
+        "contentId": choice["contentId"],
+    }
+
+
+def select_personal_map_themes(
+    host: AutomationClient,
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    requested_by_player: dict[int, dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    responses: dict[str, Any] = {}
+    checks: dict[str, Any] = {}
+    errors: list[str] = []
+    peer_by_player = {0: ("host", host), 1: ("client", client)}
+    for player_id, expected in sorted(requested_by_player.items()):
+        peer_name, peer = peer_by_player[player_id]
+        try:
+            response = peer.command(
+                name="select_map_theme",
+                playerId=player_id,
+                mapTheme=expected["requested"],
+            )
+        except Exception as exc:
+            response = {
+                "success": False,
+                "message": "select_map_theme request failed",
+                "error": {"code": type(exc).__name__, "details": str(exc)},
+            }
+        responses[peer_name] = {
+            "playerId": player_id,
+            "requestedMapTheme": expected["requested"],
+            "response": response,
+        }
+        data = map_theme_command_data(response)
+        accepted = (
+            response.get("success") is True
+            and data.get("command") == "select_map_theme"
+            and data.get("playerId") == player_id
+            and data.get("mapThemeId") == expected["themeId"]
+            and data.get("mapTheme") == expected["contentId"]
+        )
+        check_errors = [] if accepted else ["canonical_selection_not_accepted"]
+        errors.extend(f"P{player_id}:{error}" for error in check_errors)
+        checks[str(player_id)] = {
+            "peer": peer_name,
+            "expected": expected,
+            "acceptedCanonicalSelection": accepted,
+            "responseData": data,
+            "errors": check_errors,
+        }
+
+    verification = {
+        "enabled": True,
+        "success": bool(checks) and not errors,
+        "perPlayerIndependentSelection": True,
+        "checks": checks,
+        "errors": errors,
+    }
+    write_json(artifact_dir / "map-theme-selection-commands.json", responses)
+    write_json(artifact_dir / "map-theme-selection-command-verification.json", verification)
+    return responses, verification
+
+
+def verify_map_theme_snapshots(
+    requested_by_player: dict[int, dict[str, Any]],
+    snapshots_by_peer: dict[str, Any],
+    phase: str,
+) -> dict[str, Any]:
+    errors: list[str] = []
+    checks: dict[str, Any] = {}
+    for player_id, expected in sorted(requested_by_player.items()):
+        peer_checks: dict[str, Any] = {}
+        observed_values: list[tuple[Any, Any, Any]] = []
+        for peer_name, snapshot in snapshots_by_peer.items():
+            player = player_by_id(snapshot, player_id)
+            observed = (
+                player.get("selectedMapThemeId") if isinstance(player, dict) else None,
+                player.get("appliedMapThemeId") if isinstance(player, dict) else None,
+                player.get("mapThemePresentationReady") if isinstance(player, dict) else None,
+            )
+            selected, applied, ready = observed
+            state_matches = observed == (expected["themeId"], expected["themeId"], True)
+            peer_errors = [] if state_matches else ["selected_applied_or_ready_mismatch"]
+            errors.extend(f"{phase}:{peer_name}:P{player_id}:{error}" for error in peer_errors)
+            observed_values.append(observed)
+            peer_checks[peer_name] = {
+                "selectedMapThemeId": selected,
+                "appliedMapThemeId": applied,
+                "mapThemePresentationReady": ready,
+                "errors": peer_errors,
+            }
+
+        same_across_peers = len(set(observed_values)) <= 1
+        if len(observed_values) > 1 and not same_across_peers:
+            errors.append(f"{phase}:P{player_id}:peer_theme_state_mismatch")
+        checks[str(player_id)] = {
+            "expected": expected,
+            "sameAcrossPeers": same_across_peers,
+            "peers": peer_checks,
+        }
+
+    return {
+        "enabled": bool(requested_by_player),
+        "success": bool(requested_by_player) and not errors,
+        "phase": phase,
+        "perPlayerIndependentSelection": True,
+        "checks": checks,
+        "errors": errors,
+    }
+
+
 def migration_state(snapshot: Any) -> dict[str, Any]:
     migration = snapshot_body(snapshot).get("hostMigration")
     return migration if isinstance(migration, dict) else {}
+
+
+def permanent_wall_state(snapshot: Any, player_id: int) -> dict[str, Any]:
+    player = player_by_id(snapshot, player_id)
+    if not isinstance(player, dict):
+        return {}
+    return {
+        "normalStock": player.get("wallCount"),
+        "permanentStock": player.get("permanentWallPlacementCount"),
+        "stockRevision": player.get("permanentWallStockRevision"),
+        "layoutRevision": player.get("permanentWallLayoutRevision"),
+        "ownedCount": nested(player, "field", "playerPlacedPermanentWallCount"),
+        "ownedHash": nested(player, "field", "playerPlacedPermanentWallHash"),
+        "wallHash": nested(player, "field", "wallHash"),
+    }
 
 
 def migration_proof_report(snapshot: Any) -> dict[str, Any]:
@@ -147,11 +309,20 @@ def random_progression_evidence(snapshot: Any, progression: dict[str, Any]) -> d
 def durable_player_fingerprint(player: dict[str, Any]) -> dict[str, Any]:
     return {
         "playerId": player.get("playerId"),
+        "connectionTokenHash": player.get("connectionTokenHash"),
         "health": player.get("health"),
         "gold": player.get("gold"),
         "wallCount": player.get("wallCount"),
+        "permanentWallPlacementCount": player.get("permanentWallPlacementCount"),
+        "permanentWallStockRevision": player.get("permanentWallStockRevision"),
+        "permanentWallLayoutRevision": player.get("permanentWallLayoutRevision"),
         "isActivelyFighting": player.get("isActivelyFighting"),
         "isAttackerInCurrentBattle": player.get("isAttackerInCurrentBattle"),
+        "blackMagicCurrent": player.get("blackMagicCurrent"),
+        "blackMagicMaximum": player.get("blackMagicMaximum"),
+        "blackMagicMaxBonus": player.get("blackMagicMaxBonus"),
+        "blackMagicRevision": player.get("blackMagicRevision"),
+        "blackMagicSequenceId": player.get("blackMagicSequenceId"),
         "shop": {
             "available": nested(player, "shop", "available"),
             "revision": nested(player, "shop", "revision"),
@@ -171,9 +342,13 @@ def durable_player_fingerprint(player: dict[str, Any]) -> dict[str, Any]:
             "gridHash": nested(player, "field", "gridHash"),
             "placedUnitCount": nested(player, "field", "placedUnitCount"),
             "placedUnitsHash": nested(player, "field", "placedUnitsHash"),
+            "unitRuntimeStateHash": nested(player, "field", "unitRuntimeStateHash"),
             "destructibleWallCount": nested(player, "field", "destructibleWallCount"),
             "permanentWallCount": nested(player, "field", "permanentWallCount"),
+            "playerPlacedPermanentWallCount": nested(player, "field", "playerPlacedPermanentWallCount"),
+            "playerPlacedPermanentWallHash": nested(player, "field", "playerPlacedPermanentWallHash"),
             "wallHash": nested(player, "field", "wallHash"),
+            "destructibleWallHealthHash": nested(player, "field", "destructibleWallHealthHash"),
             "pathReady": nested(player, "field", "pathReady"),
             "goalReady": nested(player, "field", "goalReady"),
         },
@@ -183,6 +358,44 @@ def durable_player_fingerprint(player: dict[str, Any]) -> dict[str, Any]:
             "livingHash": nested(player, "monsters", "livingHash"),
         },
     }
+
+
+def unit_attack_cooldowns(player: dict[str, Any] | None) -> dict[str, int]:
+    parts = nested(player or {}, "field", "unitAttackCooldownParts") or []
+    result: dict[str, int] = {}
+    for part in parts:
+        text = str(part)
+        marker = ":attackCooldownDs="
+        if marker not in text:
+            continue
+        identity, value = text.rsplit(marker, 1)
+        try:
+            result[identity] = int(value)
+        except ValueError:
+            continue
+    return result
+
+
+def compare_unit_attack_cooldowns(
+    errors: list[str],
+    checkpoint_snapshot: Any,
+    post_snapshot: Any,
+    tolerance_deciseconds: int = 2,
+) -> None:
+    for before_player in players(checkpoint_snapshot):
+        player_id = before_player.get("playerId")
+        after_player = player_by_id(post_snapshot, player_id)
+        before = unit_attack_cooldowns(before_player)
+        after = unit_attack_cooldowns(after_player)
+        if set(before) != set(after):
+            errors.append(f"unit_attack_cooldown_identity_mismatch:P{player_id}")
+            continue
+        for identity, before_value in before.items():
+            after_value = after[identity]
+            if abs(before_value - after_value) > tolerance_deciseconds:
+                errors.append(
+                    f"unit_attack_cooldown_drift:P{player_id}:{identity}:before={before_value}:after={after_value}"
+                )
 
 
 def durable_fingerprint(snapshot: Any) -> dict[str, Any]:
@@ -196,6 +409,10 @@ def durable_fingerprint(snapshot: Any) -> dict[str, Any]:
             "currentRound": game.get("currentRound"),
             "battleOpponentsHash": game.get("battleOpponentsHash"),
             "matchFirstAttackerHash": game.get("matchFirstAttackerHash"),
+            "survivorBossPendingCount": game.get("survivorBossPendingCount"),
+            "survivorBossPendingHash": game.get("survivorBossPendingHash"),
+            "survivorBossAssignmentCount": game.get("survivorBossAssignmentCount"),
+            "survivorBossAssignmentHash": game.get("survivorBossAssignmentHash"),
         },
         "players": [
             durable_player_fingerprint(player)
@@ -205,6 +422,12 @@ def durable_fingerprint(snapshot: Any) -> dict[str, Any]:
 
 
 def compare_values(errors: list[str], mismatches: list[dict[str, Any]], field: str, before: Any, after: Any) -> None:
+    # An optional hash can legitimately be unavailable at the pre-migration
+    # checkpoint (for example, pairing data outside Battle).  A value first
+    # becoming observable after recovery is not state loss.  Once a concrete
+    # value was captured, however, recovery must preserve it exactly.
+    if before == UNKNOWN:
+        return
     if before != after:
         errors.append(f"{field} before={before} after={after}")
         mismatches.append({"field": field, "before": before, "after": after})
@@ -243,6 +466,16 @@ def progressed_migration_assertions(
         errors.append("survivor_not_promoted_to_host")
     if game.get("hasGameManagers") is not True:
         errors.append("game_managers_missing_after_migration")
+    host_migration = post_body.get("hostMigration") if isinstance(post_body, dict) else {}
+    if isinstance(host_migration, dict):
+        if host_migration.get("restorePendingAsync") not in (0, None):
+            errors.append(f"migration_restore_async_pending:{host_migration.get('restorePendingAsync')}")
+        if host_migration.get("restoreFailed") not in (0, None):
+            errors.append(f"migration_restore_failed:{host_migration.get('restoreFailed')}")
+        if host_migration.get("restoreMissing") not in (0, None):
+            errors.append(f"migration_restore_missing:{host_migration.get('restoreMissing')}")
+        if host_migration.get("restoreTerminal") is not True:
+            errors.append("migration_restore_report_not_terminal")
     if len(players(post_snapshot)) != expected_players:
         errors.append(f"player_count expected={expected_players} actual={len(players(post_snapshot))}")
     if not unique_player_ids(post_snapshot):
@@ -251,6 +484,7 @@ def progressed_migration_assertions(
         errors.append("no_connected_human_survivor")
 
     bot_player = player_by_id(post_snapshot, bot_player_id)
+    checkpoint_bot_player = player_by_id(checkpoint_snapshot, bot_player_id)
     if bot_player is None:
         errors.append(f"bot_player_missing_after_migration:{bot_player_id}")
     else:
@@ -261,9 +495,21 @@ def progressed_migration_assertions(
         if nested(bot_player, "ai", "controllerRegistered") is not False:
             errors.append(f"bot_ai_controller_registered_after_migration:{bot_player_id}")
 
+    checkpoint_token_hash = (
+        checkpoint_bot_player.get("connectionTokenHash")
+        if isinstance(checkpoint_bot_player, dict)
+        else None
+    )
+    post_token_hash = bot_player.get("connectionTokenHash") if isinstance(bot_player, dict) else None
+    if not known_hash(checkpoint_token_hash) or len(checkpoint_token_hash) != 64:
+        errors.append(f"checkpoint_connection_token_hash_invalid:{bot_player_id}")
+    if not known_hash(post_token_hash) or len(post_token_hash) != 64:
+        errors.append(f"post_migration_connection_token_hash_invalid:{bot_player_id}")
+
     pre_fp = durable_fingerprint(checkpoint_snapshot)
     post_fp = durable_fingerprint(post_snapshot)
     compare_nested(errors, mismatches, "", pre_fp, post_fp)
+    compare_unit_attack_cooldowns(errors, checkpoint_snapshot, post_snapshot)
 
     test = post_body.get("test") if isinstance(post_body, dict) else {}
     bot_status = test.get("bot") if isinstance(test, dict) else None
@@ -450,6 +696,18 @@ def run(args: argparse.Namespace) -> int:
     }
     bot_player_id = -1
     post_move_report: dict[str, Any] | None = None
+    permanent_wall_position: dict[str, int] | None = None
+    permanent_wall_checkpoint: dict[str, Any] | None = None
+    post_migration_permanent_wall_remove: dict[str, Any] | None = None
+    requested_map_themes: dict[int, dict[str, Any]] = {}
+    if args.host_map_theme:
+        requested_map_themes[0] = expected_map_theme(args.host_map_theme)
+    if args.client_map_theme:
+        requested_map_themes[1] = expected_map_theme(args.client_map_theme)
+    effective_lobby_scene = JOIN_LOBBY_SCENE if requested_map_themes else args.lobby_scene
+    map_theme_command_verification: dict[str, Any] | None = None
+    map_theme_pre_migration_verification: dict[str, Any] | None = None
+    map_theme_post_migration_verification: dict[str, Any] | None = None
     orphan_gate = write_orphan_pressure_report(
         artifact_dir,
         args.orphan_threshold,
@@ -464,12 +722,20 @@ def run(args: argparse.Namespace) -> int:
         "hostPort": host_port,
         "clientPort": client_port,
         "scene": args.scene,
-        "lobbyScene": args.lobby_scene,
+        "lobbyScene": effective_lobby_scene,
         "seed": args.seed,
         "botSeed": bot_seed,
         "botPersona": args.bot_persona,
         "botJournalPath": str(bot_journal_path),
         "postMigrationMoveUnit": args.post_migration_move_unit,
+        **({
+            "mapThemeSelection": {
+                "enabled": True,
+                "host": requested_map_themes.get(0),
+                "client": requested_map_themes.get(1),
+                "perPlayerIndependentSelection": True,
+            },
+        } if requested_map_themes else {}),
         "config": config,
         "dryRun": args.dry_run,
         "headlessPlayer": args.headless_player,
@@ -505,7 +771,7 @@ def run(args: argparse.Namespace) -> int:
             artifact_dir,
             "build-host",
             max_players=2,
-            scene=args.lobby_scene,
+            scene=effective_lobby_scene,
             case_name=CASE_NAME,
             auto_start=False,
             load_game=False,
@@ -530,7 +796,7 @@ def run(args: argparse.Namespace) -> int:
             artifact_dir,
             "survivor-client",
             max_players=2,
-            scene=args.lobby_scene,
+            scene=effective_lobby_scene,
             case_name=CASE_NAME,
             auto_start=False,
             load_game=False,
@@ -550,9 +816,9 @@ def run(args: argparse.Namespace) -> int:
         if pause_result.get("success") is not True:
             failures.append("bot_pause_failed")
 
-        if not wait_build_peer_started(host.start_host, artifact_dir, "build-host", session, args.lobby_scene, 2, args.start_timeout):
+        if not wait_build_peer_started(host.start_host, artifact_dir, "build-host", session, effective_lobby_scene, 2, args.start_timeout):
             failures.append("host_start_timeout")
-        if not wait_build_peer_started(client.join, artifact_dir, "survivor-client", session, args.lobby_scene, 2, args.start_timeout):
+        if not wait_build_peer_started(client.join, artifact_dir, "survivor-client", session, effective_lobby_scene, 2, args.start_timeout):
             failures.append("client_join_timeout")
 
         host_lobby, client_lobby, lobby_ready = wait_session_states(
@@ -560,7 +826,7 @@ def run(args: argparse.Namespace) -> int:
             client,
             artifact_dir,
             args.lobby_timeout,
-            args.lobby_scene,
+            effective_lobby_scene,
             2,
             "survivor-client",
         )
@@ -568,6 +834,60 @@ def run(args: argparse.Namespace) -> int:
         write_json(artifact_dir / "snapshots" / "survivor-client-lobby.json", client_lobby)
         if not lobby_ready:
             failures.append("session_join_timeout")
+
+        if requested_map_themes:
+            if scene_matches(effective_lobby_scene, JOIN_LOBBY_SCENE):
+                theme_lobby_load = {
+                    "success": True,
+                    "skipped": True,
+                    "message": "JoinLobby is already the active initial lobby scene.",
+                }
+            else:
+                theme_lobby_load = host.load_game(JOIN_LOBBY_SCENE)
+            write_json(artifact_dir / "build-host-load-map-theme-lobby.json", theme_lobby_load)
+            if theme_lobby_load.get("success") is not True:
+                failures.append("map_theme_join_lobby_load_failed")
+
+            host_theme_lobby, client_theme_lobby, theme_lobby_ready = wait_session_states(
+                host,
+                client,
+                artifact_dir,
+                args.lobby_timeout,
+                JOIN_LOBBY_SCENE,
+                2,
+                "survivor-client",
+            )
+            write_json(artifact_dir / "snapshots" / "build-host-map-theme-lobby.json", host_theme_lobby)
+            write_json(artifact_dir / "snapshots" / "survivor-client-map-theme-lobby.json", client_theme_lobby)
+            if not theme_lobby_ready:
+                failures.append("map_theme_join_lobby_timeout")
+                map_theme_command_verification = {
+                    "enabled": True,
+                    "success": False,
+                    "perPlayerIndependentSelection": True,
+                    "checks": {},
+                    "errors": ["join_lobby_not_ready"],
+                }
+                write_json(artifact_dir / "map-theme-selection-commands.json", {})
+                write_json(
+                    artifact_dir / "map-theme-selection-command-verification.json",
+                    map_theme_command_verification,
+                )
+            else:
+                _, map_theme_command_verification = select_personal_map_themes(
+                    host,
+                    client,
+                    artifact_dir,
+                    requested_map_themes,
+                )
+                if map_theme_command_verification.get("success") is not True:
+                    failures.extend(
+                        f"map_theme_selection:{error}"
+                        for error in map_theme_command_verification.get("errors") or ["failed"]
+                    )
+                # The command response confirms that the owning peer accepted the production RPC request.
+                # Allow State Authority to replicate both independent selections before unloading JoinLobby.
+                time.sleep(1)
 
         load_result = host.load_game(args.scene)
         write_json(artifact_dir / "build-host-load-game.json", load_result)
@@ -651,6 +971,81 @@ def run(args: argparse.Namespace) -> int:
         stop_result = client.bot_stop(reason="phase23_pre_migration_checkpoint_reached")
         write_json(artifact_dir / "survivor-client-bot-stop-before-migration.json", stop_result)
 
+        permanent_before = permanent_wall_state(host_progressed, bot_player_id)
+        grant_permanent = host.command(name="grant_permanent_walls", playerId=bot_player_id, amount=3)
+        write_json(artifact_dir / "pre-migration-grant-permanent-walls.json", grant_permanent)
+        place_permanent = host.command(name="place_wall", playerId=bot_player_id, wallKind="permanent")
+        write_json(artifact_dir / "pre-migration-place-permanent-wall.json", place_permanent)
+        place_data = place_permanent.get("data") if isinstance(place_permanent, dict) else None
+        place_position = place_data.get("position") if isinstance(place_data, dict) else None
+        if isinstance(place_position, dict):
+            permanent_wall_position = {
+                "x": as_int(place_position.get("x")),
+                "y": as_int(place_position.get("y")),
+                "z": as_int(place_position.get("z")),
+            }
+
+        if grant_permanent.get("success") is not True:
+            failures.append("pre_migration_permanent_wall_grant_failed")
+        if place_permanent.get("success") is not True or permanent_wall_position is None:
+            failures.append("pre_migration_permanent_wall_place_failed")
+
+        expected_permanent_stock = as_int(permanent_before.get("permanentStock")) + 2
+        expected_owned_count = as_int(permanent_before.get("ownedCount")) + 1
+        permanent_checkpoint_ready = False
+        permanent_checkpoint_comparison: dict[str, Any] = {"success": False, "errors": ["not_started"]}
+        deadline = time.time() + args.state_timeout
+        while time.time() < deadline and not failures:
+            latest_host = dump_state(host, artifact_dir, "build-host", "permanent-wall-checkpoint-latest")
+            latest_client = dump_state(client, artifact_dir, "survivor-client", "permanent-wall-checkpoint-latest")
+            host_wall_state = permanent_wall_state(latest_host, bot_player_id)
+            client_wall_state = permanent_wall_state(latest_client, bot_player_id)
+            permanent_checkpoint_comparison = compare_snapshots(latest_host, latest_client)
+            if (
+                permanent_checkpoint_comparison.get("success") is True
+                and host_wall_state == client_wall_state
+                and as_int(host_wall_state.get("normalStock")) == as_int(permanent_before.get("normalStock"))
+                and as_int(host_wall_state.get("permanentStock")) == expected_permanent_stock
+                and as_int(host_wall_state.get("ownedCount")) == expected_owned_count
+            ):
+                host_progressed = latest_host
+                client_progressed = latest_client
+                permanent_wall_checkpoint = host_wall_state
+                permanent_checkpoint_ready = True
+                break
+            time.sleep(0.25)
+
+        write_json(artifact_dir / "pre-migration-permanent-wall-comparison.json", permanent_checkpoint_comparison)
+        write_json(artifact_dir / "pre-migration-permanent-wall-checkpoint.json", {
+            "success": permanent_checkpoint_ready,
+            "playerId": bot_player_id,
+            "position": permanent_wall_position,
+            "before": permanent_before,
+            "after": permanent_wall_checkpoint,
+            "expectedPermanentStock": expected_permanent_stock,
+            "expectedOwnedCount": expected_owned_count,
+        })
+        checkpoint_comparison = permanent_checkpoint_comparison
+        if not permanent_checkpoint_ready:
+            failures.append("pre_migration_permanent_wall_checkpoint_timeout")
+
+        if requested_map_themes:
+            map_theme_pre_migration_verification = verify_map_theme_snapshots(
+                requested_map_themes,
+                {"host": host_progressed, "client": client_progressed},
+                "pre-migration",
+            )
+            write_json(
+                artifact_dir / "map-theme-pre-migration-verification.json",
+                map_theme_pre_migration_verification,
+            )
+            if map_theme_pre_migration_verification.get("success") is not True:
+                failures.append("pre_migration_map_theme_verification_failed")
+
+        write_json(artifact_dir / "snapshots" / "build-host-progressed-checkpoint.json", host_progressed)
+        write_json(artifact_dir / "snapshots" / "survivor-client-progressed-checkpoint.json", client_progressed)
+        write_json(artifact_dir / "progressed-checkpoint-comparison.json", checkpoint_comparison)
+
         write_json(artifact_dir / "migration-target.json", {
             "botPlayerId": bot_player_id,
             "survivorConnectionTokenHash": survivor_local.get("connectionTokenHash") if isinstance(survivor_local, dict) else "unknown",
@@ -700,6 +1095,18 @@ def run(args: argparse.Namespace) -> int:
             args.migration_timeout,
             args.stable_samples,
         )
+        if requested_map_themes:
+            map_theme_post_migration_verification = verify_map_theme_snapshots(
+                requested_map_themes,
+                {"survivor": post},
+                "post-migration",
+            )
+            write_json(
+                artifact_dir / "map-theme-post-migration-verification.json",
+                map_theme_post_migration_verification,
+            )
+            if map_theme_post_migration_verification.get("success") is not True:
+                failures.append("post_migration_map_theme_verification_failed")
         write_json(artifact_dir / "snapshots" / "survivor-client-post-migration.json", post)
         write_json(artifact_dir / "host-migration-proof.json", proof)
         write_json(artifact_dir / "progressed-host-migration-assertions.json", migration_assertions)
@@ -715,12 +1122,54 @@ def run(args: argparse.Namespace) -> int:
             "migration": proof.get("migration"),
             "proof": proof,
             "assertions": migration_assertions,
+            **({
+                "mapThemePreMigration": map_theme_pre_migration_verification,
+                "mapThemePostMigration": map_theme_post_migration_verification,
+            } if requested_map_themes else {}),
             "failures": failures,
         })
         if not migrated:
             failures.append("progressed_host_migration_timeout")
         failures.extend(f"host_migration_proof:{err}" for err in proof.get("errors") or [])
         failures.extend(f"progressed_migration:{err}" for err in migration_assertions.get("errors") or [])
+
+        if not failures and permanent_wall_position is not None and permanent_wall_checkpoint is not None:
+            remove_response = client.command(
+                name="remove_wall",
+                playerId=bot_player_id,
+                position=permanent_wall_position,
+            )
+            write_json(artifact_dir / "post-migration-remove-permanent-wall-command.json", remove_response)
+            expected_post_remove_stock = as_int(permanent_wall_checkpoint.get("permanentStock")) + 1
+            expected_post_remove_owned = max(0, as_int(permanent_wall_checkpoint.get("ownedCount")) - 1)
+            latest_remove_state = post
+            remove_succeeded = False
+            deadline = time.time() + args.post_migration_move_timeout
+            while time.time() < deadline and remove_response.get("success") is True:
+                latest_remove_state = dump_state(client, artifact_dir, "survivor-client", "post-migration-permanent-wall-remove-latest")
+                latest_wall_state = permanent_wall_state(latest_remove_state, bot_player_id)
+                if (
+                    as_int(latest_wall_state.get("normalStock")) == as_int(permanent_wall_checkpoint.get("normalStock"))
+                    and as_int(latest_wall_state.get("permanentStock")) == expected_post_remove_stock
+                    and as_int(latest_wall_state.get("ownedCount")) == expected_post_remove_owned
+                ):
+                    remove_succeeded = True
+                    post = latest_remove_state
+                    break
+                time.sleep(0.25)
+
+            post_migration_permanent_wall_remove = {
+                "success": remove_response.get("success") is True and remove_succeeded,
+                "playerId": bot_player_id,
+                "position": permanent_wall_position,
+                "checkpoint": permanent_wall_checkpoint,
+                "after": permanent_wall_state(latest_remove_state, bot_player_id),
+                "command": remove_response,
+            }
+            write_json(artifact_dir / "post-migration-permanent-wall-remove-result.json", post_migration_permanent_wall_remove)
+            write_json(artifact_dir / "snapshots" / "survivor-client-post-migration-permanent-wall-remove.json", latest_remove_state)
+            if post_migration_permanent_wall_remove.get("success") is not True:
+                failures.append("post_migration_permanent_wall_remove_failed")
 
         if args.post_migration_move_unit and not failures:
             post, post_move_report = post_migration_move_unit_assertions(
@@ -738,6 +1187,12 @@ def run(args: argparse.Namespace) -> int:
             "migration": proof.get("migration"),
             "proof": proof,
             "assertions": migration_assertions,
+            **({
+                "mapThemePreMigration": map_theme_pre_migration_verification,
+                "mapThemePostMigration": map_theme_post_migration_verification,
+            } if requested_map_themes else {}),
+            "permanentWallCheckpoint": permanent_wall_checkpoint,
+            "postMigrationPermanentWallRemove": post_migration_permanent_wall_remove,
             "postMigrationMoveUnit": post_move_report,
             "failures": failures,
         })
@@ -790,6 +1245,16 @@ def main() -> int:
     parser.add_argument("--session")
     parser.add_argument("--scene", default="Game")
     parser.add_argument("--lobby-scene", default="MatchingLobby")
+    parser.add_argument(
+        "--host-map-theme",
+        type=map_theme_argument,
+        help="Select classic, arena, or a map.theme.* content id for host playerId 0 before Game load.",
+    )
+    parser.add_argument(
+        "--client-map-theme",
+        type=map_theme_argument,
+        help="Select classic, arena, or a map.theme.* content id for client playerId 1 before Game load.",
+    )
     parser.add_argument("--seed", type=int, default=4001)
     parser.add_argument("--bot-seed", type=int)
     parser.add_argument("--bot-persona", default="balanced")

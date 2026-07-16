@@ -4,11 +4,13 @@ public class PlaceWallCommand : ICommand
 {
     public int PlayerId { get; set; }
     public Vector3Int Position { get; private set; }
+    public WallPlacementKind Kind { get; private set; }
 
-    public PlaceWallCommand(int playerId, Vector3Int position)
+    public PlaceWallCommand(int playerId, Vector3Int position, WallPlacementKind kind = WallPlacementKind.Destructible)
     {
         PlayerId = playerId;
         Position = position;
+        Kind = kind;
     }
 
     public void Execute()
@@ -19,11 +21,21 @@ public class PlaceWallCommand : ICommand
             Debug.Log($"[PlaceWallCommand] Ignored on non-server peer. Player={PlayerId}, Pos={Position}");
             return;
         }
+        if (gm.Object == null || !gm.Object.IsValid || !gm.Object.HasStateAuthority ||
+            gm.currentState != GameManagers.GameState.Prepare || gm.IsSequenceTransitioning)
+        {
+            Debug.LogWarning($"[PlaceWallCommand] Rejected outside authoritative stable Prepare. Player={PlayerId}, Pos={Position}");
+            return;
+        }
 
         var player = gm.GetPlayer(PlayerId);
         if (player == null)
         {
             Debug.LogError($"[PlaceWallCommand] Player not found for PlayerId {PlayerId}");
+            return;
+        }
+        if (player.Object == null || !player.Object.IsValid || !player.Object.HasStateAuthority)
+        {
             return;
         }
 
@@ -91,30 +103,53 @@ public class PlaceWallCommand : ICommand
             }
         }
 
-        Vector3Int goalCell = fm.WorldToGridInt(player.goalTransform != null ? player.goalTransform.position : Vector3.zero);
-        if (Position == goalCell)
+        if (fm.IsGoalCell(Position))
         {
             Debug.LogWarning($"[PlaceWallCommand] Cannot place wall at goal cell {Position} for Player {PlayerId}");
             return;
         }
 
-        if (!player.TryUseWall())
+        bool isPermanent = Kind == WallPlacementKind.Permanent;
+        bool stockReserved = isPermanent
+            ? player.TryUsePermanentWallPlacement()
+            : player.TryUseWall();
+        if (!stockReserved)
         {
-            Debug.LogWarning($"[PlaceWallCommand] No wall stock left for Player {PlayerId}");
+            Debug.LogWarning($"[PlaceWallCommand] No {Kind} wall stock left for Player {PlayerId}");
             return;
         }
 
-        fm.CreateWallAt(Position);
-
-        if (fm.GetWallAt(Position) != null)
+        bool created;
+        if (isPermanent)
         {
-            Debug.Log($"[PlaceWallCommand] SUCCESS player={player.playerId}, fieldOwner={fieldOwnerId}, pos={Position}");
+            created = fm.TryCreatePlayerPlacedPermanentWallAt(Position);
+        }
+        else
+        {
+            fm.CreateWallAt(Position);
+            created = fm.GetWallAt(Position) != null;
+        }
+
+        if (created)
+        {
+            if (isPermanent)
+            {
+                player.NotifyPermanentWallLayoutChanged("place_player_permanent_wall");
+            }
+            Debug.Log($"[PlaceWallCommand] SUCCESS player={player.playerId}, fieldOwner={fieldOwnerId}, pos={Position}, kind={Kind}");
             gm.NotifyWallPlacementSucceeded(player.playerId, Position.x, Position.y);
         }
         else
         {
-            Debug.LogError($"[PlaceWallCommand] CreateWallAt failed at {Position} for Player {PlayerId}. Refunding.");
-            player.ReturnWall();
+            Debug.LogError($"[PlaceWallCommand] Create wall failed at {Position} for Player {PlayerId}, kind={Kind}. Refunding.");
+            if (isPermanent)
+            {
+                player.ReturnPermanentWallPlacement();
+            }
+            else
+            {
+                player.ReturnWall();
+            }
         }
     }
 

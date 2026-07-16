@@ -133,6 +133,11 @@ public abstract class MdfCommandEmitter : IMdfCommandEmitter
 
     protected void LogSubmitted(MdfDecision decision, BattleCommandResult result)
     {
+        if (!MPTestLogger.IsEnabled)
+        {
+            return;
+        }
+
         MPTestLogger.Log(
             "mdf_decision_emit",
             result.Success ? "pass" : "fail",
@@ -188,8 +193,11 @@ public sealed class HumanClientCommandEmitter : MdfCommandEmitter
                 decision.BattleSpawnMonster.SpawnWorldPosition,
                 decision.BattleSpawnMonster.Count,
                 decision.BattleSpawnMonster.ObservedAttackMonsterPoolRevision,
+                decision.BattleSpawnMonster.ObservedBlackMagicRevision,
                 decision.BattleSpawnMonster.SourceReason);
-            Actor.MarkAttackMonsterPoolCommandSubmitted(decision.BattleSpawnMonster.ObservedAttackMonsterPoolRevision);
+            Actor.MarkAttackMonsterPoolCommandSubmitted(
+                decision.BattleSpawnMonster.ObservedAttackMonsterPoolRevision,
+                decision.BattleSpawnMonster.ObservedBlackMagicRevision);
         }
 
         result = BattleCommandResult.Accepted(CommandType.BattleSpawnMonster, decision.PlayerId, "battle_spawn_submitted", decision.BattleSpawnMonster.DefenderPlayerId, Scope, Source);

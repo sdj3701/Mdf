@@ -557,6 +557,28 @@
     white-space: nowrap;
 }
 
+.wall-kind-toggle-button {
+    position: absolute;
+    left: 174px;
+    bottom: 172px;
+    width: 54px;
+    min-width: 54px;
+    height: 54px;
+    padding-left: 0;
+    padding-right: 0;
+    border-top-left-radius: 27px;
+    border-top-right-radius: 27px;
+    border-bottom-left-radius: 27px;
+    border-bottom-right-radius: 27px;
+}
+
+.wall-kind-toggle-icon {
+    color: rgb(235, 226, 196);
+    font-size: 31px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
 .game-hud-root {
     position: absolute;
     right: 28px;
@@ -760,6 +782,107 @@
     background-image: url("project://database/Assets/Resource/Image/UI/Bricks.png?fileID=21300000&guid=3e2016eabfa81cb47b0e46263210a62f&type=3#Bricks");
 }
 
+.king-skill-button {
+    position: relative;
+    width: 180px;
+    min-width: 180px;
+    height: 180px;
+    padding-left: 8px;
+    padding-right: 8px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    border-top-left-radius: 14px;
+    border-top-right-radius: 14px;
+    border-bottom-left-radius: 14px;
+    border-bottom-right-radius: 14px;
+}
+
+.king-skill-button:hover {
+    background-color: rgba(42, 58, 92, 0.98);
+    border-left-color: rgb(255, 232, 128);
+    border-right-color: rgb(255, 232, 128);
+    border-top-color: rgb(255, 241, 164);
+    border-bottom-color: rgb(206, 153, 55);
+}
+
+.king-skill-button:disabled,
+.king-skill-button.is-disabled {
+    opacity: 0.56;
+}
+
+.king-skill-icon {
+    width: 78px;
+    height: 78px;
+    flex-shrink: 0;
+    -unity-background-scale-mode: scale-to-fit;
+}
+
+.king-skill-name {
+    width: 164px;
+    height: 24px;
+    color: rgb(255, 232, 128);
+    font-size: 17px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    white-space: nowrap;
+}
+
+.king-skill-description {
+    width: 164px;
+    height: 38px;
+    color: rgb(224, 218, 201);
+    font-size: 12px;
+    -unity-text-align: upper-center;
+    white-space: normal;
+}
+
+.king-skill-state {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    bottom: 5px;
+    height: 20px;
+    color: rgb(248, 232, 182);
+    font-size: 12px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    background-color: rgba(5, 10, 17, 0.80);
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    border-bottom-left-radius: 5px;
+    border-bottom-right-radius: 5px;
+}
+
+.demon-skill-button {
+    border-left-color: rgb(158, 61, 75);
+    border-right-color: rgb(158, 61, 75);
+    border-top-color: rgb(238, 134, 126);
+    border-bottom-color: rgb(92, 29, 44);
+}
+
+.demon-skill-button:hover {
+    background-color: rgba(75, 26, 43, 0.98);
+    border-left-color: rgb(245, 145, 132);
+    border-right-color: rgb(245, 145, 132);
+    border-top-color: rgb(255, 190, 166);
+    border-bottom-color: rgb(151, 54, 70);
+}
+
+.demon-skill-name {
+    color: rgb(255, 174, 157);
+}
+
+.demon-skill-state {
+    color: rgb(255, 207, 190);
+}
+
+.resource-permanent-wall-icon {
+    background-image: url("project://database/Assets/Resource/Image/UI/PermanentBricks.png?fileID=2800000&guid=f8519aedf84fef04b847dcb140a83b24&type=3#PermanentBricks");
+}
+
 .wall-action-button .wall-action-icon.resource-wall-icon {
     width: 204px;
     height: 134px;
@@ -785,6 +908,7 @@
 
 .attack-monster-row {
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: flex-start;
     padding-left: 8px;
@@ -804,6 +928,42 @@
     border-top-right-radius: 8px;
     border-bottom-left-radius: 8px;
     border-bottom-right-radius: 8px;
+}
+
+.attack-black-magic-row {
+    flex-direction: row;
+    align-items: center;
+    min-width: 178px;
+    height: 34px;
+    margin-bottom: 4px;
+    padding-left: 12px;
+    padding-right: 12px;
+    background-color: rgba(24, 7, 35, 0.92);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgb(113, 58, 148);
+    border-right-color: rgb(113, 58, 148);
+    border-top-color: rgb(193, 111, 235);
+    border-bottom-color: rgb(70, 34, 94);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.attack-black-magic-title {
+    margin-right: 10px;
+    color: rgb(216, 174, 240);
+    font-size: 14px;
+    -unity-font-style: bold;
+}
+
+.attack-black-magic-value {
+    color: rgb(250, 226, 255);
+    font-size: 17px;
+    -unity-font-style: bold;
 }
 
 .attack-scroll-row {
@@ -900,17 +1060,6 @@
     -unity-text-align: middle-center;
     white-space: nowrap;
     overflow: hidden;
-}
-
-.monster-attack-card .attack-card-name {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 18px;
-    height: 18px;
-    padding-left: 2px;
-    padding-right: 2px;
-    background-color: rgba(0, 0, 0, 0.58);
 }
 
 .attack-card-count {

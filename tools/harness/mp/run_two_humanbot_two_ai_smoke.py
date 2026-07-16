@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import shutil
 import time
 from typing import Any, Callable
 
@@ -34,6 +35,10 @@ LOBBY_HUMAN_PEERS = 2
 EXPECTED_PLAYERS = 4
 EXPECTED_HUMANS = 2
 EXPECTED_AI = 2
+WALL_UPGRADE_COST_BY_LEVEL = {1: 2, 2: 4}
+WALL_UPGRADE_TOTAL_COST = sum(WALL_UPGRADE_COST_BY_LEVEL.values())
+COMMAND_DRAIN_STABLE_SAMPLES = 2
+COMMAND_DRAIN_POLL_SECONDS = 0.5
 
 
 def safe_request(call: Callable[[], dict[str, Any]]) -> dict[str, Any]:
@@ -110,21 +115,75 @@ def capture_prepare_visual_baseline(
     artifact_dir: pathlib.Path,
     label: str = "clean-prepare",
 ) -> dict[str, Any]:
+    preparation_results: dict[str, Any] = {}
     cleanup_results: dict[str, Any] = {}
     for name, peer_client in clients.items():
+        preparation_results[name] = safe_request(
+            lambda peer_client=peer_client: peer_client.command(name="prepare_visual_capture")
+        )
+        write_json(
+            artifact_dir / f"{name}-{label}-prepare-visual-capture.json",
+            preparation_results[name],
+        )
         cleanup_results[name] = safe_request(peer_client.hide_transient_ui)
         write_json(artifact_dir / f"{name}-{label}-hide-ui.json", cleanup_results[name])
-    time.sleep(0.5)
 
     screenshots: dict[str, Any] = {}
     for name, peer_client in clients.items():
-        screenshots[name] = safe_request(peer_client.screenshot)
+        screenshot = safe_request(peer_client.screenshot)
+        screenshot_data = screenshot.get("data") if isinstance(screenshot, dict) else None
+        screenshot_path = (
+            pathlib.Path(str(screenshot_data.get("path")))
+            if isinstance(screenshot_data, dict) and screenshot_data.get("path")
+            else None
+        )
+        stable_size_samples = 0
+        if screenshot.get("success") is True and screenshot_path is not None:
+            deadline = time.time() + 3.0
+            previous_size = -1
+            while time.time() < deadline:
+                current_size = screenshot_path.stat().st_size if screenshot_path.exists() else -1
+                if current_size > 0 and current_size == previous_size:
+                    stable_size_samples += 1
+                else:
+                    stable_size_samples = 0
+                previous_size = current_size
+                if stable_size_samples >= 2:
+                    break
+                time.sleep(0.1)
+
+        if (
+            screenshot.get("success") is True
+            and screenshot_path is not None
+            and screenshot_path.exists()
+            and screenshot_path.stat().st_size > 0
+            and stable_size_samples >= 2
+        ):
+            archived_path = artifact_dir / "screenshots" / f"{name}-{label}.png"
+            archived_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(screenshot_path, archived_path)
+            screenshot_data["archivedPath"] = str(archived_path.resolve())
+        else:
+            screenshot = {
+                "success": False,
+                "error": {
+                    "code": "prepare_visual_screenshot_file_not_stable",
+                    "details": str(screenshot_path),
+                },
+            }
+
+        screenshots[name] = screenshot
         write_json(artifact_dir / f"{name}-{label}-screenshot.json", screenshots[name])
-    time.sleep(1.0)
+    prepared = all(item.get("success") is True for item in preparation_results.values())
+    ui_hidden = all(item.get("success") is True for item in cleanup_results.values())
+    screenshots_captured = all(item.get("success") is True for item in screenshots.values())
     result = {
-        "captured": all(item.get("success") is True for item in screenshots.values()),
-        "uiHidden": all(item.get("success") is True for item in cleanup_results.values()),
+        "captured": prepared and ui_hidden and screenshots_captured,
+        "prepared": prepared,
+        "uiHidden": ui_hidden,
+        "screenshotsCaptured": screenshots_captured,
         "label": label,
+        "prepareVisualCapture": preparation_results,
         "hideUi": cleanup_results,
         "screenshots": screenshots,
     }
@@ -270,6 +329,79 @@ def wait_target_prepare_ready(
     return latest_host, latest_client, comparison, False
 
 
+def wait_target_prepare_wall_upgrade_applied(
+    host: AutomationClient,
+    client: AutomationClient,
+    artifact_dir: pathlib.Path,
+    timeout_seconds: int,
+    scene: str,
+    label: str,
+    target_round: int,
+    before_host: Any,
+    before_client: Any,
+    upgrade_results: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
+    deadline = time.time() + timeout_seconds
+    stable = 0
+    latest_host: dict[str, Any] = {}
+    latest_client: dict[str, Any] = {}
+    comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
+    while time.time() < deadline:
+        latest_host = safe_request(host.dump_state)
+        latest_client = safe_request(client.dump_state)
+        write_json(artifact_dir / "snapshots" / f"host-{label}-latest.json", latest_host)
+        write_json(artifact_dir / "snapshots" / f"client-{label}-latest.json", latest_client)
+
+        host_game = game(latest_host)
+        client_game = game(latest_client)
+        ready = {
+            "host": snapshot_ready(latest_host, EXPECTED_PLAYERS, scene)
+            and host_game.get("currentRound") == target_round
+            and host_game.get("currentState") == "Prepare",
+            "client": snapshot_ready(latest_client, EXPECTED_PLAYERS, scene)
+            and client_game.get("currentRound") == target_round
+            and client_game.get("currentState") == "Prepare",
+        }
+        host_gold_applied = upgrade_gold_applied(latest_host, upgrade_results)
+        client_gold_applied = upgrade_gold_applied(latest_client, upgrade_results)
+        host_level_hash_changed = destructible_wall_level_hash_changed(before_host, latest_host, upgrade_results)
+        client_level_hash_changed = destructible_wall_level_hash_changed(before_client, latest_client, upgrade_results)
+        if all(ready.values()):
+            comparison = compare_snapshots(latest_host, latest_client)
+            write_json(artifact_dir / f"comparison-{label}-latest.json", comparison)
+        write_json(artifact_dir / f"{label}-wait-latest.json", {
+            "targetRound": target_round,
+            "ready": ready,
+            "hostGame": host_game,
+            "clientGame": client_game,
+            "comparison": comparison,
+            "goldApplied": {"host": host_gold_applied, "client": client_gold_applied},
+            "destructibleWallLevelHashChanged": {
+                "host": host_level_hash_changed,
+                "client": client_level_hash_changed,
+            },
+            "gold": {
+                "host": gold_by_player(latest_host),
+                "client": gold_by_player(latest_client),
+            },
+            "stableMatches": stable,
+        })
+        applied = (
+            host_gold_applied
+            and client_gold_applied
+            and host_level_hash_changed
+            and client_level_hash_changed
+        )
+        if all(ready.values()) and comparison.get("success") is True and applied:
+            stable += 1
+            if stable >= 2:
+                return latest_host, latest_client, comparison, True
+        else:
+            stable = 0
+        time.sleep(2)
+    return latest_host, latest_client, comparison, False
+
+
 def wait_target_prepare_wall_stock_restored(
     host: AutomationClient,
     client: AutomationClient,
@@ -303,6 +435,8 @@ def wait_target_prepare_wall_stock_restored(
         }
         host_stock_restored = wall_stock_restored(before_snapshot, latest_host, remove_results)
         client_stock_restored = wall_stock_restored(before_snapshot, latest_client, remove_results)
+        host_gold_restored = gold_restored(before_snapshot, latest_host, remove_results)
+        client_gold_restored = gold_restored(before_snapshot, latest_client, remove_results)
         if all(ready.values()):
             comparison = compare_snapshots(latest_host, latest_client)
             write_json(artifact_dir / f"comparison-{label}-latest.json", comparison)
@@ -321,16 +455,31 @@ def wait_target_prepare_wall_stock_restored(
                 "host": host_stock_restored,
                 "client": client_stock_restored,
             },
+            "upgradeGoldRestored": {
+                "host": host_gold_restored,
+                "client": client_gold_restored,
+            },
             "wallCounts": {
                 "before": wall_counts_by_player(before_snapshot),
                 "host": wall_counts_by_player(latest_host),
                 "client": wall_counts_by_player(latest_client),
             },
+            "gold": {
+                "before": gold_by_player(before_snapshot),
+                "host": gold_by_player(latest_host),
+                "client": gold_by_player(latest_client),
+            },
             "stableMatches": stable,
         })
         comparison_ready = comparison.get("success") is True
         stock_restored = host_stock_restored and client_stock_restored
-        if all(ready.values()) and (comparison_ready or not require_comparison) and stock_restored:
+        upgrade_gold_restored = host_gold_restored and client_gold_restored
+        if (
+            all(ready.values())
+            and (comparison_ready or not require_comparison)
+            and stock_restored
+            and upgrade_gold_restored
+        ):
             stable += 1
             if stable >= 2:
                 return latest_host, latest_client, comparison, True
@@ -436,6 +585,94 @@ def stop_bots_before_move(
     return results, stopped
 
 
+def command_queue_depth(snapshot: Any) -> int | None:
+    commands = state(snapshot).get("commands")
+    if not isinstance(commands, dict):
+        return None
+
+    value = commands.get("queueDepth")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
+def wait_command_queues_drained(
+    clients: dict[str, AutomationClient],
+    artifact_dir: pathlib.Path,
+    timeout_seconds: float,
+    scene: str,
+    *,
+    label: str,
+    poll_seconds: float = COMMAND_DRAIN_POLL_SECONDS,
+    stable_samples_required: int = COMMAND_DRAIN_STABLE_SAMPLES,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], bool]:
+    deadline = time.time() + max(0.0, timeout_seconds)
+    stable_samples_required = max(1, stable_samples_required)
+    zero_depth_samples = 0
+    comparable_samples = 0
+    latest_host: dict[str, Any] = {}
+    latest_client: dict[str, Any] = {}
+    comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
+
+    while time.time() < deadline:
+        latest_host = safe_request(clients["host"].dump_state)
+        latest_client = safe_request(clients["client"].dump_state)
+        write_json(artifact_dir / "snapshots" / f"host-{label}-drain-latest.json", latest_host)
+        write_json(artifact_dir / "snapshots" / f"client-{label}-drain-latest.json", latest_client)
+
+        depths = {
+            "host": command_queue_depth(latest_host),
+            "client": command_queue_depth(latest_client),
+        }
+        ready = {
+            "host": snapshot_ready(latest_host, EXPECTED_PLAYERS, scene),
+            "client": snapshot_ready(latest_client, EXPECTED_PLAYERS, scene),
+        }
+        queues_zero = all(depth == 0 for depth in depths.values())
+        if all(ready.values()) and queues_zero:
+            zero_depth_samples += 1
+            comparison = compare_snapshots(latest_host, latest_client)
+            write_json(artifact_dir / f"comparison-{label}-drain-latest.json", comparison)
+            if comparison.get("success") is True:
+                comparable_samples += 1
+            else:
+                comparable_samples = 0
+        else:
+            zero_depth_samples = 0
+            comparable_samples = 0
+
+        drained = (
+            zero_depth_samples >= stable_samples_required
+            and comparable_samples >= stable_samples_required
+        )
+        write_json(artifact_dir / f"{label}-command-queue-drain-latest.json", {
+            "drained": drained,
+            "queuesDrained": zero_depth_samples >= stable_samples_required,
+            "snapshotsStable": comparable_samples >= stable_samples_required,
+            "stableSamplesRequired": stable_samples_required,
+            "zeroDepthSamples": zero_depth_samples,
+            "comparableSamples": comparable_samples,
+            "queueDepth": depths,
+            "ready": ready,
+            "reasons": {
+                "host": snapshot_not_ready_reasons(latest_host, EXPECTED_PLAYERS, scene),
+                "client": snapshot_not_ready_reasons(latest_client, EXPECTED_PLAYERS, scene),
+            },
+            "comparison": comparison,
+            "deadlineSecondsRemaining": max(0.0, deadline - time.time()),
+        })
+        if drained:
+            return latest_host, latest_client, comparison, True
+
+        time.sleep(max(0.0, poll_seconds))
+
+    return latest_host, latest_client, comparison, False
+
+
 def issue_move_commands(
     host: AutomationClient,
     snapshot: Any,
@@ -467,12 +704,16 @@ def command_position(response: dict[str, Any]) -> dict[str, int] | None:
         return None
 
 
-def wall_command_player_ids(snapshot: Any) -> list[int]:
+def wall_command_player_ids(snapshot: Any, minimum_gold: int = 0) -> list[int]:
     result: list[int] = []
     for player in players(snapshot):
         if player.get("isAI") is not False or not isinstance(player.get("playerId"), int):
             continue
-        if to_int(player.get("health")) <= 0 or to_int(player.get("wallCount")) <= 0:
+        if (
+            to_int(player.get("health")) <= 0
+            or to_int(player.get("wallCount")) <= 0
+            or to_int(player.get("gold")) < minimum_gold
+        ):
             continue
         result.append(int(player["playerId"]))
     return sorted(result)
@@ -513,6 +754,60 @@ def issue_remove_wall_commands(
             name="remove_wall",
             playerId=player_id,
             position=position,
+        ))
+        results.append({"playerId": player_id, "position": position, "response": result})
+        write_json(artifact_dir / f"{label}-player-{player_id}.json", result)
+    write_json(artifact_dir / f"{label}-results.json", results)
+    return results
+
+
+def issue_upgrade_wall_commands(
+    host: AutomationClient,
+    previous_results: list[dict[str, Any]],
+    artifact_dir: pathlib.Path,
+    label: str,
+    expected_level: int,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for item in previous_results:
+        response = item.get("response") if isinstance(item.get("response"), dict) else {}
+        if response.get("success") is not True:
+            continue
+        position = item.get("position") if isinstance(item.get("position"), dict) else command_position(response)
+        if position is None:
+            continue
+        player_id = int(item.get("playerId"))
+        result = safe_request(lambda player_id=player_id, position=position: host.command(
+            name="upgrade_wall",
+            playerId=player_id,
+            position=position,
+            expectedLevel=expected_level,
+        ))
+        results.append({"playerId": player_id, "position": position, "response": result})
+        write_json(artifact_dir / f"{label}-player-{player_id}.json", result)
+    write_json(artifact_dir / f"{label}-results.json", results)
+    return results
+
+
+def issue_max_level_wall_probes(
+    host: AutomationClient,
+    level_three_results: list[dict[str, Any]],
+    artifact_dir: pathlib.Path,
+    label: str,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for item in level_three_results:
+        if (item.get("response") or {}).get("success") is not True:
+            continue
+        position = item.get("position") if isinstance(item.get("position"), dict) else None
+        if position is None:
+            continue
+        player_id = int(item.get("playerId"))
+        result = safe_request(lambda player_id=player_id, position=position: host.command(
+            name="upgrade_wall",
+            playerId=player_id,
+            position=position,
+            expectedLevel=3,
         ))
         results.append({"playerId": player_id, "position": position, "response": result})
         write_json(artifact_dir / f"{label}-player-{player_id}.json", result)
@@ -572,6 +867,506 @@ def wall_stock_restored(before: Any, after_remove: Any, remove_results: list[dic
     return checked
 
 
+def gold_by_player(snapshot: Any) -> dict[int, int]:
+    return {
+        int(player["playerId"]): to_int(player.get("gold"))
+        for player in players(snapshot)
+        if isinstance(player.get("playerId"), int)
+    }
+
+
+def gold_restored(before: Any, after_remove: Any, remove_results: list[dict[str, Any]]) -> bool:
+    before_gold = gold_by_player(before)
+    after_gold = gold_by_player(after_remove)
+    checked = False
+    for item in remove_results:
+        if (item.get("response") or {}).get("success") is not True:
+            continue
+        player_id = int(item.get("playerId"))
+        if player_id not in before_gold or player_id not in after_gold:
+            return False
+        checked = True
+        if after_gold[player_id] != before_gold[player_id]:
+            return False
+    return checked
+
+
+def upgrade_gold_applied(after: Any, upgrade_results: list[dict[str, Any]]) -> bool:
+    after_gold = gold_by_player(after)
+    checked = False
+    for item in upgrade_results:
+        response = item.get("response") if isinstance(item.get("response"), dict) else {}
+        if response.get("success") is not True:
+            continue
+        data = response.get("data") if isinstance(response.get("data"), dict) else {}
+        player_id = int(item.get("playerId"))
+        if player_id not in after_gold:
+            return False
+        checked = True
+        if after_gold[player_id] != to_int(data.get("goldBefore")) - to_int(data.get("cost")):
+            return False
+    return checked
+
+
+def cumulative_upgrade_gold_spent(
+    before: Any,
+    after: Any,
+    level_three_results: list[dict[str, Any]],
+) -> bool:
+    before_gold = gold_by_player(before)
+    after_gold = gold_by_player(after)
+    checked = False
+    for item in level_three_results:
+        if (item.get("response") or {}).get("success") is not True:
+            continue
+        player_id = int(item.get("playerId"))
+        if player_id not in before_gold or player_id not in after_gold:
+            return False
+        checked = True
+        if after_gold[player_id] != before_gold[player_id] - WALL_UPGRADE_TOTAL_COST:
+            return False
+    return checked
+
+
+def destructible_wall_level_hash_changed(
+    before: Any,
+    after: Any,
+    upgrade_results: list[dict[str, Any]],
+) -> bool:
+    checked = False
+    for item in upgrade_results:
+        if (item.get("response") or {}).get("success") is not True:
+            continue
+        player_id = int(item.get("playerId"))
+        before_player = player_by_id(before, player_id)
+        after_player = player_by_id(after, player_id)
+        if before_player is None or after_player is None:
+            return False
+        before_hash = nested(before_player, "field", "destructibleWallHealthHash")
+        after_hash = nested(after_player, "field", "destructibleWallHealthHash")
+        checked = True
+        if before_hash in (None, "unknown") or after_hash in (None, "unknown") or before_hash == after_hash:
+            return False
+    return checked
+
+
+def upgrade_result_contract_errors(
+    upgrade_results: list[dict[str, Any]],
+    expected_level: int,
+    expected_cost: int,
+) -> list[str]:
+    errors: list[str] = []
+    for item in upgrade_results:
+        player_id = int(item.get("playerId"))
+        response = item.get("response") if isinstance(item.get("response"), dict) else {}
+        data = response.get("data") if isinstance(response.get("data"), dict) else {}
+        if response.get("success") is not True:
+            errors.append(f"player_{player_id}_upgrade_command_failed")
+            continue
+        if to_int(data.get("expectedLevel"), -1) != expected_level:
+            errors.append(f"player_{player_id}_expected_level_response_mismatch")
+        if to_int(data.get("cost"), -1) != expected_cost:
+            errors.append(f"player_{player_id}_upgrade_cost_response_mismatch")
+    return errors
+
+
+def max_level_probe_errors(probe_results: list[dict[str, Any]]) -> list[str]:
+    errors: list[str] = []
+    for item in probe_results:
+        player_id = int(item.get("playerId"))
+        response = item.get("response") if isinstance(item.get("response"), dict) else {}
+        if response.get("success") is not False:
+            errors.append(f"player_{player_id}_level_three_accepted_extra_upgrade")
+        elif nested(response, "error", "code") != "wall_upgrade_max_level":
+            errors.append(
+                f"player_{player_id}_level_three_probe_reason_{nested(response, 'error', 'code')}"
+            )
+    return errors
+
+
+def king_goal_snapshot_errors(snapshot: Any, peer_name: str) -> list[str]:
+    errors: list[str] = []
+    snapshot_players = players(snapshot)
+    if len(snapshot_players) != EXPECTED_PLAYERS:
+        return [f"{peer_name}.kingGoal.playerCount expected={EXPECTED_PLAYERS} actual={len(snapshot_players)}"]
+
+    for player in snapshot_players:
+        player_id = player.get("playerId")
+        prefix = f"{peer_name}.player.{player_id}"
+        field = player.get("field") if isinstance(player.get("field"), dict) else {}
+
+        if player.get("kingPresentationReady") is not True:
+            errors.append(f"{prefix}.kingPresentationReady")
+        numeric_limits = (
+            ("kingPresentationGoalDistance", 0.01),
+            ("kingPresentationWorldScaleDrift", 0.002),
+            ("kingPresentationTransformDrift", 0.002),
+            ("kingRigTransformDrift", 0.002),
+            ("kingCameraFacingAngle", 1.0),
+        )
+        for key, maximum in numeric_limits:
+            try:
+                actual = float(player.get(key))
+            except (TypeError, ValueError):
+                errors.append(f"{prefix}.{key}=missing")
+                continue
+            if actual < 0.0 or actual > maximum:
+                errors.append(f"{prefix}.{key} expected=0..{maximum} actual={actual}")
+
+        try:
+            scale_multiplier = float(player.get("kingPresentationScaleMultiplier"))
+        except (TypeError, ValueError):
+            errors.append(f"{prefix}.kingPresentationScaleMultiplier=missing")
+        else:
+            if abs(scale_multiplier - 1.3) > 0.001:
+                errors.append(f"{prefix}.kingPresentationScaleMultiplier expected=1.3 actual={scale_multiplier}")
+
+        if player.get("kingUsesNeutralGoalAnchor") is not True:
+            errors.append(f"{prefix}.kingUsesNeutralGoalAnchor")
+        rig_pin_required = player.get("kingRigPinRequired")
+        rig_pin_active = player.get("kingRigPinActive")
+        if not isinstance(rig_pin_required, bool):
+            errors.append(f"{prefix}.kingRigPinRequired=missing")
+        if not isinstance(rig_pin_active, bool):
+            errors.append(f"{prefix}.kingRigPinActive=missing")
+        elif rig_pin_required is True and rig_pin_active is not True:
+            errors.append(f"{prefix}.kingRigPinActive expected=true when required")
+        head_presentation_mode = player.get("kingHeadPresentationMode")
+        if head_presentation_mode == "base_idle":
+            if player.get("kingHeadLookActive") is not False:
+                errors.append(f"{prefix}.kingHeadLookActive expected=false for base_idle")
+        elif head_presentation_mode == "base_head_look":
+            if player.get("kingHeadLookActive") is not True:
+                errors.append(f"{prefix}.kingHeadLookActive")
+            if player.get("kingHeadLookApplied") is not True:
+                errors.append(f"{prefix}.kingHeadLookApplied")
+        else:
+            errors.append(
+                f"{prefix}.kingHeadPresentationMode expected=base_idle|base_head_look "
+                f"actual={head_presentation_mode!r}"
+            )
+        if field.get("regularUnitGoalViolationCount") != 0:
+            errors.append(
+                f"{prefix}.field.regularUnitGoalViolationCount expected=0 "
+                f"actual={field.get('regularUnitGoalViolationCount')}"
+            )
+    return errors
+
+
+def verify_king_goal_stability(
+    clients: dict[str, AutomationClient],
+    artifact_dir: pathlib.Path,
+    timeout_seconds: float = 30.0,
+    required_stable_samples: int = 3,
+) -> dict[str, Any]:
+    deadline = time.time() + timeout_seconds
+    stable_samples = 0
+    sample_index = 0
+    sample_summaries: list[dict[str, Any]] = []
+    latest_errors: list[str] = ["not_started"]
+
+    while time.time() < deadline:
+        sample_index += 1
+        snapshots = {
+            name: safe_request(client.dump_state)
+            for name, client in clients.items()
+        }
+        latest_errors = []
+        for name, snapshot in snapshots.items():
+            latest_errors.extend(king_goal_snapshot_errors(snapshot, name))
+            write_json(
+                artifact_dir / "snapshots" / f"{name}-king-goal-sample-{sample_index}.json",
+                snapshot,
+            )
+
+        if latest_errors:
+            stable_samples = 0
+        else:
+            stable_samples += 1
+        sample_summaries.append({
+            "sample": sample_index,
+            "success": not latest_errors,
+            "errors": latest_errors,
+            "stableSamples": stable_samples,
+        })
+        if stable_samples >= required_stable_samples:
+            break
+        time.sleep(0.75)
+
+    result = {
+        "success": stable_samples >= required_stable_samples,
+        "requiredStableSamples": required_stable_samples,
+        "stableSamples": stable_samples,
+        "samples": sample_summaries,
+        "errors": [] if stable_samples >= required_stable_samples else latest_errors,
+    }
+    write_json(artifact_dir / "king-goal-placement-verification.json", result)
+    return result
+
+
+def capture_ai_field_screenshots(
+    client: AutomationClient,
+    snapshot: Any,
+    artifact_dir: pathlib.Path,
+    timeout_seconds: float = 8.0,
+) -> dict[str, Any]:
+    snapshot_players = players(snapshot)
+    ai_player_ids = sorted(
+        int(player["playerId"])
+        for player in snapshot_players
+        if player.get("isAI") is True and isinstance(player.get("playerId"), int)
+    )
+    local_player_id = next(
+        (
+            int(player["playerId"])
+            for player in snapshot_players
+            if player.get("isLocal") is True and isinstance(player.get("playerId"), int)
+        ),
+        None,
+    )
+    errors: list[str] = []
+    captures: list[dict[str, Any]] = []
+    visual_preparation = safe_request(
+        lambda: client.command(name="prepare_visual_capture")
+    )
+    write_json(artifact_dir / "host-prepare-visual-capture.json", visual_preparation)
+    if visual_preparation.get("success") is not True:
+        errors.append("prepare_visual_capture_failed")
+    time.sleep(0.25)
+
+    if len(ai_player_ids) != EXPECTED_AI:
+        errors.append(f"ai_player_count expected={EXPECTED_AI} actual={len(ai_player_ids)}")
+
+    for player_id in ai_player_ids:
+        request = safe_request(
+            lambda player_id=player_id: client.command(
+                name="view_player_field",
+                playerId=player_id,
+                requestNavigation=True,
+            )
+        )
+        write_json(artifact_dir / f"host-ai-{player_id}-field-view-command.json", request)
+        inspection = request
+        deadline = time.time() + timeout_seconds
+        while request.get("success") is True and time.time() < deadline:
+            inspection = safe_request(
+                lambda player_id=player_id: client.command(
+                    name="view_player_field",
+                    playerId=player_id,
+                    requestNavigation=False,
+                )
+            )
+            payload = inspection.get("data") if isinstance(inspection, dict) else None
+            if (
+                inspection.get("success") is True
+                and isinstance(payload, dict)
+                and payload.get("viewingPlayerId") == player_id
+                and payload.get("currentViewingMatchesRegistry") is True
+                and payload.get("transitioning") is False
+                and payload.get("switched") is True
+            ):
+                break
+            time.sleep(0.25)
+
+        payload = inspection.get("data") if isinstance(inspection, dict) else None
+        settled = (
+            inspection.get("success") is True
+            and isinstance(payload, dict)
+            and payload.get("viewingPlayerId") == player_id
+            and payload.get("currentViewingMatchesRegistry") is True
+            and payload.get("transitioning") is False
+            and payload.get("switched") is True
+        )
+        if settled:
+            time.sleep(0.5)
+        field_snapshot = safe_request(client.dump_state) if settled else {}
+        write_json(
+            artifact_dir / "snapshots" / f"host-ai-{player_id}-field-state.json",
+            field_snapshot,
+        )
+        viewed_player = next(
+            (
+                player
+                for player in players(field_snapshot)
+                if player.get("playerId") == player_id
+            ),
+            None,
+        )
+        orientation_ready = (
+            isinstance(viewed_player, dict)
+            and (
+                viewed_player.get("kingHeadPresentationMode") == "base_idle"
+                or viewed_player.get("kingHeadLookApplied") is True
+            )
+        )
+        if not orientation_ready:
+            errors.append(f"ai_field_king_head_look_not_applied:{player_id}")
+        screenshot = safe_request(client.screenshot) if settled else {
+            "success": False,
+            "error": {"code": "ai_field_view_not_settled", "details": str(inspection)},
+        }
+        screenshot_data = screenshot.get("data") if isinstance(screenshot, dict) else None
+        screenshot_path = pathlib.Path(str(screenshot_data.get("path"))) if isinstance(screenshot_data, dict) and screenshot_data.get("path") else None
+        if screenshot.get("success") is True and screenshot_path is not None:
+            screenshot_deadline = time.time() + 3.0
+            previous_size = -1
+            stable_size_samples = 0
+            while time.time() < screenshot_deadline:
+                current_size = screenshot_path.stat().st_size if screenshot_path.exists() else -1
+                if current_size > 0 and current_size == previous_size:
+                    stable_size_samples += 1
+                else:
+                    stable_size_samples = 0
+                previous_size = current_size
+                if stable_size_samples >= 2:
+                    break
+                time.sleep(0.1)
+            if screenshot_path.exists() and screenshot_path.stat().st_size > 0 and stable_size_samples >= 2:
+                archived_path = artifact_dir / "screenshots" / f"host-ai-{player_id}-field.png"
+                archived_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(screenshot_path, archived_path)
+                screenshot_data["archivedPath"] = str(archived_path.resolve())
+            else:
+                screenshot = {
+                    "success": False,
+                    "error": {
+                        "code": "ai_field_screenshot_file_missing",
+                        "details": str(screenshot_path),
+                    },
+                }
+        write_json(artifact_dir / f"host-ai-{player_id}-field-screenshot.json", screenshot)
+        capture = {
+            "playerId": player_id,
+            "settled": settled,
+            "inspection": inspection,
+            "orientationReady": orientation_ready,
+            "kingCameraFacingAngle": (
+                viewed_player.get("kingCameraFacingAngle")
+                if isinstance(viewed_player, dict)
+                else None
+            ),
+            "kingHeadLookApplied": (
+                viewed_player.get("kingHeadLookApplied")
+                if isinstance(viewed_player, dict)
+                else None
+            ),
+            "screenshot": screenshot,
+        }
+        captures.append(capture)
+        if not settled or screenshot.get("success") is not True:
+            errors.append(f"ai_field_screenshot_failed:{player_id}")
+        time.sleep(1.1)
+
+    if local_player_id is not None:
+        safe_request(
+            lambda: client.command(
+                name="view_player_field",
+                playerId=local_player_id,
+                requestNavigation=True,
+            )
+        )
+
+    result = {
+        "success": not errors,
+        "errors": errors,
+        "aiPlayerIds": ai_player_ids,
+        "localPlayerId": local_player_id,
+        "captures": captures,
+    }
+    write_json(artifact_dir / "king-goal-ai-field-screenshots.json", result)
+    return result
+
+
+def parse_grid_cell(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, str):
+        return None
+    parts = value.split(",")
+    if len(parts) != 3:
+        return None
+    try:
+        return {"x": int(parts[0]), "y": int(parts[1]), "z": int(parts[2])}
+    except (TypeError, ValueError):
+        return None
+
+
+def first_placed_unit_cell(player: dict[str, Any]) -> dict[str, int] | None:
+    field = player.get("field") if isinstance(player.get("field"), dict) else {}
+    for part in field.get("placedUnitParts") or []:
+        if not isinstance(part, str):
+            continue
+        cell = parse_grid_cell(part.split(":", 1)[0])
+        if cell is not None:
+            return cell
+    return None
+
+
+def verify_goal_cell_move_rejection(
+    host: AutomationClient,
+    client: AutomationClient,
+    before_snapshot: Any,
+    artifact_dir: pathlib.Path,
+) -> dict[str, Any]:
+    errors: list[str] = []
+    target_player: dict[str, Any] | None = None
+    source: dict[str, int] | None = None
+    goal: dict[str, int] | None = None
+    for player in players(before_snapshot):
+        if player.get("isAI") is not False or not isinstance(player.get("playerId"), int):
+            continue
+        source = first_placed_unit_cell(player)
+        field = player.get("field") if isinstance(player.get("field"), dict) else {}
+        goal = parse_grid_cell(field.get("goalCell"))
+        if source is not None and goal is not None and source != goal:
+            target_player = player
+            break
+
+    response: dict[str, Any] = {}
+    after_host: dict[str, Any] = {}
+    after_client: dict[str, Any] = {}
+    if target_player is None or source is None or goal is None:
+        errors.append("goal_rejection.no_human_unit_or_goal_cell")
+    else:
+        player_id = int(target_player["playerId"])
+        before_hash = nested(target_player, "field", "placedUnitsHash")
+        response = safe_request(lambda: host.command(
+            name="move_unit",
+            playerId=player_id,
+            **{"from": source, "to": goal},
+        ))
+        if response.get("success") is not False:
+            errors.append("goal_rejection.command_was_not_rejected")
+        if nested(response, "error", "code") != "unit_goal_cell_blocked":
+            errors.append(
+                "goal_rejection.error_code "
+                f"expected=unit_goal_cell_blocked actual={nested(response, 'error', 'code')}"
+            )
+
+        time.sleep(0.75)
+        after_host = safe_request(host.dump_state)
+        after_client = safe_request(client.dump_state)
+        host_player = player_by_id(after_host, player_id)
+        client_player = player_by_id(after_client, player_id)
+        if host_player is None or nested(host_player, "field", "placedUnitsHash") != before_hash:
+            errors.append("goal_rejection.host_placedUnitsHash_changed")
+        if client_player is None or nested(client_player, "field", "placedUnitsHash") != before_hash:
+            errors.append("goal_rejection.client_placedUnitsHash_changed")
+        errors.extend(king_goal_snapshot_errors(after_host, "host-after-goal-rejection"))
+        errors.extend(king_goal_snapshot_errors(after_client, "client-after-goal-rejection"))
+
+    result = {
+        "success": not errors,
+        "errors": errors,
+        "playerId": target_player.get("playerId") if target_player is not None else None,
+        "from": source,
+        "to": goal,
+        "response": response,
+        "afterHost": after_host,
+        "afterClient": after_client,
+    }
+    write_json(artifact_dir / "goal-cell-rejection.json", result)
+    return result
+
+
 def build_assertions(
     before_move: Any,
     after_move_host: Any,
@@ -579,6 +1374,8 @@ def build_assertions(
     comparison: dict[str, Any],
     bot_statuses: dict[str, dict[str, Any]],
     move_results: list[dict[str, Any]],
+    king_goal_verification: dict[str, Any] | None = None,
+    goal_rejection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -612,6 +1409,16 @@ def build_assertions(
         errors.append("move_unit.no_successful_command")
     if successful_moves and not movement_hash_changed(before_move, after_move_host, move_results):
         errors.append("move_unit.placedUnitsHash_not_changed")
+    if king_goal_verification is not None and king_goal_verification.get("success") is not True:
+        errors.extend(
+            f"king_goal.{error}"
+            for error in king_goal_verification.get("errors") or ["verification_failed"]
+        )
+    if goal_rejection is not None and goal_rejection.get("success") is not True:
+        errors.extend(
+            f"goal_rejection.{error}"
+            for error in goal_rejection.get("errors") or ["verification_failed"]
+        )
 
     return {
         "success": not errors,
@@ -625,6 +1432,8 @@ def build_assertions(
             for name, status in bot_statuses.items()
         },
         "successfulMoveCommands": len(successful_moves),
+        "kingGoalPlacementVerified": king_goal_verification.get("success") if king_goal_verification else None,
+        "goalCellMoveRejected": goal_rejection.get("success") if goal_rejection else None,
     }
 
 
@@ -712,6 +1521,11 @@ def run_game_to_end_prepare_move_loop(
     final_comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
     battle_hud_capture: dict[str, Any] = {}
     battle_hud_captured = False
+    performance_stress_result: dict[str, Any] = {}
+    performance_stress_attempted = False
+    wall_destruction_under_load_result: dict[str, Any] = {}
+    projectile_expiry_results: dict[str, dict[str, Any]] = {}
+    projectile_expiry_attempted = False
     limit_reason = "none"
 
     while time.time() < deadline:
@@ -770,6 +1584,119 @@ def run_game_to_end_prepare_move_loop(
             write_json(artifact_dir / "battle-hud-capture.json", battle_hud_capture)
             battle_hud_captured = captured
 
+        if same_battle_state and args.projectile_expiry_stress_count > 0 and not projectile_expiry_attempted:
+            projectile_expiry_attempted = True
+            pending_peers: set[str] = set()
+            for name, peer_client in clients.items():
+                started = safe_request(lambda peer_client=peer_client: peer_client.projectile_expiry_stress(
+                    action="start",
+                    projectileCount=args.projectile_expiry_stress_count,
+                    lifetimeSeconds=args.projectile_expiry_stress_lifetime_seconds,
+                ))
+                projectile_expiry_results[name] = started
+                write_json(artifact_dir / f"projectile-expiry-stress-{name}-start.json", started)
+                if started.get("success") is True:
+                    pending_peers.add(name)
+
+            projectile_deadline = time.time() + args.projectile_expiry_stress_timeout_seconds
+            while pending_peers and time.time() < projectile_deadline:
+                for name in list(pending_peers):
+                    status = safe_request(lambda name=name: clients[name].projectile_expiry_stress(action="status"))
+                    projectile_expiry_results[name] = status
+                    write_json(artifact_dir / f"projectile-expiry-stress-{name}-status-latest.json", status)
+                    if nested(status, "data", "phase") in ("completed", "failed", "cancelled"):
+                        pending_peers.remove(name)
+                if pending_peers:
+                    time.sleep(0.1)
+
+            for name in list(pending_peers):
+                projectile_expiry_results[name] = safe_request(
+                    lambda name=name: clients[name].projectile_expiry_stress(
+                        action="stop",
+                        reason="two_humanbot_projectile_expiry_timeout",
+                    )
+                )
+
+            write_json(artifact_dir / "projectile-expiry-stress-result.json", projectile_expiry_results)
+            for name in clients:
+                response = projectile_expiry_results.get(name) or {}
+                payload = response.get("data") or {}
+                if (
+                    response.get("success") is not True
+                    or payload.get("success") is not True
+                    or payload.get("phase") != "completed"
+                    or to_int(payload.get("peakAdded")) < args.projectile_expiry_stress_count
+                    or to_int(payload.get("currentActive")) > to_int(payload.get("baselineActive"))
+                ):
+                    errors.append(
+                        f"projectile_expiry_stress_failed.{name}:"
+                        + str(payload.get("reason") or response.get("error") or "invalid_result")
+                    )
+
+        if same_battle_state and args.performance_stress_monsters > 0 and not performance_stress_attempted:
+            performance_stress_attempted = True
+            started = safe_request(lambda: clients["host"].performance_stress(
+                action="start",
+                monsterCount=args.performance_stress_monsters,
+                holdSeconds=args.performance_stress_hold_seconds,
+                attackerPlayerId=args.performance_stress_attacker_player_id,
+                targetPlayerId=args.performance_stress_target_player_id,
+            ))
+            write_json(artifact_dir / "performance-stress-start.json", started)
+            performance_stress_result = started
+            stress_deadline = time.time() + args.performance_stress_timeout_seconds
+            while started.get("success") is True and time.time() < stress_deadline:
+                performance_stress_result = safe_request(
+                    lambda: clients["host"].performance_stress(action="status")
+                )
+                write_json(artifact_dir / "performance-stress-status-latest.json", performance_stress_result)
+                phase = nested(performance_stress_result, "data", "phase")
+                if (
+                    phase == "holding"
+                    and args.performance_stress_destroy_wall
+                    and not wall_destruction_under_load_result
+                ):
+                    wall_destruction_under_load_result = safe_request(
+                        lambda: clients["host"].destroy_wall_under_load(
+                            playerId=to_int(nested(performance_stress_result, "data", "targetPlayerId"), -1)
+                        )
+                    )
+                    write_json(
+                        artifact_dir / "performance-stress-wall-destruction.json",
+                        wall_destruction_under_load_result,
+                    )
+                if phase in ("completed", "failed", "cancelled"):
+                    break
+                time.sleep(0.25)
+            else:
+                if started.get("success") is True:
+                    performance_stress_result = safe_request(lambda: clients["host"].performance_stress(
+                        action="stop",
+                        reason="two_humanbot_stress_timeout",
+                    ))
+            write_json(artifact_dir / "performance-stress-result.json", performance_stress_result)
+            stress_payload = performance_stress_result.get("data") or {}
+            if performance_stress_result.get("success") is not True or stress_payload.get("success") is not True:
+                errors.append(
+                    "performance_stress_failed:"
+                    + str(stress_payload.get("reason") or performance_stress_result.get("error") or "unknown")
+                )
+            if args.performance_stress_destroy_wall:
+                wall_payload = wall_destruction_under_load_result.get("data") or {}
+                if (
+                    wall_destruction_under_load_result.get("success") is not True
+                    or wall_payload.get("destroyed") is not True
+                    or to_int(wall_payload.get("revisionAfter")) <= to_int(wall_payload.get("revisionBefore"))
+                ):
+                    errors.append(
+                        "performance_stress_wall_destruction_failed:"
+                        + str(
+                            wall_destruction_under_load_result.get("error")
+                            or wall_payload.get("reason")
+                            or "not_executed"
+                        )
+                    )
+
         if host_state == "GameOver" and client_state == "GameOver":
             limit_reason = "game_over_reached"
             final_host, final_client, final_comparison, game_over_ready = wait_game_over_ready(
@@ -796,6 +1723,15 @@ def run_game_to_end_prepare_move_loop(
                 artifact_dir / f"freeze-game-flow-{label}.json",
                 safe_request(lambda label=label: clients["host"].freeze_game_flow(True, f"two_humanbot_two_ai_{label}")),
             )
+            bot_stop_results, bots_stopped = stop_bots_before_move(
+                clients,
+                artifact_dir,
+                reason=f"game_end_{label}",
+                label=label,
+            )
+            if not all((result.get("success") is True) for result in bot_stop_results.values()) or not bots_stopped:
+                errors.append(f"{label}.bot_stop_failed")
+
             before_move_host, _, before_comparison, before_ready = wait_target_prepare_ready(
                 clients["host"],
                 clients["client"],
@@ -810,19 +1746,25 @@ def run_game_to_end_prepare_move_loop(
             if not before_ready:
                 errors.append(f"{label}.before_move_ready_timeout")
 
-            bot_stop_results, bots_stopped = stop_bots_before_move(
+            command_base_host, _, _, command_base_queues_drained = wait_command_queues_drained(
                 clients,
                 artifact_dir,
-                reason=f"game_end_{label}",
-                label=label,
+                min(30.0, max(1.0, float(args.state_timeout))),
+                args.scene,
+                label=f"{label}-post-bot-stop",
             )
-            if not all((result.get("success") is True) for result in bot_stop_results.values()) or not bots_stopped:
-                errors.append(f"{label}.bot_stop_failed")
+            if not command_base_queues_drained:
+                errors.append(f"{label}.post_bot_stop_queues_or_snapshots_not_stable")
+                limit_reason = "command_base_not_stable"
+                break
 
-            command_base_snapshot = before_move_host if before_ready else host_snapshot
+            command_base_snapshot = command_base_host
             if args.wall_command_every_prepare:
                 place_label = f"{label}-place-wall"
-                wall_player_ids = wall_command_player_ids(command_base_snapshot)
+                wall_player_ids = wall_command_player_ids(
+                    command_base_snapshot,
+                    minimum_gold=WALL_UPGRADE_TOTAL_COST,
+                )
                 place_results = issue_place_wall_commands(
                     clients["host"],
                     command_base_snapshot,
@@ -839,6 +1781,79 @@ def run_game_to_end_prepare_move_loop(
                     f"{place_label}-after",
                     current_round,
                     require_comparison=False,
+                )
+                level_two_label = f"{label}-upgrade-wall-level-2"
+                level_two_results = issue_upgrade_wall_commands(
+                    clients["host"],
+                    place_results,
+                    artifact_dir,
+                    label=level_two_label,
+                    expected_level=1,
+                )
+                successful_level_two = [
+                    item for item in level_two_results
+                    if (item.get("response") or {}).get("success") is True
+                ]
+                if successful_level_two:
+                    after_level_two_host, after_level_two_client, after_level_two_comparison, after_level_two_ready = (
+                        wait_target_prepare_wall_upgrade_applied(
+                            clients["host"],
+                            clients["client"],
+                            artifact_dir,
+                            args.state_timeout,
+                            args.scene,
+                            f"{level_two_label}-after",
+                            current_round,
+                            after_place_host,
+                            after_place_client,
+                            level_two_results,
+                        )
+                    )
+                else:
+                    after_level_two_host = after_place_host
+                    after_level_two_client = after_place_client
+                    after_level_two_comparison = after_place_comparison
+                    after_level_two_ready = False
+
+                level_three_label = f"{label}-upgrade-wall-level-3"
+                level_three_results = issue_upgrade_wall_commands(
+                    clients["host"],
+                    level_two_results,
+                    artifact_dir,
+                    label=level_three_label,
+                    expected_level=2,
+                )
+                successful_level_three = [
+                    item for item in level_three_results
+                    if (item.get("response") or {}).get("success") is True
+                ]
+                if successful_level_three:
+                    after_level_three_host, after_level_three_client, after_level_three_comparison, after_level_three_ready = (
+                        wait_target_prepare_wall_upgrade_applied(
+                            clients["host"],
+                            clients["client"],
+                            artifact_dir,
+                            args.state_timeout,
+                            args.scene,
+                            f"{level_three_label}-after",
+                            current_round,
+                            after_level_two_host,
+                            after_level_two_client,
+                            level_three_results,
+                        )
+                    )
+                else:
+                    after_level_three_host = after_level_two_host
+                    after_level_three_client = after_level_two_client
+                    after_level_three_comparison = after_level_two_comparison
+                    after_level_three_ready = False
+
+                max_level_probe_label = f"{label}-upgrade-wall-max-level-probe"
+                max_level_probe_results = issue_max_level_wall_probes(
+                    clients["host"],
+                    level_three_results,
+                    artifact_dir,
+                    label=max_level_probe_label,
                 )
                 remove_label = f"{label}-remove-wall"
                 remove_results = issue_remove_wall_commands(
@@ -874,32 +1889,119 @@ def run_game_to_end_prepare_move_loop(
                     )
                 wall_record = {
                     "round": current_round,
+                    "commandBaseQueuesDrained": command_base_queues_drained,
                     "wallPlayerIds": wall_player_ids,
                     "successfulPlaceWallCommands": len(successful_places),
+                    "successfulLevelTwoUpgradeCommands": len(successful_level_two),
+                    "successfulLevelThreeUpgradeCommands": len(successful_level_three),
                     "successfulRemoveWallCommands": len(successful_removes),
                     "placeWallHashChanged": wall_hash_changed(command_base_snapshot, after_place_host, place_results),
+                    "levelTwoHashChangedOnHost": destructible_wall_level_hash_changed(
+                        after_place_host,
+                        after_level_two_host,
+                        level_two_results,
+                    ),
+                    "levelTwoHashChangedOnClient": destructible_wall_level_hash_changed(
+                        after_place_client,
+                        after_level_two_client,
+                        level_two_results,
+                    ),
+                    "levelThreeHashChangedOnHost": destructible_wall_level_hash_changed(
+                        after_level_two_host,
+                        after_level_three_host,
+                        level_three_results,
+                    ),
+                    "levelThreeHashChangedOnClient": destructible_wall_level_hash_changed(
+                        after_level_two_client,
+                        after_level_three_client,
+                        level_three_results,
+                    ),
+                    "levelTwoGoldSpent": upgrade_gold_applied(after_level_two_host, level_two_results),
+                    "levelThreeGoldSpent": upgrade_gold_applied(after_level_three_host, level_three_results),
+                    "totalUpgradeGoldSpent": cumulative_upgrade_gold_spent(
+                        command_base_snapshot,
+                        after_level_three_host,
+                        level_three_results,
+                    ),
+                    "levelThreeMaxLevelConfirmed": (
+                        len(max_level_probe_results) == len(successful_level_three)
+                        and not max_level_probe_errors(max_level_probe_results)
+                    ),
                     "removeWallHashChanged": wall_hash_changed(after_place_host, after_remove_host, remove_results),
                     "wallStockRestored": wall_stock_restored(command_base_snapshot, after_remove_host, remove_results),
+                    "upgradeGoldRestored": gold_restored(command_base_snapshot, after_remove_host, remove_results),
                     "afterPlaceReady": after_place_ready,
+                    "afterLevelTwoReady": after_level_two_ready,
+                    "afterLevelThreeReady": after_level_three_ready,
                     "afterRemoveReady": after_remove_ready,
                     "afterPlaceComparisonSuccess": after_place_comparison.get("success") is True,
+                    "afterLevelTwoComparisonSuccess": after_level_two_comparison.get("success") is True,
+                    "afterLevelThreeComparisonSuccess": after_level_three_comparison.get("success") is True,
                     "afterRemoveComparisonSuccess": after_remove_comparison.get("success") is True,
                     "placeResults": place_results,
+                    "levelTwoUpgradeResults": level_two_results,
+                    "levelThreeUpgradeResults": level_three_results,
+                    "maxLevelProbeResults": max_level_probe_results,
                     "removeResults": remove_results,
                     "errors": [],
                 }
+                if not wall_player_ids:
+                    wall_record["errors"].append("no_wall_upgrade_eligible_players")
                 if wall_player_ids and len(successful_places) != len(wall_player_ids):
                     wall_record["errors"].append("not_all_wall_places_succeeded")
                 if successful_places and not wall_record["placeWallHashChanged"]:
                     wall_record["errors"].append("place_wall_hash_not_changed")
+                wall_record["errors"].extend(
+                    upgrade_result_contract_errors(
+                        level_two_results,
+                        expected_level=1,
+                        expected_cost=WALL_UPGRADE_COST_BY_LEVEL[1],
+                    )
+                )
+                wall_record["errors"].extend(
+                    upgrade_result_contract_errors(
+                        level_three_results,
+                        expected_level=2,
+                        expected_cost=WALL_UPGRADE_COST_BY_LEVEL[2],
+                    )
+                )
+                wall_record["errors"].extend(max_level_probe_errors(max_level_probe_results))
+                if successful_places and len(successful_level_two) != len(successful_places):
+                    wall_record["errors"].append("not_all_level_two_upgrades_succeeded")
+                if successful_level_two and len(successful_level_three) != len(successful_level_two):
+                    wall_record["errors"].append("not_all_level_three_upgrades_succeeded")
+                if successful_level_two and (
+                    not wall_record["levelTwoHashChangedOnHost"]
+                    or not wall_record["levelTwoHashChangedOnClient"]
+                ):
+                    wall_record["errors"].append("level_two_wall_state_hash_not_changed_on_both_peers")
+                if successful_level_three and (
+                    not wall_record["levelThreeHashChangedOnHost"]
+                    or not wall_record["levelThreeHashChangedOnClient"]
+                ):
+                    wall_record["errors"].append("level_three_wall_state_hash_not_changed_on_both_peers")
+                if successful_level_two and not wall_record["levelTwoGoldSpent"]:
+                    wall_record["errors"].append("level_two_gold_cost_not_applied")
+                if successful_level_three and not wall_record["levelThreeGoldSpent"]:
+                    wall_record["errors"].append("level_three_gold_cost_not_applied")
+                if successful_level_three and not wall_record["totalUpgradeGoldSpent"]:
+                    wall_record["errors"].append("total_upgrade_gold_cost_not_six")
+                if successful_level_three and not wall_record["levelThreeMaxLevelConfirmed"]:
+                    wall_record["errors"].append("level_three_max_level_not_confirmed")
                 if successful_places and len(successful_removes) != len(successful_places):
                     wall_record["errors"].append("not_all_wall_removes_succeeded")
                 if successful_removes and not wall_record["removeWallHashChanged"]:
                     wall_record["errors"].append("remove_wall_hash_not_changed")
                 if successful_removes and not wall_record["wallStockRestored"]:
                     wall_record["errors"].append("wall_stock_not_restored")
+                if successful_removes and not wall_record["upgradeGoldRestored"]:
+                    wall_record["errors"].append("upgrade_gold_not_fully_refunded")
                 if not after_place_ready:
                     wall_record["errors"].append("after_place_wall_ready_timeout")
+                if successful_level_two and not after_level_two_ready:
+                    wall_record["errors"].append("after_level_two_upgrade_ready_timeout")
+                if successful_level_three and not after_level_three_ready:
+                    wall_record["errors"].append("after_level_three_upgrade_ready_timeout")
                 if not after_remove_ready:
                     wall_record["errors"].append("after_remove_wall_ready_timeout")
                 if after_place_comparison.get("success") is not True:
@@ -940,6 +2042,7 @@ def run_game_to_end_prepare_move_loop(
             hash_changed = movement_hash_changed(command_base_snapshot, after_move_host, move_results)
             record = {
                 "round": current_round,
+                "commandBaseQueuesDrained": command_base_queues_drained,
                 "activeHumanPlayerIds": active_humans,
                 "successfulMoveCommands": len(successful_moves),
                 "movementHashChanged": hash_changed,
@@ -961,26 +2064,6 @@ def run_game_to_end_prepare_move_loop(
             move_records.append(record)
             write_json(artifact_dir / f"{label}-record.json", record)
             write_json(artifact_dir / "game-to-end-move-records.json", move_records)
-            moved_rounds.add(current_round)
-
-            if args.max_rounds > 0 and current_round >= args.max_rounds:
-                final_host, final_client, final_comparison, final_ready = wait_target_prepare_ready(
-                    clients["host"],
-                    clients["client"],
-                    artifact_dir,
-                    args.state_timeout,
-                    args.scene,
-                    f"{label}-final",
-                    current_round,
-                    require_comparison=True,
-                )
-                if not final_ready:
-                    warnings.append(f"{label}.final_stable_comparison_timeout")
-                    final_host = final_host or after_move_host
-                    final_client = final_client or after_move_client
-                    final_comparison = final_comparison or after_comparison
-                limit_reason = "max_rounds_reached"
-                break
 
             start_results = start_human_bots(clients, peers, artifact_dir, args, f"after-{label}")
             if not all((result.get("success") is True) for result in start_results.values()):
@@ -989,11 +2072,17 @@ def run_game_to_end_prepare_move_loop(
                 artifact_dir / f"unfreeze-game-flow-{label}.json",
                 safe_request(lambda label=label: clients["host"].freeze_game_flow(False, f"two_humanbot_two_ai_{label}_resume")),
             )
+            moved_rounds.add(current_round)
 
         if errors and not args.continue_game_end_on_move_error:
             limit_reason = "move_verification_failed"
             break
-        if args.max_rounds > 0 and current_round >= args.max_rounds and (not same_prepare_round or current_round in moved_rounds):
+        if (
+            args.max_rounds > 0
+            and current_round >= args.max_rounds
+            and (not same_prepare_round or current_round in moved_rounds)
+            and battle_hud_captured
+        ):
             limit_reason = "max_rounds_reached"
             break
         time.sleep(max(0.5, args.poll_interval_seconds))
@@ -1001,11 +2090,47 @@ def run_game_to_end_prepare_move_loop(
     if limit_reason == "none":
         limit_reason = "max_duration_reached" if time.time() >= deadline else "stopped"
 
-    if not final_host:
-        final_host = safe_request(clients["host"].dump_state)
-    if not final_client:
-        final_client = safe_request(clients["client"].dump_state)
-    final_comparison = compare_snapshots(final_host, final_client) if final_host and final_client else final_comparison
+    final_bot_stop_results, final_bots_stopped = stop_bots_before_move(
+        clients,
+        artifact_dir,
+        reason="final_checkpoint",
+        label="final-checkpoint",
+    )
+    if (
+        not all(result.get("success") is True for result in final_bot_stop_results.values())
+        or not final_bots_stopped
+    ):
+        errors.append("final_checkpoint.bot_stop_failed")
+
+    final_freeze_results = {
+        name: safe_request(
+            lambda client=client: client.freeze_game_flow(
+                True,
+                "two_humanbot_two_ai_final_checkpoint",
+            )
+        )
+        for name, client in clients.items()
+    }
+    write_json(artifact_dir / "freeze-game-flow-final-checkpoint.json", final_freeze_results)
+    if not all(result.get("success") is True for result in final_freeze_results.values()):
+        errors.append("final_checkpoint.freeze_failed")
+
+    drained_host, drained_client, drained_comparison, final_queues_drained = wait_command_queues_drained(
+        clients,
+        artifact_dir,
+        min(30.0, max(1.0, float(args.state_timeout))),
+        args.scene,
+        label="final",
+    )
+    if drained_host:
+        final_host = drained_host
+    if drained_client:
+        final_client = drained_client
+    if drained_host and drained_client:
+        final_comparison = drained_comparison
+    if not final_queues_drained:
+        errors.append("final_checkpoint.queues_or_snapshots_not_stable")
+
     write_json(artifact_dir / "snapshots" / "host-game-end-final.json", final_host)
     write_json(artifact_dir / "snapshots" / "client-game-end-final.json", final_client)
     write_json(artifact_dir / "comparison-game-end-final.json", final_comparison)
@@ -1047,10 +2172,25 @@ def run_game_to_end_prepare_move_loop(
         "moveRecordsPath": "game-to-end-move-records.json",
         "prepareWallRounds": len(wall_records),
         "successfulPlaceWallCommands": sum(to_int(record.get("successfulPlaceWallCommands")) for record in wall_records),
+        "successfulLevelTwoUpgradeCommands": sum(
+            to_int(record.get("successfulLevelTwoUpgradeCommands")) for record in wall_records
+        ),
+        "successfulLevelThreeUpgradeCommands": sum(
+            to_int(record.get("successfulLevelThreeUpgradeCommands")) for record in wall_records
+        ),
         "successfulRemoveWallCommands": sum(to_int(record.get("successfulRemoveWallCommands")) for record in wall_records),
         "wallRecordsPath": "game-to-end-wall-records.json" if wall_records else None,
         "progressTimelinePath": "game-to-end-progress-timeline.json",
         "battleHudCapture": battle_hud_capture,
+        "performanceStress": performance_stress_result if performance_stress_attempted else None,
+        "wallDestructionUnderLoad": wall_destruction_under_load_result or None,
+        "projectileExpiryStress": projectile_expiry_results if projectile_expiry_attempted else None,
+        "finalCheckpoint": {
+            "botsStopped": final_bots_stopped,
+            "botStopResults": final_bot_stop_results,
+            "freezeResults": final_freeze_results,
+            "commandQueuesDrained": final_queues_drained,
+        },
         "finalHost": final_host,
         "finalClient": final_client,
         "finalComparison": final_comparison,
@@ -1102,6 +2242,7 @@ def run(args: argparse.Namespace) -> int:
         "maxRounds": args.max_rounds,
         "allowMaxRoundResult": args.allow_max_round_result,
         "botPrepareMode": args.bot_prepare_mode,
+        "verifyKingGoalPlacement": args.verify_king_goal_placement,
         "hideBuildDebugGUI": True,
         "headlessPlayer": args.headless_player,
         "dryRun": args.dry_run,
@@ -1131,6 +2272,9 @@ def run(args: argparse.Namespace) -> int:
     after_move_client: dict[str, Any] = {}
     final_comparison: dict[str, Any] = {"success": False, "errors": ["not_started"], "warnings": []}
     game_end_move_result: dict[str, Any] = {}
+    king_goal_verification: dict[str, Any] | None = None
+    king_goal_ai_screenshots: dict[str, Any] | None = None
+    goal_rejection: dict[str, Any] | None = None
 
     try:
         for peer in peers:
@@ -1289,6 +2433,20 @@ def run(args: argparse.Namespace) -> int:
             if not before_move_ready:
                 failures.append("before_manual_move_ready_timeout")
 
+            if args.verify_king_goal_placement and before_move_ready:
+                goal_rejection = verify_goal_cell_move_rejection(
+                    clients["host"],
+                    clients["client"],
+                    before_move_host,
+                    artifact_dir,
+                )
+            else:
+                write_json(artifact_dir / "goal-cell-rejection.json", {
+                    "success": True,
+                    "skipped": True,
+                    "reason": "verification_disabled_or_prepare_not_ready",
+                })
+
             move_results = issue_move_commands(clients["host"], before_move_host, artifact_dir)
             if args.move_round <= 1:
                 after_move_host, after_move_client, final_comparison, after_move_ready = wait_game_ready(
@@ -1311,7 +2469,49 @@ def run(args: argparse.Namespace) -> int:
             write_json(artifact_dir / "snapshots" / "host-after-move.json", after_move_host)
             write_json(artifact_dir / "snapshots" / "client-after-move.json", after_move_client)
             write_json(artifact_dir / "comparison-after-move.json", final_comparison)
-            assertions = build_assertions(before_move_host, after_move_host, after_move_client, final_comparison, bot_statuses, move_results)
+            if args.verify_king_goal_placement and after_move_ready:
+                king_goal_verification = verify_king_goal_stability(clients, artifact_dir)
+                if args.headless_player:
+                    king_goal_ai_screenshots = {
+                        "success": True,
+                        "skipped": True,
+                        "reason": "headless_player",
+                    }
+                    write_json(artifact_dir / "king-goal-ai-field-screenshots.json", king_goal_ai_screenshots)
+                else:
+                    king_goal_ai_screenshots = capture_ai_field_screenshots(
+                        clients["host"],
+                        after_move_host,
+                        artifact_dir,
+                    )
+                    if king_goal_ai_screenshots.get("success") is not True:
+                        failures.extend(
+                            king_goal_ai_screenshots.get("errors")
+                            or ["king_goal_ai_field_screenshot_failed"]
+                        )
+            else:
+                king_goal_verification = None
+                write_json(artifact_dir / "king-goal-placement-verification.json", {
+                    "success": True,
+                    "skipped": True,
+                    "reason": "verification_disabled_or_prepare_not_ready",
+                })
+                king_goal_ai_screenshots = {
+                    "success": True,
+                    "skipped": True,
+                    "reason": "verification_disabled_or_prepare_not_ready",
+                }
+                write_json(artifact_dir / "king-goal-ai-field-screenshots.json", king_goal_ai_screenshots)
+            assertions = build_assertions(
+                before_move_host,
+                after_move_host,
+                after_move_client,
+                final_comparison,
+                bot_statuses,
+                move_results,
+                king_goal_verification,
+                goal_rejection,
+            )
             write_json(artifact_dir / "two-humanbot-two-ai-assertions.json", assertions)
             if assertions.get("success") is not True:
                 failures.extend(assertions.get("errors") or ["assertions_failed"])
@@ -1339,6 +2539,11 @@ def run(args: argparse.Namespace) -> int:
                     },
                 })
             else:
+                write_json(
+                    artifact_dir / f"{name}-prepare-visual-capture.json",
+                    safe_request(lambda peer_client=peer_client: peer_client.command(name="prepare_visual_capture")),
+                )
+                time.sleep(0.25)
                 write_json(artifact_dir / f"{name}-screenshot.json", safe_request(peer_client.screenshot))
             for line in ((logs.get("data") or {}).get("lines") or []):
                 if isinstance(line, str) and "[MPTEST]" in line and ("result=fail" in line or " phase=error" in line):
@@ -1377,8 +2582,16 @@ def run(args: argparse.Namespace) -> int:
             "successfulPrepareMoveCommands": game_end_move_result.get("successfulPrepareMoveCommands") if game_end_move_result else None,
             "prepareWallRounds": game_end_move_result.get("prepareWallRounds") if game_end_move_result else None,
             "successfulPlaceWallCommands": game_end_move_result.get("successfulPlaceWallCommands") if game_end_move_result else None,
+            "successfulLevelTwoUpgradeCommands": game_end_move_result.get("successfulLevelTwoUpgradeCommands") if game_end_move_result else None,
+            "successfulLevelThreeUpgradeCommands": game_end_move_result.get("successfulLevelThreeUpgradeCommands") if game_end_move_result else None,
             "successfulRemoveWallCommands": game_end_move_result.get("successfulRemoveWallCommands") if game_end_move_result else None,
             "gameEndMoveResultPath": "game-to-end-move-result.json" if game_end_move_result else None,
+            "kingGoalPlacementVerification": king_goal_verification.get("success") if king_goal_verification else None,
+            "kingGoalPlacementVerificationPath": "king-goal-placement-verification.json" if args.verify_king_goal_placement else None,
+            "kingGoalAiFieldScreenshots": king_goal_ai_screenshots.get("success") if king_goal_ai_screenshots else None,
+            "kingGoalAiFieldScreenshotsPath": "king-goal-ai-field-screenshots.json" if args.verify_king_goal_placement else None,
+            "goalCellMoveRejection": goal_rejection.get("success") if goal_rejection else None,
+            "goalCellMoveRejectionPath": "goal-cell-rejection.json" if args.verify_king_goal_placement else None,
         },
     )
     print(json.dumps(result, indent=2))
@@ -1399,7 +2612,15 @@ def main() -> int:
     parser.add_argument("--bot-prepare-mode", choices=["full", "augment-only", "skip"], default="full")
     parser.add_argument("--move-round", type=int, default=1)
     parser.add_argument("--move-every-prepare-until-game-over", action="store_true")
-    parser.add_argument("--wall-command-every-prepare", action="store_true")
+    parser.add_argument(
+        "--wall-command-every-prepare",
+        action="store_true",
+        help=(
+            "During every frozen Prepare checkpoint, place a destructible wall, upgrade it "
+            "from level 1 to 2 (2 gold) and 2 to 3 (4 gold), verify replicated wall-state "
+            "hashes and gold spend, then remove it and require full stock/gold refund."
+        ),
+    )
     parser.add_argument("--max-duration-seconds", type=int, default=1800)
     parser.add_argument("--max-rounds", type=int, default=0)
     parser.add_argument("--allow-max-round-result", action="store_true")
@@ -1408,6 +2629,16 @@ def main() -> int:
     parser.add_argument("--continue-game-end-on-move-error", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--headless-player", action="store_true")
+    parser.add_argument("--verify-king-goal-placement", action="store_true")
+    parser.add_argument("--performance-stress-monsters", type=int, default=0)
+    parser.add_argument("--performance-stress-attacker-player-id", type=int, default=-1)
+    parser.add_argument("--performance-stress-target-player-id", type=int, default=-1)
+    parser.add_argument("--performance-stress-hold-seconds", type=float, default=10.0)
+    parser.add_argument("--performance-stress-timeout-seconds", type=float, default=180.0)
+    parser.add_argument("--performance-stress-destroy-wall", action="store_true")
+    parser.add_argument("--projectile-expiry-stress-count", type=int, default=0)
+    parser.add_argument("--projectile-expiry-stress-lifetime-seconds", type=float, default=5.0)
+    parser.add_argument("--projectile-expiry-stress-timeout-seconds", type=float, default=30.0)
     parser.add_argument("--ping-timeout", type=int, default=45)
     parser.add_argument("--start-timeout", type=int, default=45)
     parser.add_argument("--lobby-timeout", type=int, default=90)
@@ -1429,6 +2660,16 @@ def main() -> int:
         raise SystemExit("--max-rounds must be >= 0")
     if args.game_over_timeout <= 0:
         raise SystemExit("--game-over-timeout must be > 0")
+    if args.performance_stress_monsters < 0:
+        raise SystemExit("--performance-stress-monsters must be >= 0")
+    if args.performance_stress_attacker_player_id < -1 or args.performance_stress_target_player_id < -1:
+        raise SystemExit("--performance-stress attacker/target player ids must be >= -1")
+    if args.performance_stress_hold_seconds <= 0 or args.performance_stress_timeout_seconds <= 0:
+        raise SystemExit("performance stress timeouts must be > 0")
+    if args.projectile_expiry_stress_count < 0 or args.projectile_expiry_stress_count > 256:
+        raise SystemExit("--projectile-expiry-stress-count must be between 0 and 256")
+    if args.projectile_expiry_stress_lifetime_seconds < 2 or args.projectile_expiry_stress_timeout_seconds <= 0:
+        raise SystemExit("projectile expiry stress lifetime must be >= 2 and timeout must be > 0")
     return run(args)
 
 

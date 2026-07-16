@@ -49,6 +49,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9d3d5f0a454fded40972a205f228f082, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  progressionData: {fileID: 11400000, guid: cebcee8e62fb8514f81252fcc81f6c01, type: 2}
+  visualMeshFilter: {fileID: 4058737412204374505}
+  visualRenderer: {fileID: 4500141981080296219}
   maxHealth: 200
   defense: 5
   magicResistance: 0
@@ -69,6 +72,7 @@ MonoBehaviour:
   Flags: 524289
   NestedObjects: []
   NetworkedBehaviours:
+  - {fileID: 2012406730811742109}
   - {fileID: 5911022807708112625}
   ForceRemoteRenderTimeframe: 0
 --- !u!33 &4058737412204374505
@@ -99,7 +103,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 31321ba15b8f8eb4c954353edc038b1d, type: 2}
+  - {fileID: 2100000, guid: f12ae3c60d894eb4781a8d0a3e309434, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0

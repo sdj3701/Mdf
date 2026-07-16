@@ -98,29 +98,64 @@ public partial class CombatScheduler
         IReadOnlyList<PendingHitMigrationSnapshot> hitSnapshots,
         string context)
     {
-        if (!IsSchedulerNetworkReady() || Object == null || !Object.HasStateAuthority)
+        return RestorePendingCombatFromMigrationWithReport(
+            fireSnapshots,
+            hitSnapshots,
+            context).Restored;
+    }
+
+    public MigrationRestoreReport RestorePendingCombatFromMigrationWithReport(
+        IReadOnlyList<PendingFireMigrationSnapshot> fireSnapshots,
+        IReadOnlyList<PendingHitMigrationSnapshot> hitSnapshots,
+        string context,
+        MigrationNetworkIdResolver remapResolver = null)
+    {
+        const string scope = "pending_combat";
+        int fireCount = fireSnapshots?.Count ?? 0;
+        int hitCount = hitSnapshots?.Count ?? 0;
+        int captured = fireCount + hitCount;
+        if (captured == 0)
         {
-            return 0;
+            return MigrationRestoreReport.Empty(scope);
+        }
+
+        if (!IsSchedulerNetworkReady() || Object == null || !Object.HasStateAuthority ||
+            !EnsureLocalSchedulerState())
+        {
+            return MigrationRestoreReport.FailedScope(scope, captured, "pending_combat_scheduler_not_ready");
         }
 
         ClearAllPendingCombatSnapshots();
         int restored = 0;
+        int skipped = 0;
+        int failed = 0;
         int nowTick = Runner.Tick;
 
         if (fireSnapshots != null)
         {
-            foreach (var snapshot in fireSnapshots)
+            var orderedFires = new List<PendingFireMigrationSnapshot>(fireSnapshots);
+            orderedFires.Sort(ComparePendingFireMigrationSnapshots);
+            foreach (PendingFireMigrationSnapshot snapshot in orderedFires)
             {
-                NetworkObject target = ResolveNetworkObject(snapshot.TargetId);
+                if (snapshot.Sequence <= 0 || snapshot.TargetId.Raw == 0)
+                {
+                    failed++;
+                    continue;
+                }
+
+                NetworkId targetId = ResolveMigrationNetworkId(snapshot.TargetId, remapResolver);
+                NetworkId attackerId = ResolveMigrationNetworkId(snapshot.AttackerId, remapResolver);
+                NetworkObject target = ResolveNetworkObject(targetId);
                 if (target == null)
                 {
-                    Debug.LogWarning($"[CombatScheduler] Pending fire migration restore skipped missing target. context={context}, sourceSeq={snapshot.Sequence}, target={snapshot.TargetId}");
+                    skipped++;
+                    Debug.LogWarning($"[CombatScheduler] Pending fire migration restore skipped terminal target. context={context}, sourceSeq={snapshot.Sequence}, target={targetId}");
                     continue;
                 }
 
                 var pending = new PendingFire
                 {
-                    Attacker = ResolveNetworkObject(snapshot.AttackerId),
+                    Attacker = ResolveNetworkObject(attackerId),
                     Target = target,
                     FirePosition = snapshot.FirePosition,
                     Damage = snapshot.Damage,
@@ -137,22 +172,37 @@ public partial class CombatScheduler
                 {
                     restored++;
                 }
+                else
+                {
+                    failed++;
+                }
             }
         }
 
         if (hitSnapshots != null)
         {
-            foreach (var snapshot in hitSnapshots)
+            var orderedHits = new List<PendingHitMigrationSnapshot>(hitSnapshots);
+            orderedHits.Sort(ComparePendingHitMigrationSnapshots);
+            foreach (PendingHitMigrationSnapshot snapshot in orderedHits)
             {
-                if (!Runner.TryFindObject(snapshot.TargetId, out _))
+                if (snapshot.Sequence <= 0 || snapshot.TargetId.Raw == 0)
                 {
-                    Debug.LogWarning($"[CombatScheduler] Pending hit migration restore skipped missing target. context={context}, sourceSeq={snapshot.Sequence}, target={snapshot.TargetId}");
+                    failed++;
+                    continue;
+                }
+
+                NetworkId targetId = ResolveMigrationNetworkId(snapshot.TargetId, remapResolver);
+                bool targetExists = Runner.TryFindObject(targetId, out _);
+                if (!targetExists && !CanRestorePendingHitWithoutPrimaryTarget(snapshot.SplashRadius))
+                {
+                    skipped++;
+                    Debug.LogWarning($"[CombatScheduler] Pending direct hit migration restore skipped terminal target. context={context}, sourceSeq={snapshot.Sequence}, target={targetId}");
                     continue;
                 }
 
                 var pending = new PendingHit
                 {
-                    TargetId = snapshot.TargetId,
+                    TargetId = targetId,
                     ImpactPosition = snapshot.ImpactPosition,
                     Damage = snapshot.Damage,
                     DamageType = snapshot.DamageType,
@@ -165,23 +215,65 @@ public partial class CombatScheduler
                 {
                     restored++;
                 }
+                else
+                {
+                    failed++;
+                }
             }
         }
 
         RefreshNetworkBudgetPeaks();
-        return restored;
+        string failureReason = failed == 0 ? string.Empty : "pending_combat_restore_incomplete";
+        var report = new MigrationRestoreReport(
+            scope,
+            captured,
+            restored,
+            skipped,
+            failed,
+            failureReason);
+        Debug.Log($"[CombatScheduler] Pending combat migration restore complete. {report}, context={context}");
+        return report;
+    }
+
+    internal static int ComparePendingFireMigrationSnapshots(
+        PendingFireMigrationSnapshot left,
+        PendingFireMigrationSnapshot right)
+    {
+        int tickComparison = left.RemainingTicks.CompareTo(right.RemainingTicks);
+        return tickComparison != 0 ? tickComparison : left.Sequence.CompareTo(right.Sequence);
+    }
+
+    internal static int ComparePendingHitMigrationSnapshots(
+        PendingHitMigrationSnapshot left,
+        PendingHitMigrationSnapshot right)
+    {
+        int tickComparison = left.RemainingTicks.CompareTo(right.RemainingTicks);
+        return tickComparison != 0 ? tickComparison : left.Sequence.CompareTo(right.Sequence);
+    }
+
+    internal static bool CanRestorePendingHitWithoutPrimaryTarget(float splashRadius)
+    {
+        return splashRadius > 0f;
     }
 
     private void ClearAllPendingCombatSnapshots()
     {
         for (int i = 0; i < PendingFireCapacity; i++)
         {
-            PendingFireSnapshots.Set(i, default);
+            int sequence = PendingFireSnapshots[i].Sequence;
+            if (sequence > 0)
+            {
+                ClearPendingFireSnapshot(sequence);
+            }
         }
 
         for (int i = 0; i < PendingHitCapacity; i++)
         {
-            PendingHitSnapshots.Set(i, default);
+            int sequence = PendingHitSnapshots[i].Sequence;
+            if (sequence > 0)
+            {
+                ClearPendingHitSnapshot(sequence);
+            }
         }
 
         _localPendingFireSequences.Clear();

@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: other
 Created: 2026-05-08
-Last used: 2026-05-31
-Last verified: 2026-05-08
-Use count: 4
+Last used: 2026-07-13
+Last verified: 2026-07-12
+Use count: 10
 Review after: 2026-08-06
 Triggers: persistent authority-only gameplay state appears as non-zero on host and `unknown`/zero on client snapshots
 Applies to: `GameManagers`, `SurvivorBossManager`, `MPTestStateSnapshot`, long HumanBot progression
-Verified by: see Verification section below; migrated from old Status: verified
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260712-112933-progressed-host-migration-e2e; artifacts/mp/20260712-115418-progressed-host-migration-e2e
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -29,3 +29,7 @@ Verification:
 Pitfalls:
 - Unity compile can pass even when the already-built player is stale. Always pass the newly built player path when validating C# networking changes.
 - Do not add high-capacity string arrays to `GameManagers` casually; Fusion can fail at runtime with object word-limit assertions even after clean C# compile.
+
+Lifecycle notes:
+- 2026-07-12: verified artifact `artifacts/mp/20260712-112933-progressed-host-migration-e2e`
+- 2026-07-12: verified artifact `artifacts/mp/20260712-115418-progressed-host-migration-e2e`

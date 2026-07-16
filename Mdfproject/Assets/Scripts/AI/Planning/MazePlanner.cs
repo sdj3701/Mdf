@@ -50,6 +50,12 @@ public static class MazePlanner
     private const int MaxGenerationAttempts = 80;
     private const int StackallocLimitCells = 4096;
 
+    [Conditional("MDF_VERBOSE_AI_LOGS")]
+    private static void LogVerbose(string message)
+    {
+        Debug.Log(message);
+    }
+
     public class MazePlanResult
     {
         public List<Vector3Int> BuildOrder = new List<Vector3Int>();
@@ -127,12 +133,12 @@ public static class MazePlanner
                 }
             }
 
-            Debug.Log($"[MazePlanner] Gap sealing: entry={chosenEntryGap}, sealed={gapWallsToSeal.Count} gaps ({string.Join(", ", gapWallsToSeal)})");
+            LogVerbose($"[MazePlanner] Gap sealing: entry={chosenEntryGap}, sealed={gapWallsToSeal.Count} gaps ({string.Join(", ", gapWallsToSeal)})");
         }
         else if (allGaps.Count == 1)
         {
             chosenEntryGap = allGaps[0];
-            Debug.Log($"[MazePlanner] Only 1 gap found at {chosenEntryGap}, no sealing needed.");
+            LogVerbose($"[MazePlanner] Only 1 gap found at {chosenEntryGap}, no sealing needed.");
         }
         else
         {
@@ -154,7 +160,7 @@ public static class MazePlanner
         Vector2Int fixedGoal = Vector2Int.zero;
         if (useFixedEndpoints)
         {
-            var goalCell = fm.WorldToGridInt(pm.goalTransform.position);
+            var goalCell = fm.GetGoalGridPosition();
             fixedGoal = new Vector2Int(goalCell.x, goalCell.y);
 
             // 구멍이 감지되었으면 선택된 진입 구멍을 스폰 위치로 사용
@@ -276,7 +282,7 @@ public static class MazePlanner
 
             if (log)
             {
-                Debug.Log($"[MazePlanner] Wall budget is 0. GapWalls={plan.GapWalls.Count}, BuildOrder={plan.BuildOrder.Count}. Start={plan.Start}, Goal={plan.Goal}, PathLen={plan.ValidatedPath.Count}");
+                LogVerbose($"[MazePlanner] Wall budget is 0. GapWalls={plan.GapWalls.Count}, BuildOrder={plan.BuildOrder.Count}. Start={plan.Start}, Goal={plan.Goal}, PathLen={plan.ValidatedPath.Count}");
             }
 
             return plan;
@@ -339,7 +345,7 @@ public static class MazePlanner
 
         if (log)
         {
-            Debug.Log($"[MazePlanner] Maze planned. Start={plan.Start}, Goal={plan.Goal}, GapWalls={plan.GapWalls.Count}, MazeWalls={orderedWalls.Count}, TotalBuildOrder={plan.BuildOrder.Count}, PathLen={plan.ValidatedPath.Count}");
+            LogVerbose($"[MazePlanner] Maze planned. Start={plan.Start}, Goal={plan.Goal}, GapWalls={plan.GapWalls.Count}, MazeWalls={orderedWalls.Count}, TotalBuildOrder={plan.BuildOrder.Count}, PathLen={plan.ValidatedPath.Count}");
         }
 
         return plan;
@@ -405,7 +411,7 @@ public static class MazePlanner
 
         if (log)
         {
-            Debug.Log($"[MazePlanner] Additional plan. NewWalls={plan.BuildOrder.Count}, PathLen={plan.ValidatedPath.Count}");
+            LogVerbose($"[MazePlanner] Additional plan. NewWalls={plan.BuildOrder.Count}, PathLen={plan.ValidatedPath.Count}");
         }
 
         return plan;
@@ -444,7 +450,7 @@ public static class MazePlanner
 
             if (log)
             {
-                Debug.Log($"[MazePlanner] Maze found on attempt {attempt}. Path {dfsPath.Count} -> {finalPath.Count}, AI walls {aiWalls.Count}");
+                LogVerbose($"[MazePlanner] Maze found on attempt {attempt}. Path {dfsPath.Count} -> {finalPath.Count}, AI walls {aiWalls.Count}");
             }
 
             return new MazeGenerationResult
@@ -500,7 +506,7 @@ public static class MazePlanner
 
             if (log)
             {
-                Debug.Log($"[MazePlanner] Fixed maze found on attempt {attempt}. Path {dfsPath.Count} -> {finalPath.Count}, AI walls {aiWalls.Count}");
+                LogVerbose($"[MazePlanner] Fixed maze found on attempt {attempt}. Path {dfsPath.Count} -> {finalPath.Count}, AI walls {aiWalls.Count}");
             }
 
             return new MazeGenerationResult
@@ -525,7 +531,7 @@ public static class MazePlanner
                     var aiWalls = ExtractAiWalls(optimizedGrid);
                     if (log)
                     {
-                        Debug.Log($"[MazePlanner] Using best fixed path below target. Path {bestPath.Count} -> {finalPath.Count}, AI walls {aiWalls.Count}");
+                        LogVerbose($"[MazePlanner] Using best fixed path below target. Path {bestPath.Count} -> {finalPath.Count}, AI walls {aiWalls.Count}");
                     }
 
                     return new MazeGenerationResult
@@ -646,7 +652,7 @@ public static class MazePlanner
 
         if (log)
         {
-            Debug.Log($"[MazePlanner] Budget plan built {aiWalls.Count}/{wallBudget} walls. Path {baselineLength} -> {(finalPath?.Count ?? 0)}");
+            LogVerbose($"[MazePlanner] Budget plan built {aiWalls.Count}/{wallBudget} walls. Path {baselineLength} -> {(finalPath?.Count ?? 0)}");
         }
 
         return new MazeGenerationResult
@@ -716,7 +722,7 @@ public static class MazePlanner
         var start = fm.TryGetSingleOpenEntryCell(out var entryCell)
             ? entryCell
             : new Vector3Int(-1, -1, 0);
-        var goal = fm.WorldToGridInt(pm.goalTransform != null ? pm.goalTransform.position : Vector3.zero);
+        var goal = fm.GetGoalGridPosition();
         var start2D = new Vector2Int(start.x, start.y);
         var goal2D = new Vector2Int(goal.x, goal.y);
 
@@ -1153,7 +1159,7 @@ public static class MazePlanner
 
         if (log && removed > 0)
         {
-            Debug.Log($"[MazePlanner] Pruned {removed} harmful maze walls that shortened the final monster path when kept.");
+            LogVerbose($"[MazePlanner] Pruned {removed} harmful maze walls that shortened the final monster path when kept.");
         }
     }
 

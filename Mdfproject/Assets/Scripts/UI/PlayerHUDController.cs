@@ -22,12 +22,12 @@ public class PlayerHUDController : MonoBehaviour
 
     private PlayerManager localPlayer;
     private GameManagers gameManager;
+    private int _lastGold = int.MinValue;
+    private int _lastRound = int.MinValue;
+    private int _lastWallCount = int.MinValue;
     private bool hudDirty = true;
     private float nextRuntimeReferenceFallbackTime;
     private float nextHudFallbackRefreshTime;
-    private int lastDisplayedGold = int.MinValue;
-    private int lastDisplayedRound = int.MinValue;
-    private int lastDisplayedWallCount = int.MinValue;
 
     private bool RefreshRuntimeReferences(bool verboseLog = false)
     {
@@ -37,6 +37,7 @@ public class PlayerHUDController : MonoBehaviour
         {
             gameManager = latestGameManager;
             localPlayer = null;
+            InvalidateCachedHudValues();
             changed = true;
 
             if (verboseLog && gameManager != null)
@@ -48,6 +49,7 @@ public class PlayerHUDController : MonoBehaviour
         if (gameManager != null && gameManager.localPlayer != localPlayer)
         {
             localPlayer = gameManager.localPlayer;
+            InvalidateCachedHudValues();
             changed = true;
             if (verboseLog && localPlayer != null)
             {
@@ -132,6 +134,12 @@ public class PlayerHUDController : MonoBehaviour
 
     void Update()
     {
+        if (!HasVisibleLegacyValueTarget())
+        {
+            return;
+        }
+
+        // Host Migration 후 Instance 교체를 반영하기 위해 매 프레임 최신 참조를 확인합니다.
         if (ShouldRefreshRuntimeReferences())
         {
             RefreshRuntimeReferences();
@@ -193,25 +201,35 @@ public class PlayerHUDController : MonoBehaviour
         nextHudFallbackRefreshTime = Time.unscaledTime + HudFallbackRefreshInterval;
         hudDirty = false;
 
-        int gold = localPlayer.GetGold();
-        if ((force || gold != lastDisplayedGold) && goldText != null)
+        // HUD UI 업데이트
+        if (goldText != null && goldText.gameObject.activeInHierarchy)
         {
-            goldText.text = gold.ToString();
-            lastDisplayedGold = gold;
+            int gold = localPlayer.GetGold();
+            if (gold != _lastGold)
+            {
+                _lastGold = gold;
+                goldText.text = gold.ToString();
+            }
         }
 
-        int round = Mathf.Max(1, gameManager.currentRound);
-        if ((force || round != lastDisplayedRound) && roundText != null)
+        if (roundText != null && roundText.gameObject.activeInHierarchy)
         {
-            roundText.text = $"ROUND\n{round}";
-            lastDisplayedRound = round;
+            int round = Mathf.Max(1, gameManager.currentRound);
+            if (round != _lastRound)
+            {
+                _lastRound = round;
+                roundText.text = $"ROUND\n{round}";
+            }
         }
 
-        int wallCount = localPlayer.GetWallCount();
-        if ((force || wallCount != lastDisplayedWallCount) && wallCountText != null)
+        if (wallCountText != null && wallCountText.gameObject.activeInHierarchy)
         {
-            wallCountText.text = wallCount.ToString();
-            lastDisplayedWallCount = wallCount;
+            int wallCount = localPlayer.GetWallCount();
+            if (wallCount != _lastWallCount)
+            {
+                _lastWallCount = wallCount;
+                wallCountText.text = wallCount.ToString();
+            }
         }
     }
 
@@ -299,6 +317,26 @@ public class PlayerHUDController : MonoBehaviour
         {
             wallCountText.gameObject.SetActive(visible);
         }
+
+        if (visible)
+        {
+            InvalidateCachedHudValues();
+            MarkHudDirty();
+        }
+    }
+
+    private bool HasVisibleLegacyValueTarget()
+    {
+        return (goldText != null && goldText.gameObject.activeInHierarchy) ||
+               (roundText != null && roundText.gameObject.activeInHierarchy) ||
+               (wallCountText != null && wallCountText.gameObject.activeInHierarchy);
+    }
+
+    private void InvalidateCachedHudValues()
+    {
+        _lastGold = int.MinValue;
+        _lastRound = int.MinValue;
+        _lastWallCount = int.MinValue;
     }
 
     private void HandleBattleSequenceStarted(bool isAttacking)

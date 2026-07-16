@@ -1,0 +1,413 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bbb281ee3bf0b054c82ac2347e9e782c, type: 3}
+  m_Name: MDF Gameplay Data
+  m_EditorClassIdentifier: 
+  m_GroupName: MDF Gameplay Data
+  m_Data:
+    m_SerializedData: []
+  m_GUID: 5fa53ac01d0059c4db8fe9485bb24283
+  m_SerializeEntries:
+  - m_GUID: fa09f65ec30e6a242bb5aecaefdad846
+    m_Address: Aug_Util_Gold_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: b41c9f249ec84d0eab1ca982e191d641
+    m_Address: Aug_Util_BlackMagicMax_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: 9b35a58cbdefd5444ab3d66967b548f7
+    m_Address: Aug_Enemy_MoveSpeed_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: fa5d09ee3e1a94540bfc3e0a01fd0191
+    m_Address: Aug_Player_Atk_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: 363ac357fe5bca04a93ca8fef2ed3b57
+    m_Address: Aug_Player_AtkSpeed_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: e8fd9aa80b32e444dbf990bef5eee6c3
+    m_Address: Aug_Enemy_Health_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: ff4a21ca690cb8946904ef398f458322
+    m_Address: UnitData_Mage
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitData
+    - mdf-gameplay-data
+    - mdf-boot-data
+  - m_GUID: b294db2481416c64fb9edd6bc0222d6e
+    m_Address: UnitData_Fighter
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitData
+    - mdf-gameplay-data
+    - mdf-boot-data
+  - m_GUID: af161e66696ca4742b05891ba27598fd
+    m_Address: UnitData_Guardian
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitData
+    - mdf-gameplay-data
+    - mdf-boot-data
+  - m_GUID: afdb119d7f8d3394dade8a6d18888eee
+    m_Address: UnitData_Archer
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitData
+    - mdf-gameplay-data
+    - mdf-boot-data
+  - m_GUID: 4e7855d10fe859147b90840b76fc592a
+    m_Address: UnitData_Pyromancer
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitData
+    - mdf-gameplay-data
+    - mdf-boot-data
+  - m_GUID: ae8a69e0ccd88974d8e8035798f0c066
+    m_Address: MonData_Orc
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+    - mdf-gameplay-data
+  - m_GUID: bbcf86331f675644ab2af799f5503f6e
+    m_Address: UnitData_Warrior
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitData
+    - mdf-gameplay-data
+    - mdf-boot-data
+  - m_GUID: d5f8bf124e30c3944b07bb8b13a7c0c2
+    m_Address: UnitData_Cleric
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - UnitData
+    - mdf-gameplay-data
+    - mdf-boot-data
+  - m_GUID: fae8375475871144ea793fc075d03e0a
+    m_Address: Skill_AreaMagicDamage
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+    - mdf-gameplay-data
+  - m_GUID: ca84a7d6f1a660a49981c877b0f1088d
+    m_Address: Skill_AreaMeleeDamage
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+    - mdf-gameplay-data
+  - m_GUID: c86b32dee351d464a873ec0751fc605a
+    m_Address: Skill_Heal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+    - mdf-gameplay-data
+  - m_GUID: 014e133d695076147845920e4bd732f6
+    m_Address: Skill_HeallAndRepair
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+    - mdf-gameplay-data
+  - m_GUID: 9204bb12c5b8bc744a6bbbea1c0cf25d
+    m_Address: Skill_InspiringShout
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+    - mdf-gameplay-data
+  - m_GUID: cd44bd901be4fd84da1ff54674cfe741
+    m_Address: Skill_RepairWall
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+    - mdf-gameplay-data
+  - m_GUID: 9ebfe9dd57c636d4590eb5ee2d01ceef
+    m_Address: Aug_Util_WallCount_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: 636a7bfd78574839b5c41c78acb9fd92
+    m_Address: Aug_Util_PermanentWallCount_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: 48090dba299458547bf77e7afbc859aa
+    m_Address: Aug_Spawn_Elemental_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: 846ceacbafaaf9c4fbb35cebdc99bf63
+    m_Address: Aug_Spawn_Skelton_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: 6a247e16678aac747a6bd158d74a54f6
+    m_Address: WaveDatabase
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - WaveData
+    - mdf-gameplay-data
+  - m_GUID: b9ad52bb50cfab741bb309010e961c5b
+    m_Address: MonData_Boss_Elemental
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+    - mdf-gameplay-data
+  - m_GUID: 467e13ba307d4c44fa072f30306c41b2
+    m_Address: MonData_Slime
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+    - mdf-gameplay-data
+  - m_GUID: 0306cf61f03caa14788271cd945bc75c
+    m_Address: MonData_TurtleShell
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+    - mdf-gameplay-data
+  - m_GUID: f817fb7e1d738da43b6a2be4d129f437
+    m_Address: Skill_AreaIceAge
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+    - mdf-gameplay-data
+  - m_GUID: 355877faf21822646903bc21ef430533
+    m_Address: Skill_AreaSlowDebuff
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+    - mdf-gameplay-data
+  - m_GUID: 38bd09580b24c144ebfb111f6b7a4580
+    m_Address: MonData_Bat
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+    - mdf-gameplay-data
+  - m_GUID: 37c1410f39a37ce48baec7d335019032
+    m_Address: MonData_EvilMage
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+    - mdf-gameplay-data
+  - m_GUID: 6c2b00d43e78aa34986b6826eb09d294
+    m_Address: MonData_Golem
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+    - mdf-gameplay-data
+  - m_GUID: 7813937e9a3ea3c46a5cc8c68e61ae5a
+    m_Address: MonData_Skeleton
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+    - mdf-gameplay-data
+  - m_GUID: 29cf65ff007c29842b0f94f054e2b808
+    m_Address: MonData_Spider
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+    - mdf-gameplay-data
+  - m_GUID: 9f1abbab719f2284bb1c49f7094496ff
+    m_Address: Aug_Spawn_Golem_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: 15d29adc601e6a44fbc4a3e009ddd7d1
+    m_Address: MonData_Boss_Reaper
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+    - mdf-gameplay-data
+  - m_GUID: 55cedd373805ec944b895da26b2ac445
+    m_Address: Aug_Spawn_Dragon_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: de424966012fe7e409174b2afc10c29f
+    m_Address: MonData_Boss_Dragon
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+    - mdf-gameplay-data
+  - m_GUID: 6e0512849bf4db54180209869b86ad71
+    m_Address: MonData_Boss_Juggernaut
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - MonsterData
+    - mdf-gameplay-data
+  - m_GUID: aaf738fef05309749a7d06fed1e9b54c
+    m_Address: Aug_Spawn_Juggernaut_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: 715d899c73d37ae449e8abfbc23569c9
+    m_Address: Aug_Spawn_Reaper_Normal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: 8125813b9a9dc0043967b37a1fb16fca
+    m_Address: Aug_Scroll_Heal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: 4cee3b6dee459f346bfb9ecb624a665d
+    m_Address: Scroll_Heal
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
+    - mdf-gameplay-data
+  - m_GUID: eedb831abf1e4a04aa48f442a1a0e4d2
+    m_Address: Aug_Scroll_BloodCurse
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
+    - mdf-gameplay-data
+    - Augment
+  - m_GUID: 477ccf48d3c6b9942a226534e221cc6b
+    m_Address: Aug_Scroll_Stun
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
+    - mdf-gameplay-data
+    - Augment
+  - m_GUID: 670e9a593343a4149bc03fdce975499e
+    m_Address: Aug_Scroll_Berserk
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
+    - mdf-gameplay-data
+    - Augment
+  - m_GUID: aa8a54f103477b740a66a45bea14b2fa
+    m_Address: Scroll_Stun
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
+    - mdf-gameplay-data
+  - m_GUID: d35d515c57c2ce2408cc2b04eec16b2d
+    m_Address: Skill_AreaStun
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+    - mdf-gameplay-data
+  - m_GUID: 641f4a70a81c61546a57eef7a31924cd
+    m_Address: Skill_Berserk
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+    - mdf-gameplay-data
+  - m_GUID: b996bcb97ea2b924983d9cd16effc5ae
+    m_Address: Scroll_Berserk
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
+    - mdf-gameplay-data
+  - m_GUID: 1e1d728767c586b4e9f1f9e036aa34a5
+    m_Address: Skill_AreaBloodCurse
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - SkillData
+    - mdf-gameplay-data
+  - m_GUID: de225fb811fb15144a69da7580433d59
+    m_Address: Scroll_BloodCurse
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Scroll
+    - mdf-gameplay-data
+  - m_GUID: b9398fc518f964043aaf2f6156de8474
+    m_Address: UnitData_King_Archer
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - KingUnitData
+    - mdf-gameplay-data
+  - m_GUID: d9776c65afdbacc48a7e4d28979c6cc8
+    m_Address: UnitData_King_Cleric
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - KingUnitData
+    - mdf-gameplay-data
+  - m_GUID: d3c261585caaa2040972a3f4ea147116
+    m_Address: UnitData_King_Fighter
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - KingUnitData
+    - mdf-gameplay-data
+  - m_GUID: d131dbb386977da41b2c6f2c0de35885
+    m_Address: UnitData_King_Guardian
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - KingUnitData
+    - mdf-gameplay-data
+  - m_GUID: eb83529ed93c90b4989a773039c35674
+    m_Address: UnitData_King_Mage
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - KingUnitData
+    - mdf-gameplay-data
+  - m_GUID: ac39fc4df46a4fd46a966ed23afa5fde
+    m_Address: UnitData_King_Pyromancer
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - KingUnitData
+    - mdf-gameplay-data
+  - m_GUID: abe0a7382dd147b4b9fda5001c627e0d
+    m_Address: UnitData_King_Warrior
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - KingUnitData
+    - mdf-gameplay-data
+  - m_GUID: 9745b698f6b3cb74abbce26f8b945d26
+    m_Address: Aug_King_Training_Silver
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: 8ee6f36103cde3c4ead4cce0a02f70fe
+    m_Address: Aug_King_Armory_Gold
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  - m_GUID: 909248df6b3a6184ba0b41a46731047b
+    m_Address: Aug_King_DivineCrown_Prismatic
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Augment
+    - mdf-gameplay-data
+  m_ReadOnly: 0
+  m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
+  m_SchemaSet:
+    m_Schemas:
+    - {fileID: 11400000, guid: d29cc0bc5315970469cf49f6ade1803a, type: 2}
+    - {fileID: 11400000, guid: 1b2f382ad1c66424c93d824eb4c8520c, type: 2}

@@ -22,15 +22,38 @@ public class ZoneEffect : SkillEffect, IDurationEffect
 
     public float Duration => zoneDuration;
 
+    public override bool CanApplyEffect(
+        MonoBehaviour runner,
+        GameObject caster,
+        List<GameObject> targets,
+        float skillRange,
+        TargetingStrategy targetingStrategy)
+    {
+        CombatScheduler scheduler = CombatScheduler.Instance;
+        return scheduler != null &&
+               scheduler.IsZoneSchedulerActive &&
+               scheduler.CanScheduleZone(this, caster, skillRange, targetingStrategy);
+    }
+
+    public override bool TryApplyEffect(
+        MonoBehaviour runner,
+        GameObject caster,
+        List<GameObject> targets,
+        float skillRange,
+        TargetingStrategy targetingStrategy)
+    {
+        CombatScheduler scheduler = CombatScheduler.Instance;
+        return scheduler != null &&
+               scheduler.IsZoneSchedulerActive &&
+               scheduler.Object != null &&
+               scheduler.Object.HasStateAuthority &&
+               scheduler.TryScheduleZone(this, caster, runner, skillRange, targetingStrategy, out _);
+    }
+
     public override void ApplyEffect(MonoBehaviour runner, GameObject caster, List<GameObject> targets, float skillRange, TargetingStrategy targetingStrategy)
     {
-        var scheduler = CombatScheduler.Instance;
-        if (scheduler != null &&
-            scheduler.IsZoneSchedulerActive &&
-            scheduler.Object != null &&
-            scheduler.Object.HasStateAuthority)
+        if (TryApplyEffect(runner, caster, targets, skillRange, targetingStrategy))
         {
-            scheduler.TryScheduleZone(this, caster, runner, skillRange, targetingStrategy, out _);
             return;
         }
 

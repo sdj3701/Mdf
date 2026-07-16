@@ -435,6 +435,7 @@ def run(args: argparse.Namespace) -> int:
     client_a_proc: PlayerProcess | None = None
     client_b_proc: PlayerProcess | None = None
     target_player_id = -1
+    durable_client_connection_hash = "unknown"
 
     write_json(artifact_dir / "run.json", {
         "case": CASE_NAME,
@@ -562,10 +563,13 @@ def run(args: argparse.Namespace) -> int:
             failures.append("client_a_local_player_missing")
         else:
             target_player_id = int(client_a_local.get("playerId", -1))
+            durable_client_connection_hash = str(client_a_local.get("connectionTokenHash") or "unknown")
+            if durable_client_connection_hash == "unknown":
+                failures.append("client_a_connection_token_hash_missing")
             write_json(artifact_dir / "reconnect-target.json", {
                 "playerId": target_player_id,
-                "connectionTokenHash": client_a_local.get("connectionTokenHash"),
-                "expectedConnectionTokenHash": client_connection_hash,
+                "connectionTokenHash": durable_client_connection_hash,
+                "redactedConnectionTokenHash": client_connection_hash,
             })
 
         if client_a_proc is not None:
@@ -615,7 +619,7 @@ def run(args: argparse.Namespace) -> int:
                 client_b,
                 artifact_dir,
                 target_player_id,
-                client_connection_hash,
+                durable_client_connection_hash,
                 args.reconnect_timeout,
                 args.scene,
                 args.max_players,
@@ -623,7 +627,7 @@ def run(args: argparse.Namespace) -> int:
             )
             write_json(artifact_dir / "snapshots" / "build-host-post-reconnect.json", host_final)
             write_json(artifact_dir / "snapshots" / "build-client-b-post-reconnect.json", client_final)
-            assertions = reconnect_assertions(host_final, client_final, target_player_id, client_connection_hash)
+            assertions = reconnect_assertions(host_final, client_final, target_player_id, durable_client_connection_hash)
             write_json(artifact_dir / "same-token-reconnect-assertions.json", assertions)
             write_json(artifact_dir / "same-token-reconnect-target-assertions.json", {
                 "success": assertions["targetComparison"]["success"],

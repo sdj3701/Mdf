@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: unity-cli
 Created: 2026-05-05
-Last used: 2026-05-31
-Last verified: 2026-05-22
-Use count: 15
+Last used: 2026-07-15
+Last verified: 2026-07-13
+Use count: 25
 Review after: 2026-08-03
 Triggers: unity-cli, status, list, editor refresh, console, test, screenshot
 Applies to: unity-cli v0.3.15, connector 0.3.15, Unity 2021.3.45f1
-Verified by: see Verification section below; migrated from old Status: verified-local; Mdfproject; artifacts/singleplayer-breakwall-addressables-latest.log; unity-cli editor refresh --compile, unity-cli console --type error --stacktrace user; artifacts/mp/20260522-021002-matrix/matrix-summary.json; artifacts/mp/20260522-021953-matrix/matrix-summary.json; unity-cli --project Mdfproject editor refresh --compile; unity-cli --project Mdfproject console --type error --stacktrace user
+Verified by: see Verification section below; migrated from old Status: verified-local; Mdfproject; artifacts/singleplayer-breakwall-addressables-latest.log; unity-cli editor refresh --compile, unity-cli console --type error --stacktrace user; artifacts/mp/20260522-021002-matrix/matrix-summary.json; artifacts/mp/20260522-021953-matrix/matrix-summary.json; unity-cli --project Mdfproject editor refresh --compile; unity-cli --project Mdfproject console --type error --stacktrace user; unity-cli --project Mdfproject editor refresh --compile; console errors []; KingLobbySelectionEditModeTests 4/4
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -47,3 +47,4 @@ Lifecycle notes:
 - 2026-05-22: verified artifact `artifacts/mp/20260522-021002-matrix/matrix-summary.json`
 - 2026-05-22: verified artifact `artifacts/mp/20260522-021953-matrix/matrix-summary.json`
 - 2026-05-22: verified artifact `unity-cli --project Mdfproject editor refresh --compile; unity-cli --project Mdfproject console --type error --stacktrace user`
+- 2026-07-13: verified artifact `unity-cli --project Mdfproject editor refresh --compile; console errors []; KingLobbySelectionEditModeTests 4/4`

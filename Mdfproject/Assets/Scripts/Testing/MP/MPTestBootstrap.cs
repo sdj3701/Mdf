@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -11,8 +12,10 @@ public sealed class MPTestBootstrap : MonoBehaviour
     private MPTestCommandLine.Options _options;
     private bool _started;
 
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-    private static void Initialize()
+    // Called explicitly by NetworkManager.Awake in Editor/Development builds. Do not use
+    // RuntimeInitializeOnLoadMethod here: Unity serializes that registry while the Editor define
+    // is active, which leaks this QA-only type name into non-development globalgamemanagers.
+    public static void TryInitialize()
     {
         var options = MPTestCommandLine.GetOptions();
         if (!options.Enabled)
@@ -39,12 +42,6 @@ public sealed class MPTestBootstrap : MonoBehaviour
         Application.SetStackTraceLogType(UnityEngine.LogType.Warning, StackTraceLogType.None);
         UnityEngine.Random.InitState(_options.Seed);
 
-        if (!string.IsNullOrEmpty(_options.ConnectionToken))
-        {
-            PlayerPrefs.SetString("PlayerUUID", _options.ConnectionToken);
-            PlayerPrefs.Save();
-        }
-
         MPTestLogger.Log("bootstrap", "begin", null, null, new Dictionary<string, object>
         {
             { "autoStart", _options.AutoStart },
@@ -57,10 +54,18 @@ public sealed class MPTestBootstrap : MonoBehaviour
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestMainThreadDispatcher.Ensure();
+        MPTestPerformanceRecorder.Ensure(gameObject, _options);
+        MPTestAutomationServer automationServer = null;
         if (MPTestAutomationServer.CanStart(_options, out _))
         {
-            gameObject.AddComponent<MPTestAutomationServer>().StartServer(_options);
+            automationServer = gameObject.AddComponent<MPTestAutomationServer>();
+            automationServer.StartServer(_options);
         }
+
+        MPTestGracefulQuit.Configure(
+            _options,
+            automationServer != null ? automationServer.BeginShutdown : (Action)null,
+            automationServer != null ? automationServer.StopServer : (Action)null);
 
         if (_options.HumanBot)
         {
@@ -195,3 +200,4 @@ public sealed class MPTestBootstrap : MonoBehaviour
         }
     }
 }
+#endif

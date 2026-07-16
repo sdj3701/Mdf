@@ -12,7 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1ce8c3f4810fbf84eb609f7a2c04e854, type: 3}
   m_Name: Skill_AreaSlowDebuff
   m_EditorClassIdentifier: 
-  skillName: Skill_AreaMagicDamage
+  contentId: skill.area_slow_debuff
+  skillName: Skill_AreaSlowDebuff
   description: "\uC8FC\uBCC0 3\uBC94\uC704\uC758 \uC801\uB4E4\uC758 \uC18D\uB3C4\uB97C
     3\uCD08\uAC04 30% \uB2A6\uCDA5\uB2C8\uB2E4"
   icon: {fileID: 21300000, guid: 1a488ad75fed8cf47aeff44454147552, type: 3}

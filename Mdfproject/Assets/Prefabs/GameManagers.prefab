@@ -55,11 +55,11 @@ MonoBehaviour:
   _singlePlayerModeCount: 0
   localPlayer: {fileID: 0}
   player1BasePosition: {x: 0, y: 0, z: 0}
-  playerOffset: {x: 0, y: 0, z: -14}
+  playerOffset: {x: 0, y: 0, z: -20}
   firstPreparePhaseTime: 30
   preparePhaseTime: 20
   combatTime: 20
-  sequenceTransitionDelaySeconds: 1.5
+  sequenceTransitionDelaySeconds: 0
   berserkTriggerTime: 7
   baseGoldPerRound: 5
   maxInterest: 5
@@ -105,3 +105,4 @@ MonoBehaviour:
   _StatBuffSequence: 0
   _StatusEffectSequence: 0
   _ZoneSequence: 0
+  _ZonePulseDebtSequence: 0

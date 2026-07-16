@@ -29,17 +29,24 @@ public class RequestSyncDataCommand : ICommand
         Debug.Log($"<color=yellow>[RequestSyncDataCommand] Player {PlayerId}에게 데이터 동기화 요청 수신</color>");
 
         // 상점 동기화
-        if (player.shopManager != null)
+        if (player.TryGetShopSnapshot(
+                out string[] shopNames,
+                out int[] shopStars,
+                out _,
+                out int shopRevision,
+                out int shopRound))
         {
-            var items = player.shopManager.GetCurrentShopItems();
-            if (items.Count > 0)
-            {
-                string[] shopNames = items.Select(i => i.UnitData?.name ?? "").ToArray();
-                int[] shopStars = items.Select(i => i.StarLevel).ToArray();
-                
-                var syncShopCommand = new SyncShopItemsCommand(PlayerId, shopNames, shopStars);
-                gm.CommandProcessor.RequestCommandExecution(syncShopCommand);
-            }
+            var syncShopCommand = new SyncShopItemsCommand(
+                PlayerId,
+                shopNames,
+                shopStars,
+                shopRevision,
+                shopRound);
+            gm.CommandProcessor.RequestCommandExecution(syncShopCommand);
+        }
+        else
+        {
+            Debug.LogError($"[RequestSyncDataCommand] Authoritative shop snapshot unavailable for P{PlayerId}; legacy runtime-cache sync is forbidden.");
         }
 
         // 증강체 동기화
@@ -48,9 +55,11 @@ public class RequestSyncDataCommand : ICommand
             var augments = player.augmentManager.GetPresentedAugments();
             if (augments.Count > 0)
             {
-                string[] augNames = augments.Select(a => a?.augmentName ?? "").ToArray();
+                string[] augmentContentIds = System.Linq.Enumerable.Select(
+                    augments,
+                    a => a?.ContentId ?? "").ToArray();
                 
-                var syncAugmentCommand = new SyncAugmentsCommand(PlayerId, augNames);
+                var syncAugmentCommand = new SyncAugmentsCommand(PlayerId, augmentContentIds);
                 gm.CommandProcessor.RequestCommandExecution(syncAugmentCommand);
             }
         }

@@ -2,10 +2,13 @@
 using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Cysharp.Threading.Tasks;
+using MDF.Runtime.Assets;
 
 public class ShopManager : MonoBehaviour
 {
+    private readonly AddressableAssetOwner _addressableAssets = new AddressableAssetOwner();
     public PlayerManager playerManager;
     private List<UnitData> allUnitDatabase = new List<UnitData>();
     [SerializeField] private int rerollCost = 2;
@@ -62,6 +65,7 @@ public class ShopManager : MonoBehaviour
         }
     }
 
+    [System.Diagnostics.Conditional("MDF_SHOP_TRACE")]
     private void LogShopTrace(string step, string extra = null)
     {
         GameManagers gm = GameManagers.Instance;
@@ -105,46 +109,6 @@ public class ShopManager : MonoBehaviour
             // Debug.LogError($"[ShopManager] InitializeFromLoadManager 예외: {ex}");
             LogShopTrace("InitializeFromLoadManager:EXCEPTION", $"error={ex.Message}");
         }
-    }
-
-    /// <summary>
-    /// 서버에서 전송받은 상점 아이템 데이터로 로컬 상점을 업데이트합니다.
-    /// 데이터베이스 로딩이 완료될 때까지 대기합니다.
-    /// </summary>
-    public async UniTask SetShopItemsFromServerAsync(string[] unitDataNames, int[] starLevels)
-    {
-        int nameCount = unitDataNames?.Length ?? 0;
-        int starCount = starLevels?.Length ?? 0;
-        LogShopTrace("SetShopItemsFromServerAsync:ENTER", $"incomingNames={nameCount},incomingStars={starCount}");
-
-        // 데이터베이스 로딩 완료 대기
-        await WaitUntilDatabaseLoaded();
-        LogShopTrace("SetShopItemsFromServerAsync:DB_READY");
-        
-        currentShopItems.Clear();
-        for (int i = 0; i < _isSlotSold.Length; i++)
-        {
-            _isSlotSold[i] = false;
-        }
-
-        for (int i = 0; i < unitDataNames.Length && i < starLevels.Length; i++)
-        {
-            var unitData = LoadManager.Instance?.GetUnitData(unitDataNames[i]);
-            if (unitData != null)
-            {
-                currentShopItems.Add(new ShopItem(unitData, starLevels[i]));
-            }
-            else
-            {
-                // Debug.LogWarning($"[ShopManager] 유닛 데이터를 찾을 수 없음: {unitDataNames[i]} (slot={i})");
-            }
-        }
-
-        string snapshot = string.Join(", ", currentShopItems.Select(item =>
-            item.UnitData != null ? $"{item.UnitData.name}*{item.StarLevel}" : "null"));
-        LogShopTrace("SetShopItemsFromServerAsync:APPLIED", $"resolved={currentShopItems.Count},items=[{snapshot}]");
-
-        GameEvents.TriggerShopRefreshed(playerManager);
     }
 
     /// <summary>
@@ -217,7 +181,92 @@ public class ShopManager : MonoBehaviour
         }
     }
 
-    public async UniTask<bool> ApplySnapshotFromNetworkAsync(string context, bool triggerRefreshedEvent = true)
+    public UniTask<bool> ApplySnapshotFromNetworkAsync(string context, bool triggerRefreshedEvent = true)
+    {
+        return ApplySnapshotFromNetworkAsync(context, triggerRefreshedEvent, CancellationToken.None);
+    }
+
+    public async UniTask<bool> ApplySnapshotFromNetworkAtOrAfterRevisionAsync(
+        int expectedRevision,
+        int expectedRound,
+        string context,
+        bool triggerRefreshedEvent,
+        CancellationToken cancellationToken)
+    {
+        if (playerManager == null)
+        {
+            LogShopTrace("ApplySnapshotAtRevision:ABORT_NO_PLAYER", $"context={context}");
+            return false;
+        }
+
+        const float timeoutSeconds = 12f;
+        float waited = 0f;
+        while (waited < timeoutSeconds)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (playerManager.TryGetShopSnapshot(
+                    out _,
+                    out _,
+                    out _,
+                    out int currentRevision,
+                    out int currentRound)
+                && IsSnapshotAtOrAfter(
+                    currentRevision,
+                    currentRound,
+                    expectedRevision,
+                    expectedRound))
+            {
+                // ApplySnapshotFromNetworkAsync reads the snapshot again. If authority advances it
+                // between these calls, the later snapshot is applied; an old RPC/command can never
+                // roll the local cache back to its names/stars payload.
+                return await ApplySnapshotFromNetworkAsync(
+                    context,
+                    triggerRefreshedEvent,
+                    cancellationToken);
+            }
+
+            await UniTask.Delay(100, cancellationToken: cancellationToken);
+            waited += 0.1f;
+        }
+
+        LogShopTrace(
+            "ApplySnapshotAtRevision:TIMEOUT",
+            $"context={context},expectedRevision={expectedRevision},expectedRound={expectedRound}");
+        return false;
+    }
+
+    private static bool IsSnapshotAtOrAfter(
+        int candidateRevision,
+        int candidateRound,
+        int expectedRevision,
+        int expectedRound)
+    {
+        if (candidateRevision <= 0)
+        {
+            return false;
+        }
+
+        // Revision-less legacy messages may only request the currently replicated snapshot.
+        if (expectedRevision <= 0)
+        {
+            return true;
+        }
+
+        if (candidateRevision == expectedRevision)
+        {
+            return expectedRound <= 0 || candidateRound >= expectedRound;
+        }
+
+        const long revisionRange = int.MaxValue - 1L;
+        long forwardDistance =
+            (candidateRevision - (long)expectedRevision + revisionRange) % revisionRange;
+        return forwardDistance > 0 && forwardDistance <= revisionRange / 2L;
+    }
+
+    public async UniTask<bool> ApplySnapshotFromNetworkAsync(
+        string context,
+        bool triggerRefreshedEvent,
+        CancellationToken cancellationToken)
     {
         LogShopTrace("ApplySnapshotFromNetworkAsync:ENTER", $"context={context}");
         if (playerManager == null)
@@ -226,7 +275,9 @@ public class ShopManager : MonoBehaviour
             return false;
         }
 
-        await WaitUntilDatabaseLoaded();
+        cancellationToken.ThrowIfCancellationRequested();
+        await WaitUntilDatabaseLoaded().AttachExternalCancellation(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (!playerManager.TryGetShopSnapshot(out string[] unitKeys, out int[] starLevels, out bool[] soldFlags, out int revision, out int round))
         {
@@ -234,47 +285,53 @@ public class ShopManager : MonoBehaviour
             return false;
         }
 
-        // 이미 같은 리비전을 적용했고 상점 데이터가 살아있다면 중복 적용을 생략한다.
-        if (_lastAppliedSnapshotRevision == revision && currentShopItems.Count > 0)
+        // Revision equality alone is insufficient after host migration: the non-networked cache
+        // may be stale even though the replicated revision was restored. Skip only on exact data.
+        if (_lastAppliedSnapshotRevision == revision
+            && DoesRuntimeShopExactlyMatch(unitKeys, starLevels, soldFlags))
         {
             LogShopTrace("ApplySnapshotFromNetworkAsync:SKIP_DUPLICATE_REV", $"context={context},revision={revision}");
             return true;
         }
 
-        currentShopItems.Clear();
-        for (int i = 0; i < _isSlotSold.Length; i++)
-        {
-            _isSlotSold[i] = false;
-        }
-
         int count = Mathf.Min(unitKeys.Length, starLevels.Length);
+        var restoredItems = new List<ShopItem>(count);
+        var restoredSoldFlags = new bool[_isSlotSold.Length];
         for (int i = 0; i < count; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             string unitKey = unitKeys[i];
             if (string.IsNullOrEmpty(unitKey))
             {
-                continue;
+                LogShopTrace("ApplySnapshotFromNetworkAsync:INVALID_EMPTY_KEY", $"context={context},slot={i}");
+                return false;
             }
 
             UnitData unitData = LoadManager.Instance?.GetUnitData(unitKey);
             if (unitData == null)
             {
-                unitData = await AssetLoader.LoadAssetAsync<UnitData>(unitKey);
+                unitData = await AssetLoader.LoadAssetAsync<UnitData>(unitKey, _addressableAssets);
+                cancellationToken.ThrowIfCancellationRequested();
             }
 
             if (unitData == null)
             {
-                continue;
+                LogShopTrace("ApplySnapshotFromNetworkAsync:UNRESOLVED_KEY", $"context={context},slot={i},key={unitKey}");
+                return false;
             }
 
             int star = Mathf.Max(1, starLevels[i]);
-            currentShopItems.Add(new ShopItem(unitData, star));
-            if (i < soldFlags.Length)
+            restoredItems.Add(new ShopItem(unitData, star));
+            if (i < soldFlags.Length && i < restoredSoldFlags.Length)
             {
-                _isSlotSold[i] = soldFlags[i];
+                restoredSoldFlags[i] = soldFlags[i];
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        currentShopItems.Clear();
+        currentShopItems.AddRange(restoredItems);
+        System.Array.Copy(restoredSoldFlags, _isSlotSold, restoredSoldFlags.Length);
         _lastAppliedSnapshotRevision = revision;
         LogShopTrace("ApplySnapshotFromNetworkAsync:APPLIED", $"context={context},revision={revision},round={round},count={currentShopItems.Count}");
 
@@ -283,13 +340,56 @@ public class ShopManager : MonoBehaviour
             GameEvents.TriggerShopRefreshed(playerManager);
         }
 
-        return currentShopItems.Count > 0;
+        return currentShopItems.Count == count;
+    }
+
+    private bool DoesRuntimeShopExactlyMatch(
+        string[] unitKeys,
+        int[] starLevels,
+        bool[] soldFlags)
+    {
+        if (unitKeys == null || starLevels == null || soldFlags == null
+            || unitKeys.Length != starLevels.Length
+            || unitKeys.Length != soldFlags.Length
+            || currentShopItems == null
+            || currentShopItems.Count != unitKeys.Length)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < unitKeys.Length; i++)
+        {
+            ShopItem item = currentShopItems[i];
+            string runtimeKey = StableDataKeyUtility.NormalizeKey(
+                item.UnitData != null ? item.UnitData.name : string.Empty);
+            if (!string.Equals(runtimeKey, unitKeys[i], System.StringComparison.Ordinal)
+                || item.StarLevel != starLevels[i]
+                || IsSlotSold(i) != soldFlags[i])
+            {
+                return false;
+            }
+        }
+
+        for (int i = unitKeys.Length; i < _isSlotSold.Length; i++)
+        {
+            if (_isSlotSold[i])
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
     /// 상점 리롤에 필요한 골드 비용을 반환합니다.
     /// </summary>
     public int GetRerollCost() => rerollCost;
+
+    private void OnDestroy()
+    {
+        _addressableAssets.Dispose();
+    }
 
     // [핵심 로직] Reroll 메서드가 성급 확률을 계산하도록 완전히 변경됩니다.
     /// <summary>
@@ -417,6 +517,23 @@ public class ShopManager : MonoBehaviour
             _isSlotSold[slotIndex] = true;
             PublishNetworkShopSnapshotIfAuthority("ShopManager.MarkSlotAsPurchased");
         }
+    }
+
+    /// <summary>
+    /// Projects a purchase that was already committed by State Authority into this peer's
+    /// non-networked runtime cache. This never spends gold, spawns a unit, or publishes a
+    /// snapshot; it is safe to call repeatedly from the authoritative success notification.
+    /// </summary>
+    public bool ApplyAuthoritativePurchaseNotification(int slotIndex)
+    {
+        int itemCount = currentShopItems != null ? currentShopItems.Count : 0;
+        if (slotIndex < 0 || slotIndex >= itemCount || slotIndex >= _isSlotSold.Length)
+        {
+            return false;
+        }
+
+        _isSlotSold[slotIndex] = true;
+        return true;
     }
 
     /// <summary>

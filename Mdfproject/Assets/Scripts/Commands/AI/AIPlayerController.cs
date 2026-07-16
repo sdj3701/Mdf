@@ -11,6 +11,8 @@ public class AIPlayerController : MonoBehaviour
     private PrepareDecisionPolicy _prepareDecisionPolicy;
     private BattleDecisionPolicy _battleDecisionPolicy;
     private ServerAiCommandEmitter _serverAiCommandEmitter;
+    private GameManagers _emitterGameManagers;
+    private PlayerManager _emitterPlayerManager;
 
     public void Initialize(PlayerManager playerManager, CommandProcessor commandProcessor, MdfBotProfile profile = null)
     {
@@ -29,7 +31,7 @@ public class AIPlayerController : MonoBehaviour
         _profile = profile ?? MdfBotProfile.ServerAiDefault(playerManager.playerId);
         _prepareDecisionPolicy = new PrepareDecisionPolicy(_profile);
         _battleDecisionPolicy = new BattleDecisionPolicy();
-        _serverAiCommandEmitter = new ServerAiCommandEmitter(GameManagers.Instance, playerManager, "server_ai_controller");
+        BindCommandEmitter(GameManagers.Instance, playerManager);
         _nextDecisionAt = 0f;
 
         _registeredPlayerId = playerManager.playerId;
@@ -48,7 +50,8 @@ public class AIPlayerController : MonoBehaviour
 
     private void Update()
     {
-        if (_playerManager == null || GameManagers.Instance == null)
+        var gm = GameManagers.Instance;
+        if (_playerManager == null || gm == null)
         {
             return;
         }
@@ -72,9 +75,10 @@ public class AIPlayerController : MonoBehaviour
             return;
         }
 
-        _nextDecisionAt = Time.realtimeSinceStartup + _profile.DecisionIntervalSeconds;
+        _nextDecisionAt = Time.realtimeSinceStartup + BattleSpawnCadence.ResolveDecisionInterval(
+            gm.GetGameState(),
+            _profile.DecisionIntervalSeconds);
 
-        var gm = GameManagers.Instance;
         if (gm.Object == null || !gm.Object.HasStateAuthority)
         {
             return;
@@ -114,7 +118,7 @@ public class AIPlayerController : MonoBehaviour
             return;
         }
 
-        _serverAiCommandEmitter = new ServerAiCommandEmitter(gm, _playerManager, "server_ai_controller");
+        BindCommandEmitter(gm, _playerManager);
         var context = MdfDecisionContext.Create(
             gm,
             _playerManager,
@@ -130,5 +134,21 @@ public class AIPlayerController : MonoBehaviour
         }
 
         _serverAiCommandEmitter.TryEmit(decision, out _);
+    }
+
+    private void BindCommandEmitter(GameManagers gameManagers, PlayerManager playerManager)
+    {
+        if (_serverAiCommandEmitter != null &&
+            _emitterGameManagers == gameManagers &&
+            _emitterPlayerManager == playerManager)
+        {
+            return;
+        }
+
+        _emitterGameManagers = gameManagers;
+        _emitterPlayerManager = playerManager;
+        _serverAiCommandEmitter = gameManagers != null && playerManager != null
+            ? new ServerAiCommandEmitter(gameManagers, playerManager, "server_ai_controller")
+            : null;
     }
 }

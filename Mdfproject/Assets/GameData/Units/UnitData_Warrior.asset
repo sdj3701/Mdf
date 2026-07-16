@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fd7f31528da94fb448b3d76147381cf6, type: 3}
   m_Name: UnitData_Warrior
   m_EditorClassIdentifier: 
+  contentId: unit.warrior
   unitName: Warrior
   unitIcon: Spr_Port_Warrior
   cost: 1

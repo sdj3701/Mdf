@@ -53,7 +53,10 @@ public sealed class MdfDecisionContext
             IsServerAi = isServerAi,
             IsTestAutomation = isTestAutomation
         };
-        context.Observed = BuildObserved(context);
+        // Stable hashes are journal/test evidence, not inputs to the production server-AI policy.
+        // Avoid allocating lists, strings, SHA instances and anonymous payloads on every AI tick.
+        bool captureObserved = isHumanBot || isTestAutomation || MPTestCommandLine.IsEnabled;
+        context.Observed = captureObserved ? BuildObserved(context) : null;
         return context;
     }
 
@@ -92,6 +95,11 @@ public sealed class MdfDecisionContext
                 : "unknown",
             presentedAugmentsHash = CapturePresentedAugmentHash(player),
             attackMonsterPoolHash = CaptureAttackMonsterPoolHash(player),
+            blackMagicCurrent = player.AppliedBlackMagicCurrent,
+            blackMagicMaximum = player.AppliedBlackMagicMaximum,
+            blackMagicMaxBonus = player.AppliedBlackMagicMaxBonus,
+            blackMagicRevision = player.AppliedBlackMagicRevision,
+            blackMagicSequenceId = player.AppliedBlackMagicSequenceId,
             ownedScrollsHash = CaptureOwnedScrollsHash(player),
             battleRole = context.IsCurrentBattleAttacker ? "attacker" : context.IsCurrentBattleDefender ? "defender" : "none"
         };
@@ -143,7 +151,9 @@ public sealed class MdfDecisionContext
             string key = entry != null && entry.MonsterData != null ? entry.MonsterData.name : "null";
             int count = entry != null ? entry.RemainingCount : 0;
             bool boss = entry != null && entry.IsBoss;
-            return $"{index}:{key}:count={count}:boss={boss}:revision={player.AttackMonsterPoolRevision}";
+            int cost = entry != null && entry.MonsterData != null ? entry.MonsterData.blackMagicCost : 0;
+            string mode = boss ? "boss-entitlement" : "black-magic";
+            return $"{index}:{key}:count={count}:boss={boss}:cost={cost}:mode={mode}:revision={player.AttackMonsterPoolRevision}";
         }));
     }
 

@@ -58,8 +58,26 @@ public class WaveMonsterEntry
 /// 인스펙터에서 라운드별 몬스터 구성을 설정할 수 있습니다.
 /// </summary>
 [CreateAssetMenu(fileName = "WaveDatabase", menuName = "Game/Wave Database")]
-public class WaveDatabase : ScriptableObject
+public class WaveDatabase : ScriptableObject, IStableContentIdentity
 {
+    [SerializeField, Tooltip("Immutable gameplay identity. Do not change after release.")]
+    private string contentId;
+
+    public string ContentId => StableDataKeyUtility.NormalizeContentId(contentId);
+    public int ContentIdHash => StableDataKeyUtility.StableContentIdHash(contentId);
+
+    [Header("Attack Sequence Catalog")]
+    [Tooltip("Every non-boss monster that all players may summon during an attack sequence, in UI order.")]
+    public List<MonsterData> attackSequenceMonsterCatalog = new List<MonsterData>();
+
+    [Tooltip("Black Magic maximum at round 1 before personal augment bonuses.")]
+    [Min(0)]
+    public int baseBlackMagicMaximum = 10;
+
+    [Tooltip("Black Magic maximum added for every round after round 1.")]
+    [Min(0)]
+    public int blackMagicMaximumPerRound = 10;
+
     [Header("라운드별 웨이브 설정")]
     [Tooltip("각 라운드에 대한 웨이브 데이터")]
     public List<RoundWaveData> rounds = new List<RoundWaveData>();
@@ -87,6 +105,14 @@ public class WaveDatabase : ScriptableObject
     [Tooltip("스케일링이 시작되는 라운드 (이 라운드부터 증가 시작)")]
     [Min(1)]
     public int scalingStartRound = 1;
+
+    public int GetBlackMagicMaximumForRound(int round, int personalBonus)
+    {
+        int completedRoundSteps = Mathf.Max(0, round - 1);
+        return Mathf.Max(0, baseBlackMagicMaximum
+            + completedRoundSteps * blackMagicMaximumPerRound
+            + Mathf.Max(0, personalBonus));
+    }
 
     /// <summary>
     /// 특정 라운드의 자동 체력 스케일링 배율을 계산합니다.
@@ -216,6 +242,24 @@ public class WaveDatabase : ScriptableObject
                 Debug.LogWarning($"[WaveDatabase] 라운드 {wave.roundNumber}가 중복 정의되어 있습니다!");
             }
             seenRounds.Add(wave.roundNumber);
+        }
+
+        HashSet<MonsterData> seenCatalogEntries = new HashSet<MonsterData>();
+        foreach (MonsterData monsterData in attackSequenceMonsterCatalog)
+        {
+            if (monsterData == null)
+            {
+                continue;
+            }
+
+            if (monsterData.IsBoss)
+            {
+                Debug.LogWarning($"[WaveDatabase] Boss '{monsterData.monsterName}' must not be in attackSequenceMonsterCatalog.", this);
+            }
+            else if (!seenCatalogEntries.Add(monsterData))
+            {
+                Debug.LogWarning($"[WaveDatabase] Duplicate attack-sequence catalog entry: '{monsterData.monsterName}'.", this);
+            }
         }
     }
     

@@ -4,11 +4,44 @@ using UnityEngine;
 using Cysharp.Threading.Tasks;
 using System.Linq;
 using Fusion;
+using System.Threading;
 
 public class CommandProcessor
 {
     // 1. 서버가 실행해야 할 커맨드들을 담는 큐 (네트워크로부터 수신)
-    private Queue<ICommand> _commandQueue = new Queue<ICommand>();
+    private readonly Queue<PendingCommand> _commandQueue = new Queue<PendingCommand>();
+    private readonly CancellationTokenSource _processorCancellation = new CancellationTokenSource();
+    private bool _isProcessing;
+
+    private readonly struct PendingCommand
+    {
+        public readonly ICommand Command;
+        public readonly CommandType Type;
+        public readonly int[] IntParams;
+        public readonly string[] StringParams;
+        public readonly Vector3[] VectorParams;
+        public readonly bool IsSerialized;
+
+        public PendingCommand(ICommand command)
+        {
+            Command = command;
+            Type = default;
+            IntParams = Array.Empty<int>();
+            StringParams = Array.Empty<string>();
+            VectorParams = Array.Empty<Vector3>();
+            IsSerialized = false;
+        }
+
+        public PendingCommand(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
+        {
+            Command = null;
+            Type = type;
+            IntParams = intParams != null ? intParams.ToArray() : Array.Empty<int>();
+            StringParams = stringParams != null ? stringParams.ToArray() : Array.Empty<string>();
+            VectorParams = vectorParams != null ? vectorParams.ToArray() : Array.Empty<Vector3>();
+            IsSerialized = true;
+        }
+    }
 
     /// <summary>
     /// [수정됨] 클라이언트(AI, UI)가 커맨드 실행을 '요청'할 때 호출하는 메서드입니다.
@@ -27,14 +60,11 @@ public class CommandProcessor
             // 서버(호스트)라면 곧장 브로드캐스트 실행
             if (gm.Object != null && gm.Object.HasStateAuthority)
             {
-                if (command is ActivateSkillCommand)
-                {
-                    command.Execute();
-                    return;
-                }
-
                 ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
-                gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
+                if (ShouldBroadcastCommandToClients(type))
+                {
+                    gm.RPC_BroadcastCommandToClients(type, intParams, stringParams, vectorParams);
+                }
                 return;
             }
 
@@ -67,11 +97,17 @@ public class CommandProcessor
         ReceiveAndEnqueueCommand(type, intParams, stringParams, vectorParams);
     }
 
+    public static bool ShouldBroadcastCommandToClients(CommandType type)
+    {
+        int value = (int)type;
+        return value >= 100 && value < 300;
+    }
+
     /// <summary>
     /// [수정됨] 서버로부터 브로드캐스팅된 커맨드 데이터 또는 싱글플레이어용 데이터를 받아
     /// 역직렬화하고 실행 큐에 추가합니다.
     /// </summary>
-    public async void ReceiveAndEnqueueCommand(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
+    public void ReceiveAndEnqueueCommand(CommandType type, int[] intParams, string[] stringParams, Vector3[] vectorParams)
     {
         var gm = GameManagers.Instance;
         bool isClient = gm != null && gm.Runner != null && gm.Runner.IsRunning && !gm.Runner.IsServer;
@@ -79,11 +115,9 @@ public class CommandProcessor
         {
             Debug.Log($"<color=#3399FF>[ClientFlow] Enqueue {type}</color>");
         }
-        ICommand command = await DeserializeCommand(type, intParams, stringParams, vectorParams);
-        if (command != null)
-        {
-            EnqueueCommandFromServer(command);
-        }
+        // Deserialize inside the same FIFO worker that executes commands. A
+        // slow Addressables command can no longer be overtaken by a later one.
+        _commandQueue.Enqueue(new PendingCommand(type, intParams, stringParams, vectorParams));
     }
 
     /// <summary>
@@ -105,15 +139,23 @@ public class CommandProcessor
             case PlaceUnitCommand cmd:
                 return (CommandType.PlaceUnit, new int[] { cmd.PlayerId }, new string[] { cmd.UnitData.name }, new Vector3[] { cmd.Position });
             case PlaceWallCommand cmd:
-                return (CommandType.PlaceWall, new int[] { cmd.PlayerId }, Array.Empty<string>(), new Vector3[] { cmd.Position });
+                return (CommandType.PlaceWall, new int[] { cmd.PlayerId, (int)cmd.Kind }, Array.Empty<string>(), new Vector3[] { cmd.Position });
             case RemoveWallCommand cmd:
                 return (CommandType.RemoveWall, new int[] { cmd.PlayerId }, Array.Empty<string>(), new Vector3[] { cmd.Position });
+            case UpgradeWallCommand cmd:
+                return (CommandType.UpgradeWall, new int[] { cmd.PlayerId, cmd.ExpectedCurrentLevel }, Array.Empty<string>(), new Vector3[] { cmd.Position });
             case RerollShopCommand cmd:
                 return (CommandType.RerollShop, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
             case SelectAugmentCommand cmd:
                 return (CommandType.SelectAugment, new int[] { cmd.PlayerId, cmd.AugmentIndex }, Array.Empty<string>(), Array.Empty<Vector3>());
             case ActivateSkillCommand cmd:
                 return (CommandType.ActivateSkill, new int[] { cmd.PlayerId, (int)cmd.UnitNetworkId }, Array.Empty<string>(), Array.Empty<Vector3>());
+            case ActivateKingSkillCommand cmd:
+                return (CommandType.ActivateKingSkill, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
+            case ActivateDemonSkillCommand cmd:
+                return (CommandType.ActivateDemonSkill, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
+            case SetSkillActivationModeCommand cmd:
+                return (CommandType.SetSkillActivationMode, new int[] { cmd.PlayerId, (int)cmd.UnitNetworkId, (int)cmd.Mode }, Array.Empty<string>(), Array.Empty<Vector3>());
             case RearrangeUnitsCommand cmd:
                 return (CommandType.RearrangeUnits, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
 
@@ -126,12 +168,23 @@ public class CommandProcessor
             case InitializePlayerCommand cmd:
                 return (CommandType.InitializePlayer, new int[] { cmd.PlayerId }, Array.Empty<string>(), Array.Empty<Vector3>());
             case SyncShopItemsCommand cmd:
-                // intParams: [playerId], stringParams: [unitDataNames..., starLevels as strings...]
+                // The names/stars payload is retained for wire compatibility and diagnostics.
+                // Clients apply the authoritative Networked snapshot at this revision, including sold flags.
                 var shopStrings = cmd.UnitDataNames.Concat(cmd.StarLevels.Select(s => s.ToString())).ToArray();
-                return (CommandType.SyncShopItems, new int[] { cmd.PlayerId, cmd.UnitDataNames.Length }, shopStrings, Array.Empty<Vector3>());
+                return (
+                    CommandType.SyncShopItems,
+                    new int[]
+                    {
+                        cmd.PlayerId,
+                        cmd.UnitDataNames.Length,
+                        cmd.SnapshotRevision,
+                        cmd.SnapshotRound
+                    },
+                    shopStrings,
+                    Array.Empty<Vector3>());
             
             case SyncAugmentsCommand cmd:
-                return (CommandType.SyncPresentedAugments, new int[] { cmd.PlayerId }, cmd.AugmentNames, Array.Empty<Vector3>());
+                return (CommandType.SyncPresentedAugments, new int[] { cmd.PlayerId }, cmd.AugmentContentIds, Array.Empty<Vector3>());
             
             case SyncPermanentBonusesCommand cmd:
                 // float를 int로 변환 (100배하여 정수로 전송)
@@ -142,10 +195,11 @@ public class CommandProcessor
                 return (CommandType.RegisterUnitAt, new int[] { cmd.PlayerId, (int)cmd.UnitNetworkIdRaw, cmd.X, cmd.Y, cmd.StarLevel }, new string[] { cmd.UnitDataKey }, Array.Empty<Vector3>());
             
             case ApplyPermanentWallsCommand cmd:
-                // intParams: [playerId, ...flatPositions]
-                var wallInts = new int[cmd.FlatPositions.Length + 1];
+                // intParams: [playerId, layoutRevision, ...packedPositions]
+                var wallInts = new int[cmd.FlatPositions.Length + 2];
                 wallInts[0] = cmd.PlayerId;
-                Array.Copy(cmd.FlatPositions, 0, wallInts, 1, cmd.FlatPositions.Length);
+                wallInts[1] = cmd.LayoutRevision;
+                Array.Copy(cmd.FlatPositions, 0, wallInts, 2, cmd.FlatPositions.Length);
                 return (CommandType.ApplyPermanentWalls, wallInts, Array.Empty<string>(), Array.Empty<Vector3>());
 
             // ===== Notification Commands =====
@@ -153,7 +207,7 @@ public class CommandProcessor
                 return (CommandType.NotifyPurchaseSucceeded, new int[] { cmd.PlayerId, cmd.SlotIndex }, Array.Empty<string>(), Array.Empty<Vector3>());
             
             case NotifyAugmentSelectedCommand cmd:
-                return (CommandType.NotifyAugmentSelected, new int[] { cmd.PlayerId }, new string[] { cmd.AugmentName }, Array.Empty<Vector3>());
+                return (CommandType.NotifyAugmentSelected, new int[] { cmd.PlayerId }, new string[] { cmd.AugmentContentId }, Array.Empty<Vector3>());
             
             case NotifyWallPlacementCommand cmd:
                 return (CommandType.NotifyWallPlacementSucceeded, new int[] { cmd.PlayerId, cmd.X, cmd.Y }, Array.Empty<string>(), Array.Empty<Vector3>());
@@ -174,7 +228,12 @@ public class CommandProcessor
     /// <summary>
     /// [신규] 네트워크로부터 받은 데이터로 ICommand 객체를 복원(역직렬화)합니다.
     /// </summary>
-    private async UniTask<ICommand> DeserializeCommand(CommandType type, int[] ints, string[] texts, Vector3[] vectors)
+    private async UniTask<ICommand> DeserializeCommand(
+        CommandType type,
+        int[] ints,
+        string[] texts,
+        Vector3[] vectors,
+        CancellationToken cancellationToken)
     {
         switch (type)
         {
@@ -194,9 +253,12 @@ public class CommandProcessor
             case CommandType.PlaceUnit:
                 if (LoadManager.Instance == null)
                 {
-                    await UniTask.WaitUntil(() => LoadManager.Instance != null);
+                    await UniTask.WaitUntil(
+                        () => LoadManager.Instance != null,
+                        cancellationToken: cancellationToken);
                 }
                 await LoadManager.Instance.WaitUntilReady();
+                cancellationToken.ThrowIfCancellationRequested();
                 UnitData unitData = LoadManager.Instance.GetUnitData(texts[0]);
                 if (unitData == null)
                 {
@@ -206,10 +268,16 @@ public class CommandProcessor
                 return new PlaceUnitCommand(ints[0], unitData, Vector3Int.RoundToInt(vectors[0]));
             
             case CommandType.PlaceWall:
-                return new PlaceWallCommand(ints[0], Vector3Int.RoundToInt(vectors[0]));
+                WallPlacementKind wallKind = ints.Length > 1 && ints[1] == (int)WallPlacementKind.Permanent
+                    ? WallPlacementKind.Permanent
+                    : WallPlacementKind.Destructible;
+                return new PlaceWallCommand(ints[0], Vector3Int.RoundToInt(vectors[0]), wallKind);
             
             case CommandType.RemoveWall:
                 return new RemoveWallCommand(ints[0], Vector3Int.RoundToInt(vectors[0]));
+
+            case CommandType.UpgradeWall:
+                return new UpgradeWallCommand(ints[0], Vector3Int.RoundToInt(vectors[0]), ints[1]);
             
             case CommandType.RerollShop:
                 return new RerollShopCommand(ints[0]);
@@ -218,6 +286,12 @@ public class CommandProcessor
                 return new SelectAugmentCommand(ints[0], ints[1]);
             case CommandType.ActivateSkill:
                 return new ActivateSkillCommand(ints[0], (uint)ints[1]);
+            case CommandType.ActivateKingSkill:
+                return new ActivateKingSkillCommand(ints[0]);
+            case CommandType.ActivateDemonSkill:
+                return new ActivateDemonSkillCommand(ints[0]);
+            case CommandType.SetSkillActivationMode:
+                return new SetSkillActivationModeCommand(ints[0], (uint)ints[1], (SkillActivationType)ints[2]);
             case CommandType.RearrangeUnits:
                 return new RearrangeUnitsCommand(ints[0]);
 
@@ -232,11 +306,18 @@ public class CommandProcessor
             case CommandType.InitializePlayer:
                 return new InitializePlayerCommand(ints[0], default);
             case CommandType.SyncShopItems:
-                // ints: [playerId, unitDataNamesCount], texts: [unitDataNames..., starLevels as strings...]
+                // ints: [playerId, unitDataNamesCount, snapshotRevision, snapshotRound]
                 int namesCount = ints[1];
                 string[] unitNames = texts.Take(namesCount).ToArray();
                 int[] stars = texts.Skip(namesCount).Select(s => int.TryParse(s, out int v) ? v : 1).ToArray();
-                return new SyncShopItemsCommand(ints[0], unitNames, stars);
+                int snapshotRevision = ints.Length > 2 ? ints[2] : 0;
+                int snapshotRound = ints.Length > 3 ? ints[3] : 0;
+                return new SyncShopItemsCommand(
+                    ints[0],
+                    unitNames,
+                    stars,
+                    snapshotRevision,
+                    snapshotRound);
             
             case CommandType.SyncPresentedAugments:
                 return new SyncAugmentsCommand(ints[0], texts);
@@ -253,10 +334,10 @@ public class CommandProcessor
                 return new RegisterUnitAtCommand(ints[0], networkIdRaw, ints[2], ints[3], texts.Length > 0 ? texts[0] : "", ints[4]);
             
             case CommandType.ApplyPermanentWalls:
-                // ints: [playerId, ...flatPositions]
-                int[] flatPositions = new int[ints.Length - 1];
-                Array.Copy(ints, 1, flatPositions, 0, flatPositions.Length);
-                return new ApplyPermanentWallsCommand(ints[0], flatPositions);
+                // ints: [playerId, layoutRevision, ...packedPositions]
+                int[] flatPositions = new int[Mathf.Max(0, ints.Length - 2)];
+                Array.Copy(ints, 2, flatPositions, 0, flatPositions.Length);
+                return new ApplyPermanentWallsCommand(ints[0], ints.Length > 1 ? ints[1] : 0, flatPositions);
 
             // ===== Notification Commands =====
             case CommandType.NotifyPurchaseSucceeded:
@@ -287,7 +368,10 @@ public class CommandProcessor
     /// </summary>
     public void EnqueueCommandFromServer(ICommand command)
     {
-        _commandQueue.Enqueue(command);
+        if (command != null)
+        {
+            _commandQueue.Enqueue(new PendingCommand(command));
+        }
     }
 
     /// <summary>
@@ -296,11 +380,79 @@ public class CommandProcessor
     /// </summary>
     public void ProcessCommands()
     {
-        while (_commandQueue.Count > 0)
+        if (_isProcessing || _commandQueue.Count == 0 || _processorCancellation.IsCancellationRequested)
         {
-            ICommand command = _commandQueue.Dequeue();
-            // 서버가 승인한 커맨드이므로, 검증 없이 그대로 실행하여 게임 상태를 변경합니다.
-            command.Execute();
+            return;
+        }
+
+        _isProcessing = true;
+        ProcessCommandsSequentiallyAsync(_processorCancellation.Token).Forget();
+    }
+
+    public void CancelPendingCommands()
+    {
+        if (!_processorCancellation.IsCancellationRequested)
+        {
+            _processorCancellation.Cancel();
+        }
+        _commandQueue.Clear();
+    }
+
+    private async UniTaskVoid ProcessCommandsSequentiallyAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (_commandQueue.Count > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                PendingCommand pending = _commandQueue.Dequeue();
+                ICommand command = pending.IsSerialized
+                    ? await DeserializeCommand(
+                        pending.Type,
+                        pending.IntParams,
+                        pending.StringParams,
+                        pending.VectorParams,
+                        cancellationToken)
+                    : pending.Command;
+
+                cancellationToken.ThrowIfCancellationRequested();
+                if (command == null)
+                {
+                    continue;
+                }
+
+                CommandExecutionResult result;
+                if (command is IAsyncCommand asyncCommand)
+                {
+                    result = await asyncCommand.ExecuteAsync(cancellationToken);
+                }
+                else
+                {
+                    command.Execute();
+                    result = CommandExecutionResult.Completed();
+                }
+
+                if (!result.Success && !result.Cancelled)
+                {
+                    Debug.LogWarning($"[CommandProcessor] Command failed. type={command.GetType().Name}, error={result.Error}");
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when the owning GameManagers lifecycle is replaced.
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[CommandProcessor] Sequential command execution failed: {ex}");
+        }
+        finally
+        {
+            _isProcessing = false;
+            if (_commandQueue.Count > 0 && !_processorCancellation.IsCancellationRequested)
+            {
+                ProcessCommands();
+            }
         }
     }
 }

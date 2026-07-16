@@ -1,10 +1,12 @@
 using System.Collections.Generic;
 using Cysharp.Threading.Tasks;
 using Fusion;
+using MDF.Runtime.Assets;
 using UnityEngine;
 
 public class ProjectileVfxManager : MonoBehaviour
 {
+    public static int ActiveProjectileCountForDiagnostics => Instance != null ? Instance._activeProjectiles.Count : 0;
     public static ProjectileVfxManager Instance { get; private set; }
 
     [SerializeField] private VfxPoolManager pool;
@@ -19,9 +21,14 @@ public class ProjectileVfxManager : MonoBehaviour
     [SerializeField] private int catchUpBufferCapacity = 128;
 
     private int _nextPresentationSequence;
+    private int _lifecycleGeneration;
     private readonly Dictionary<int, ActiveProjectile> _activeBySeq = new Dictionary<int, ActiveProjectile>();
     private readonly List<ActiveProjectile> _activeProjectiles = new List<ActiveProjectile>();
     private readonly List<SkippedProjectileEvent> _skippedProjectileEvents = new List<SkippedProjectileEvent>();
+    private readonly Dictionary<string, AddressableAssetLease<GameObject>> _unpooledPrefabLeases =
+        new Dictionary<string, AddressableAssetLease<GameObject>>(System.StringComparer.Ordinal);
+    private readonly Dictionary<string, UniTaskCompletionSource<GameObject>> _unpooledPrefabLoads =
+        new Dictionary<string, UniTaskCompletionSource<GameObject>>(System.StringComparer.Ordinal);
 
     private class ActiveProjectile
     {
@@ -67,6 +74,15 @@ public class ProjectileVfxManager : MonoBehaviour
 
     private void OnDestroy()
     {
+        AdvanceLifecycleGeneration();
+        foreach (AddressableAssetLease<GameObject> lease in _unpooledPrefabLeases.Values)
+        {
+            lease.Dispose();
+        }
+
+        _unpooledPrefabLeases.Clear();
+        _unpooledPrefabLoads.Clear();
+
         if (Instance == this)
         {
             Instance = null;
@@ -75,12 +91,39 @@ public class ProjectileVfxManager : MonoBehaviour
 
     private void OnEnable()
     {
+        AdvanceLifecycleGeneration();
         CameraManager.OnCurrentViewingFieldChanged += HandleViewingFieldChanged;
     }
 
     private void OnDisable()
     {
+        AdvanceLifecycleGeneration();
         CameraManager.OnCurrentViewingFieldChanged -= HandleViewingFieldChanged;
+        ClearActiveProjectiles();
+        _skippedProjectileEvents.Clear();
+    }
+
+    private void AdvanceLifecycleGeneration()
+    {
+        unchecked
+        {
+            _lifecycleGeneration++;
+            if (_lifecycleGeneration == 0)
+            {
+                _lifecycleGeneration = 1;
+            }
+        }
+    }
+
+    private void ClearActiveProjectiles()
+    {
+        for (int i = _activeProjectiles.Count - 1; i >= 0; i--)
+        {
+            DespawnProjectile(_activeProjectiles[i]);
+        }
+
+        _activeProjectiles.Clear();
+        _activeBySeq.Clear();
     }
 
     private void Update()
@@ -115,6 +158,137 @@ public class ProjectileVfxManager : MonoBehaviour
         });
     }
 
+    public static bool PlayFromKingAttack(
+        NetworkRunner runner,
+        PlayerManager kingOwner,
+        UnitData baseUnitData,
+        Vector3 firePosition,
+        Vector3 targetPosition,
+        NetworkObject target,
+        int fireTick,
+        int hitTick)
+    {
+        ProjectileVfxManager manager = Instance != null
+            ? Instance
+            : UnityEngine.Object.FindObjectOfType<ProjectileVfxManager>();
+        if (manager == null || !manager.isActiveAndEnabled || runner == null || !runner.IsRunning ||
+            kingOwner == null || baseUnitData == null)
+        {
+            return false;
+        }
+
+        ProjectileVfxConfig config = baseUnitData.GetProjectileVfxConfig();
+        if (config == null || !config.HasProjectileKey)
+        {
+            return false;
+        }
+
+        NetworkObject attacker = kingOwner.Object;
+        if (attacker == null || !attacker.IsValid ||
+            !LocalVfxVisibility.ShouldPlay(attacker, null, LocalVfxVisibilityEventKind.Projectile))
+        {
+            return false;
+        }
+
+        if (target != null && (!target.IsValid || target.Runner != runner))
+        {
+            target = null;
+        }
+
+        if (fireTick <= 0)
+        {
+            fireTick = runner.Tick;
+        }
+        if (hitTick <= fireTick)
+        {
+            float deltaTime = Mathf.Max(0.0001f, runner.DeltaTime);
+            float projectileSpeed = Mathf.Max(0.01f, config.ResolveProjectileSpeed());
+            float travelSeconds = Vector3.Distance(firePosition, targetPosition) / projectileSpeed;
+            int travelTicks = Mathf.Max(1, Mathf.CeilToInt(travelSeconds / deltaTime));
+            hitTick = fireTick + travelTicks;
+        }
+
+        manager.HandleProjectileEvent(new CombatScheduler.ProjectileEventData
+        {
+            Sequence = manager.AllocatePresentationSequence(),
+            FireTick = fireTick,
+            HitTick = hitTick,
+            Runner = runner,
+            Attacker = attacker,
+            Target = target,
+            HasFirePositionOverride = true,
+            HasTargetPositionOverride = true,
+            FirePositionOverride = firePosition,
+            TargetPositionOverride = targetPosition,
+            VfxConfigOverride = config
+        });
+        return true;
+    }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+    public static bool MPTestScheduleExpiryBurst(
+        NetworkRunner runner,
+        NetworkObject attacker,
+        ProjectileVfxConfig config,
+        Vector3 firePosition,
+        Vector3 targetPosition,
+        int projectileCount,
+        float lifetimeSeconds,
+        out int hitTick,
+        out string reason)
+    {
+        hitTick = 0;
+        reason = null;
+        ProjectileVfxManager manager = Instance != null
+            ? Instance
+            : UnityEngine.Object.FindObjectOfType<ProjectileVfxManager>();
+        if (!MPTestCommandLine.IsEnabled)
+        {
+            reason = "missing --mpTest";
+            return false;
+        }
+
+        if (manager == null || !manager.isActiveAndEnabled || runner == null || !runner.IsRunning)
+        {
+            reason = "projectile manager or runner is unavailable";
+            return false;
+        }
+
+        if (attacker == null || !attacker.IsValid || config == null || !config.HasProjectileKey)
+        {
+            reason = "projectile attacker or config is unavailable";
+            return false;
+        }
+
+        projectileCount = Mathf.Clamp(projectileCount, 1, 256);
+        lifetimeSeconds = Mathf.Clamp(lifetimeSeconds, 2f, 30f);
+        int fireTick = runner.Tick + 2;
+        int lifetimeTicks = Mathf.Max(2, Mathf.CeilToInt(lifetimeSeconds / Mathf.Max(0.0001f, runner.DeltaTime)));
+        hitTick = fireTick + lifetimeTicks;
+
+        for (int i = 0; i < projectileCount; i++)
+        {
+            manager.HandleProjectileEvent(new CombatScheduler.ProjectileEventData
+            {
+                Sequence = manager.AllocatePresentationSequence(),
+                FireTick = fireTick,
+                HitTick = hitTick,
+                Runner = runner,
+                Attacker = attacker,
+                HasFirePositionOverride = true,
+                HasTargetPositionOverride = true,
+                FirePositionOverride = firePosition,
+                TargetPositionOverride = targetPosition,
+                VfxConfigOverride = config,
+                SuppressMuzzleFlash = true
+            });
+        }
+
+        reason = $"scheduled {projectileCount} projectiles for hit tick {hitTick}";
+        return true;
+    }
+#endif
+
     public static void RecordSkippedCombatEvent(NetworkRunner runner, NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)
     {
         ProjectileVfxManager manager = Instance != null
@@ -146,7 +320,7 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
-        SpawnProjectileAsync(evt).Forget();
+        SpawnProjectileAsync(evt, _lifecycleGeneration).Forget();
     }
 
     private void RecordSkippedProjectileEvent(NetworkRunner runner, NetworkObject attacker, NetworkObject target, int fireTick, int hitTick)
@@ -327,7 +501,9 @@ public class ProjectileVfxManager : MonoBehaviour
         }
     }
 
-    private async UniTaskVoid SpawnProjectileAsync(CombatScheduler.ProjectileEventData evt)
+    private async UniTaskVoid SpawnProjectileAsync(
+        CombatScheduler.ProjectileEventData evt,
+        int lifecycleGeneration)
     {
         var runner = evt.Runner;
         if (runner == null)
@@ -353,27 +529,45 @@ public class ProjectileVfxManager : MonoBehaviour
 
         if (hitTime <= nowTime)
         {
-            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
-            SpawnImpactFlashAsync(config, targetPos, travelDirection).Forget();
+            LogDiagnosticWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
+            SpawnImpactFlashAsync(config, targetPos, travelDirection, lifecycleGeneration).Forget();
+            return;
+        }
+
+        if (!await WaitForFireTickAsync(runner, evt.FireTick, lifecycleGeneration))
+        {
+            return;
+        }
+
+        nowTime = GetRenderTime(runner);
+        firePos = ResolveFirePosition(evt);
+        targetPos = ResolveTargetPositionIfTrackable(evt.Target, targetPos);
+        projectileFirePos = ApplyProjectileVisualHeight(firePos, config);
+        projectileTargetPos = ApplyProjectileVisualHeight(targetPos, config);
+        travelDirection = ResolveTravelDirection(projectileFirePos, projectileTargetPos, evt.Attacker);
+        if (hitTime <= nowTime)
+        {
+            SpawnImpactFlashAsync(config, targetPos, travelDirection, lifecycleGeneration).Forget();
             return;
         }
 
         if (!evt.SuppressMuzzleFlash)
         {
-            SpawnMuzzleFlashAsync(config, firePos, travelDirection).Forget();
+            SpawnMuzzleFlashAsync(config, firePos, travelDirection, lifecycleGeneration).Forget();
         }
 
         string projectileKey = config.projectileKey;
-        Debug.Log($"[ProjectileVfxManager] Loading projectile: {projectileKey} (seq={evt.Sequence})");
 
-        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(projectileKey);
+        GameObject prefab = await LoadVfxPrefabAsync(projectileKey);
         if (prefab == null)
         {
             Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile FAILED: Prefab load returned null for key '{projectileKey}' (seq={evt.Sequence})");
             return;
         }
 
-        if (this == null || !isActiveAndEnabled || runner == null || !runner.IsRunning)
+        if (!IsLifecycleCurrent(lifecycleGeneration)
+            || runner == null
+            || !runner.IsRunning)
         {
             return;
         }
@@ -388,16 +582,14 @@ public class ProjectileVfxManager : MonoBehaviour
 
         if (hitTime <= nowTime)
         {
-            Debug.LogWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED after load: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
-            SpawnImpactFlashAsync(config, targetPos, travelDirection).Forget();
+            LogDiagnosticWarning($"[ProjectileVfxManager] SpawnProjectile SKIPPED after load: hitTime({hitTime:F3}) <= nowTime({nowTime:F3}) (seq={evt.Sequence})");
+            SpawnImpactFlashAsync(config, targetPos, travelDirection, lifecycleGeneration).Forget();
             return;
         }
 
         Vector3 pathPos = CalculateSpawnPosition(projectileFirePos, projectileTargetPos, fireTime, hitTime, nowTime, evt.AllowFullCatchUp);
         Quaternion projectileRotation = ProjectileVfxRuntimeUtility.ResolveVfxRotation(travelDirection, config.alignProjectileToDirection && alignToDirection, config.projectileRotationOffsetEuler);
         Vector3 spawnPos = ProjectileVfxRuntimeUtility.ApplyLocalOffset(pathPos, projectileRotation, config.projectileLocalPositionOffset);
-
-        Debug.Log($"[ProjectileVfxManager] Spawning projectile at {spawnPos}, pool={(pool != null ? "exists" : "null")}, vfxRoot={(vfxRoot != null ? vfxRoot.name : "null")} (seq={evt.Sequence})");
 
         GameObject instance = pool != null
             ? pool.Spawn(prefab, spawnPos, projectileRotation, vfxRoot)
@@ -416,8 +608,6 @@ public class ProjectileVfxManager : MonoBehaviour
         ProjectileVfxRuntimeUtility.RestartParticles(instance, config.ResolveProjectilePlaybackSpeed(), dynamicLightIntensity, dynamicLightRange);
         CancelAutoDestroy(instance);
 
-        Debug.Log($"[ProjectileVfxManager] Projectile spawned successfully: {instance.name} (seq={evt.Sequence})");
-
         var active = new ActiveProjectile
         {
             Sequence = evt.Sequence,
@@ -435,6 +625,37 @@ public class ProjectileVfxManager : MonoBehaviour
         _activeProjectiles.Add(active);
     }
 
+    private async UniTask<bool> WaitForFireTickAsync(
+        NetworkRunner runner,
+        int fireTick,
+        int lifecycleGeneration)
+    {
+        if (runner == null || fireTick <= 0)
+        {
+            return IsLifecycleCurrent(lifecycleGeneration);
+        }
+
+        float fireTime = fireTick * runner.DeltaTime;
+        while (IsLifecycleCurrent(lifecycleGeneration)
+               && runner != null
+               && runner.IsRunning
+               && GetRenderTime(runner) < fireTime)
+        {
+            await UniTask.Yield(PlayerLoopTiming.Update);
+        }
+
+        return IsLifecycleCurrent(lifecycleGeneration)
+               && runner != null
+               && runner.IsRunning;
+    }
+
+    private bool IsLifecycleCurrent(int lifecycleGeneration)
+    {
+        return this != null
+               && isActiveAndEnabled
+               && lifecycleGeneration == _lifecycleGeneration;
+    }
+
     private Vector3 CalculateSpawnPosition(Vector3 firePos, Vector3 targetPos, float fireTime, float hitTime, float nowTime, bool allowFullCatchUp)
     {
         float totalTime = Mathf.Max(0.0001f, hitTime - fireTime);
@@ -445,6 +666,12 @@ public class ProjectileVfxManager : MonoBehaviour
 
     private bool TryResolveProjectileVfx(CombatScheduler.ProjectileEventData evt, out ProjectileVfxConfig config)
     {
+        config = evt.VfxConfigOverride;
+        if (config != null && config.HasProjectileKey)
+        {
+            return true;
+        }
+
         config = null;
         if (evt.Attacker == null)
         {
@@ -485,30 +712,7 @@ public class ProjectileVfxManager : MonoBehaviour
         }
 
         string monsterName = evt.Attacker.name.Replace("(Clone)", "").Trim();
-        Debug.Log($"[ProjectileVfxManager] Monster '{monsterName}' Data is null, trying prefab cache fallback...");
-
-        var prefab = AssetLoader.GetCachedAsset<GameObject>(monsterName);
-        if (prefab == null)
-        {
-            Debug.LogWarning($"[ProjectileVfxManager] Monster '{monsterName}' prefab not found in AssetLoader cache");
-            return false;
-        }
-
-        var prefabMonster = prefab.GetComponent<Monster>();
-        if (prefabMonster == null || prefabMonster.Data == null)
-        {
-            Debug.LogWarning($"[ProjectileVfxManager] Prefab '{monsterName}' found but Monster component or Data is null");
-            return false;
-        }
-
-        projectileKey = prefabMonster.Data.projectilePrefab;
-        if (!string.IsNullOrEmpty(projectileKey))
-        {
-            Debug.Log($"[ProjectileVfxManager] Monster Data fallback from prefab: {monsterName} -> {projectileKey}");
-            return true;
-        }
-
-        Debug.LogWarning($"[ProjectileVfxManager] Prefab monster '{monsterName}' has Data but projectilePrefab is empty!");
+        Debug.LogWarning($"[ProjectileVfxManager] Monster '{monsterName}' Data is unavailable; skipping projectile VFX resolution.");
         return false;
     }
 
@@ -708,7 +912,11 @@ public class ProjectileVfxManager : MonoBehaviour
         return runner != null ? (float)runner.LocalRenderTime : Time.time;
     }
 
-    private async UniTaskVoid SpawnMuzzleFlashAsync(ProjectileVfxConfig config, Vector3 firePos, Vector3 direction)
+    private async UniTaskVoid SpawnMuzzleFlashAsync(
+        ProjectileVfxConfig config,
+        Vector3 firePos,
+        Vector3 direction,
+        int lifecycleGeneration)
     {
         if (config == null || !config.HasMuzzleFlashKey)
         {
@@ -723,10 +931,15 @@ public class ProjectileVfxManager : MonoBehaviour
             rotation,
             config.ResolveMuzzleScaleMultiplierVector(),
             config.ResolveMuzzlePlaybackSpeed(),
-            config.ResolveMuzzleLifetimeSeconds());
+            config.ResolveMuzzleLifetimeSeconds(),
+            lifecycleGeneration);
     }
 
-    private async UniTaskVoid SpawnImpactFlashAsync(ProjectileVfxConfig config, Vector3 targetPos, Vector3 direction)
+    private async UniTaskVoid SpawnImpactFlashAsync(
+        ProjectileVfxConfig config,
+        Vector3 targetPos,
+        Vector3 direction,
+        int lifecycleGeneration)
     {
         if (config == null || !config.HasImpactFlashKey)
         {
@@ -741,19 +954,27 @@ public class ProjectileVfxManager : MonoBehaviour
             rotation,
             config.ResolveImpactScaleMultiplierVector(),
             config.ResolveImpactPlaybackSpeed(),
-            config.ResolveImpactLifetimeSeconds());
+            config.ResolveImpactLifetimeSeconds(),
+            lifecycleGeneration);
     }
 
-    private async UniTask SpawnOneShotVfxAsync(string key, Vector3 position, Quaternion rotation, Vector3 scaleMultiplier, float playbackSpeed, float lifetimeSeconds)
+    private async UniTask SpawnOneShotVfxAsync(
+        string key,
+        Vector3 position,
+        Quaternion rotation,
+        Vector3 scaleMultiplier,
+        float playbackSpeed,
+        float lifetimeSeconds,
+        int lifecycleGeneration)
     {
-        GameObject prefab = await AssetLoader.LoadAssetAsync<GameObject>(key);
+        GameObject prefab = await LoadVfxPrefabAsync(key);
         if (prefab == null)
         {
             Debug.LogWarning($"[ProjectileVfxManager] One-shot VFX load failed: {key}");
             return;
         }
 
-        if (this == null || !isActiveAndEnabled)
+        if (!IsLifecycleCurrent(lifecycleGeneration))
         {
             return;
         }
@@ -808,6 +1029,10 @@ public class ProjectileVfxManager : MonoBehaviour
             return;
         }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        int activeCountAtStart = _activeProjectiles.Count;
+        long performanceStart = MPTestPerformanceRecorder.StartTimestamp();
+#endif
         for (int i = _activeProjectiles.Count - 1; i >= 0; i--)
         {
             var active = _activeProjectiles[i];
@@ -815,23 +1040,27 @@ public class ProjectileVfxManager : MonoBehaviour
             if (runner == null || !runner.IsRunning)
             {
                 DespawnProjectile(active);
-                RemoveActive(active);
+                RemoveActiveAt(i, active);
                 continue;
             }
 
             float nowTime = GetRenderTime(runner);
             if (active.Instance == null)
             {
-                RemoveActive(active);
+                RemoveActiveAt(i, active);
                 continue;
             }
 
             float hitTime = active.HitTick * runner.DeltaTime;
             if (nowTime >= hitTime)
             {
-                SpawnImpactFlashAsync(active.Config, active.LastKnownTargetPos, active.LastKnownDirection).Forget();
+                SpawnImpactFlashAsync(
+                    active.Config,
+                    active.LastKnownTargetPos,
+                    active.LastKnownDirection,
+                    _lifecycleGeneration).Forget();
                 DespawnProjectile(active);
-                RemoveActive(active);
+                RemoveActiveAt(i, active);
                 continue;
             }
 
@@ -877,6 +1106,9 @@ public class ProjectileVfxManager : MonoBehaviour
                 active.Instance.transform.rotation = ProjectileVfxRuntimeUtility.ResolveVfxRotation(direction.normalized, true, config.projectileRotationOffsetEuler);
             }
         }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestPerformanceRecorder.RecordDuration("projectile_vfx_update", performanceStart, activeCountAtStart);
+#endif
     }
 
     private void DespawnProjectile(ActiveProjectile active)
@@ -896,9 +1128,124 @@ public class ProjectileVfxManager : MonoBehaviour
         }
     }
 
-    private void RemoveActive(ActiveProjectile active)
+    private void RemoveActiveAt(int index, ActiveProjectile active)
     {
+        int lastIndex = _activeProjectiles.Count - 1;
+        if (active == null || index < 0 || index > lastIndex)
+        {
+            return;
+        }
+
         _activeBySeq.Remove(active.Sequence);
-        _activeProjectiles.Remove(active);
+        if (index != lastIndex)
+        {
+            // Presentation order is irrelevant. Swap the already-processed tail entry into the
+            // removed slot so expiry stays O(1), including sparse simultaneous expirations.
+            _activeProjectiles[index] = _activeProjectiles[lastIndex];
+        }
+
+        _activeProjectiles.RemoveAt(lastIndex);
+    }
+
+    private async UniTask<GameObject> LoadVfxPrefabAsync(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return null;
+        }
+
+        if (pool == null)
+        {
+            pool = VfxPoolManager.Instance;
+        }
+
+        if (pool != null)
+        {
+            return await pool.LoadAddressablePrefabAsync(key);
+        }
+
+        string normalizedKey = key.Trim();
+        if (_unpooledPrefabLeases.TryGetValue(normalizedKey, out AddressableAssetLease<GameObject> lease))
+        {
+            if (lease.Asset != null)
+            {
+                return lease.Asset;
+            }
+
+            lease.Dispose();
+            _unpooledPrefabLeases.Remove(normalizedKey);
+            _unpooledPrefabLoads.Remove(normalizedKey);
+        }
+
+        if (!_unpooledPrefabLoads.TryGetValue(normalizedKey, out UniTaskCompletionSource<GameObject> pendingLoad))
+        {
+            pendingLoad = new UniTaskCompletionSource<GameObject>();
+            _unpooledPrefabLoads.Add(normalizedKey, pendingLoad);
+            PublishUnpooledPrefabLoadAsync(normalizedKey, pendingLoad).Forget();
+        }
+
+        return await pendingLoad.Task;
+    }
+
+    private async UniTaskVoid PublishUnpooledPrefabLoadAsync(
+        string key,
+        UniTaskCompletionSource<GameObject> completion)
+    {
+        try
+        {
+            GameObject prefab = await LoadAndRetainUnpooledPrefabAsync(key);
+            completion.TrySetResult(prefab);
+        }
+        catch (System.Exception exception)
+        {
+            completion.TrySetException(exception);
+        }
+        finally
+        {
+            if (this != null &&
+                _unpooledPrefabLoads.TryGetValue(key, out UniTaskCompletionSource<GameObject> current) &&
+                ReferenceEquals(current, completion))
+            {
+                _unpooledPrefabLoads.Remove(key);
+            }
+        }
+    }
+
+    private async UniTask<GameObject> LoadAndRetainUnpooledPrefabAsync(string key)
+    {
+        AddressableAssetLease<GameObject> lease = await AssetLoader.AcquireAssetAsync<GameObject>(key);
+        if (lease == null)
+        {
+            return null;
+        }
+
+        if (this == null)
+        {
+            lease.Dispose();
+            return null;
+        }
+
+        if (_unpooledPrefabLeases.TryGetValue(key, out AddressableAssetLease<GameObject> existing))
+        {
+            lease.Dispose();
+            return existing.Asset;
+        }
+
+        _unpooledPrefabLeases.Add(key, lease);
+        return lease.Asset;
+    }
+
+    [System.Diagnostics.Conditional("UNITY_EDITOR")]
+    [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
+    private static void LogDiagnostic(string message)
+    {
+        Debug.Log(message);
+    }
+
+    [System.Diagnostics.Conditional("UNITY_EDITOR")]
+    [System.Diagnostics.Conditional("DEVELOPMENT_BUILD")]
+    private static void LogDiagnosticWarning(string message)
+    {
+        Debug.LogWarning(message);
     }
 }

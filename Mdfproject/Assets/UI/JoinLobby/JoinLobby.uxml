@@ -13,32 +13,133 @@
                 <ui:Label text="860" class="jl-currency jl-currency--purple" />
                 <ui:Label text="1" class="jl-alert-badge jl-alert-badge--bell" />
             </ui:VisualElement>
+            <ui:VisualElement name="kingSelectionPanel" class="jl-king-panel">
+                <ui:Label text="국왕 선택" class="jl-king-panel-title" />
+                <ui:Label text="전장을 지킬 국왕을 선택하세요" class="jl-king-panel-subtitle" />
+                <ui:VisualElement name="kingCard0" class="jl-clickable jl-king-card jl-king-card--0">
+                    <ui:VisualElement name="kingPortrait0" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName0" text="궁수" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection0" text="선택됨" class="jl-king-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="kingCard1" class="jl-clickable jl-king-card jl-king-card--1">
+                    <ui:VisualElement name="kingPortrait1" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName1" text="성직자" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection1" text="선택" class="jl-king-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="kingCard2" class="jl-clickable jl-king-card jl-king-card--2">
+                    <ui:VisualElement name="kingPortrait2" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName2" text="전사" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection2" text="선택" class="jl-king-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="kingCard3" class="jl-clickable jl-king-card jl-king-card--3">
+                    <ui:VisualElement name="kingPortrait3" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName3" text="수호자" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection3" text="선택" class="jl-king-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="kingCard4" class="jl-clickable jl-king-card jl-king-card--4">
+                    <ui:VisualElement name="kingPortrait4" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName4" text="마법사" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection4" text="선택" class="jl-king-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="kingCard5" class="jl-clickable jl-king-card jl-king-card--5">
+                    <ui:VisualElement name="kingPortrait5" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName5" text="화염술사" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection5" text="선택" class="jl-king-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="kingCard6" class="jl-clickable jl-king-card jl-king-card--6">
+                    <ui:VisualElement name="kingPortrait6" class="jl-king-card-portrait" />
+                    <ui:Label name="kingName6" text="검사" class="jl-king-card-name" />
+                    <ui:Label name="kingSelection6" text="선택" class="jl-king-card-selection" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+            <ui:VisualElement name="demonSelectionPanel" class="jl-king-panel jl-hidden">
+                <ui:Label text="악마 선택" class="jl-king-panel-title jl-demon-panel-title" />
+                <ui:Label text="공격 시퀀스를 강화할 악마를 선택하세요 · 게임 시작 전까지 비공개" class="jl-king-panel-subtitle" />
+                <ui:VisualElement name="demonCard0" class="jl-clickable jl-king-card jl-king-card--0 jl-demon-card">
+                    <ui:VisualElement name="demonPortrait0" class="jl-king-card-portrait" />
+                    <ui:Label name="demonName0" text="혈군" class="jl-king-card-name jl-demon-card-name" />
+                    <ui:Label name="demonPassive0" class="jl-demon-card-passive" />
+                    <ui:Label name="demonSkill0" class="jl-demon-card-skill" />
+                    <ui:Label name="demonSelection0" text="선택됨" class="jl-king-card-selection jl-demon-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="demonCard1" class="jl-clickable jl-king-card jl-king-card--1 jl-demon-card">
+                    <ui:VisualElement name="demonPortrait1" class="jl-king-card-portrait" />
+                    <ui:Label name="demonName1" text="전쟁마" class="jl-king-card-name jl-demon-card-name" />
+                    <ui:Label name="demonPassive1" class="jl-demon-card-passive" />
+                    <ui:Label name="demonSkill1" class="jl-demon-card-skill" />
+                    <ui:Label name="demonSelection1" text="선택" class="jl-king-card-selection jl-demon-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="demonCard2" class="jl-clickable jl-king-card jl-king-card--2 jl-demon-card">
+                    <ui:VisualElement name="demonPortrait2" class="jl-king-card-portrait" />
+                    <ui:Label name="demonName2" text="질풍귀" class="jl-king-card-name jl-demon-card-name" />
+                    <ui:Label name="demonPassive2" class="jl-demon-card-passive" />
+                    <ui:Label name="demonSkill2" class="jl-demon-card-skill" />
+                    <ui:Label name="demonSelection2" text="선택" class="jl-king-card-selection jl-demon-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="demonCard3" class="jl-clickable jl-king-card jl-king-card--3 jl-demon-card">
+                    <ui:VisualElement name="demonPortrait3" class="jl-king-card-portrait" />
+                    <ui:Label name="demonName3" text="광란왕" class="jl-king-card-name jl-demon-card-name" />
+                    <ui:Label name="demonPassive3" class="jl-demon-card-passive" />
+                    <ui:Label name="demonSkill3" class="jl-demon-card-skill" />
+                    <ui:Label name="demonSelection3" text="선택" class="jl-king-card-selection jl-demon-card-selection" />
+                </ui:VisualElement>
+                <ui:VisualElement name="demonCard4" class="jl-clickable jl-king-card jl-king-card--4 jl-demon-card">
+                    <ui:VisualElement name="demonPortrait4" class="jl-king-card-portrait" />
+                    <ui:Label name="demonName4" text="영혼술사" class="jl-king-card-name jl-demon-card-name" />
+                    <ui:Label name="demonPassive4" class="jl-demon-card-passive" />
+                    <ui:Label name="demonSkill4" class="jl-demon-card-skill" />
+                    <ui:Label name="demonSelection4" text="선택" class="jl-king-card-selection jl-demon-card-selection" />
+                </ui:VisualElement>
+            </ui:VisualElement>
             <ui:VisualElement name="roomPanel" class="jl-room-panel">
                 <ui:Label name="roomNameLabel" text="빛의 성채 원정대" class="jl-room-title" />
                 <ui:Label name="playerCountLabel" text="방 인원 3 / 4" class="jl-room-count" />
+                <ui:VisualElement name="mapThemePanel" class="jl-map-theme-panel">
+                    <ui:Label text="내 수비 필드 테마" class="jl-map-theme-title" />
+                    <ui:VisualElement name="mapThemeCard0" class="jl-clickable jl-map-theme-card jl-map-theme-card--classic">
+                        <ui:VisualElement class="jl-map-theme-preview jl-map-theme-preview--classic" />
+                        <ui:Label name="mapThemeName0" text="클래식" class="jl-map-theme-name" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="mapThemeCard1" class="jl-clickable jl-map-theme-card jl-map-theme-card--arena jl-map-theme-card--selected">
+                        <ui:VisualElement class="jl-map-theme-preview jl-map-theme-preview--arena" />
+                        <ui:Label name="mapThemeName1" text="아레나 · 선택됨" class="jl-map-theme-name" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
                 <ui:VisualElement name="slot0" class="jl-player-slot jl-player-slot--0">
                     <ui:VisualElement name="portrait0" class="jl-player-portrait" />
+                    <ui:VisualElement name="demonSelectButton0" class="jl-clickable jl-demon-select-button"><ui:Label name="demonSelectButtonLabel0" text="악마 선택" class="jl-demon-select-button-label" /></ui:VisualElement>
                     <ui:Label name="slotName0" class="jl-slot-name" />
                     <ui:Label name="slotLevel0" text="Lv. 42" class="jl-slot-level" />
-                    <ui:Label name="slotReady0" text="READY" class="jl-slot-ready" style="left: 25px; top: 290px; height: 27px;" />
+                    <ui:Label name="slotKing0" text="국왕 궁수" class="jl-slot-king" />
+                    <ui:Label name="slotTheme0" text="맵 아레나" class="jl-slot-theme" />
+                    <ui:Label name="slotReady0" text="READY" class="jl-slot-ready" />
                 </ui:VisualElement>
                 <ui:VisualElement name="slot1" class="jl-player-slot jl-player-slot--1">
                     <ui:VisualElement name="portrait1" class="jl-player-portrait" />
+                    <ui:VisualElement name="demonSelectButton1" class="jl-clickable jl-demon-select-button jl-hidden"><ui:Label name="demonSelectButtonLabel1" text="악마 선택" class="jl-demon-select-button-label" /></ui:VisualElement>
                     <ui:Label name="slotName1" class="jl-slot-name" />
                     <ui:Label name="slotLevel1" text="Lv. 45" class="jl-slot-level" />
-                    <ui:Label name="slotReady1" text="READY" class="jl-slot-ready" style="left: 25px; top: 290px; height: 27px;" />
+                    <ui:Label name="slotKing1" text="국왕 수호자" class="jl-slot-king" />
+                    <ui:Label name="slotTheme1" text="맵 클래식" class="jl-slot-theme" />
+                    <ui:Label name="slotReady1" text="READY" class="jl-slot-ready" />
                 </ui:VisualElement>
                 <ui:VisualElement name="slot2" class="jl-player-slot jl-player-slot--2">
                     <ui:VisualElement name="portrait2" class="jl-player-portrait" />
+                    <ui:VisualElement name="demonSelectButton2" class="jl-clickable jl-demon-select-button jl-hidden"><ui:Label name="demonSelectButtonLabel2" text="악마 선택" class="jl-demon-select-button-label" /></ui:VisualElement>
                     <ui:Label name="slotName2" class="jl-slot-name" />
                     <ui:Label name="slotLevel2" text="Lv. 40" class="jl-slot-level" />
-                    <ui:Label name="slotReady2" text="READY" class="jl-slot-ready" style="left: 25px; top: 290px; height: 27px;" />
+                    <ui:Label name="slotKing2" text="국왕 마법사" class="jl-slot-king" />
+                    <ui:Label name="slotTheme2" text="맵 아레나" class="jl-slot-theme" />
+                    <ui:Label name="slotReady2" text="READY" class="jl-slot-ready" />
                 </ui:VisualElement>
                 <ui:VisualElement name="slot3" class="jl-player-slot jl-player-slot--3">
                     <ui:VisualElement name="portrait3" class="jl-player-portrait" />
+                    <ui:VisualElement name="demonSelectButton3" class="jl-clickable jl-demon-select-button jl-hidden"><ui:Label name="demonSelectButtonLabel3" text="악마 선택" class="jl-demon-select-button-label" /></ui:VisualElement>
                     <ui:Label name="slotName3" class="jl-slot-name" />
                     <ui:Label name="slotLevel3" class="jl-slot-level" />
-                    <ui:Label name="slotReady3" text="대기" class="jl-slot-ready" style="height: 27px; left: 32px; top: 290px;" />
+                    <ui:Label name="slotKing3" class="jl-slot-king" />
+                    <ui:Label name="slotTheme3" class="jl-slot-theme" />
+                    <ui:Label name="slotReady3" text="대기" class="jl-slot-ready" />
                 </ui:VisualElement>
                 <ui:VisualElement name="gameStartButton" class="jl-clickable jl-game-start-button">
                     <ui:Label name="gameStartLabel" text="게임 시작" class="jl-game-start-label" />

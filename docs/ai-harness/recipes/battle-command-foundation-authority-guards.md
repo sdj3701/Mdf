@@ -4,9 +4,9 @@ Status: active
 Pinned: false
 Category: battle
 Created: 2026-05-06
-Last used: 2026-05-06
+Last used: 2026-07-12
 Last verified: 2026-05-06
-Use count: 1
+Use count: 2
 Review after: 2026-08-04
 Triggers: battle command foundation, client-requested battle commands, opponent resolution, State Authority validation
 Applies to: `ServerBattleCommandExecutor`, `BattleCommandValidator`, future `BattleSpawnMonsterCommand`, future `UseMagicScrollCommand`

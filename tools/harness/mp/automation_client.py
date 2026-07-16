@@ -69,6 +69,16 @@ class AutomationClient:
     def load_game(self, scene: str = "Game") -> dict[str, Any]:
         return self.request("POST", "/loadGame", {"scene": scene})
 
+    def lobby_start_game(self) -> dict[str, Any]:
+        """Invoke the production JoinLobby prewarm and peer-ACK gate."""
+        return self.request("POST", "/lobby/startGame", {})
+
+    def lobby_ready(self, ready: bool = True) -> dict[str, Any]:
+        return self.request("POST", "/lobby/ready", {"ready": ready})
+
+    def lobby_status(self) -> dict[str, Any]:
+        return self.request("GET", "/lobby/status")
+
     def command(self, **kwargs: Any) -> dict[str, Any]:
         return self.request("POST", "/command", kwargs)
 
@@ -90,6 +100,9 @@ class AutomationClient:
     def freeze_game_flow(self, enabled: bool = True, reason: str = "automation") -> dict[str, Any]:
         return self.request("POST", "/test/freezeGameFlow", {"enabled": enabled, "reason": reason})
 
+    def push_host_migration_snapshot(self, reason: str = "automation") -> dict[str, Any]:
+        return self.request("POST", "/test/pushHostMigrationSnapshot", {"reason": reason})
+
     def hide_transient_ui(self) -> dict[str, Any]:
         return self.request("POST", "/test/hideTransientUi", {})
 
@@ -104,6 +117,18 @@ class AutomationClient:
 
     def inject_pending_combat_load(self, **kwargs: Any) -> dict[str, Any]:
         return self.request("POST", "/test/injectPendingCombatLoad", kwargs)
+
+    def combat_capacity_recovery(self) -> dict[str, Any]:
+        return self.request("POST", "/test/combatCapacityRecovery", {})
+
+    def performance_stress(self, **kwargs: Any) -> dict[str, Any]:
+        return self.request("POST", "/test/performanceStress", kwargs)
+
+    def projectile_expiry_stress(self, **kwargs: Any) -> dict[str, Any]:
+        return self.request("POST", "/test/projectileExpiryStress", kwargs)
+
+    def destroy_wall_under_load(self, **kwargs: Any) -> dict[str, Any]:
+        return self.request("POST", "/test/destroyWallUnderLoad", kwargs)
 
     def screenshot(self, path: str | None = None) -> dict[str, Any]:
         suffix = "" if not path else "?path=" + urllib.request.pathname2url(path)

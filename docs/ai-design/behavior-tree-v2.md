@@ -12,7 +12,7 @@ Status note, 2026-05-08:
 
 - `AIPlayerController` and `MPTestHumanBotDriver` now use shared `MdfBotProfile`, `PrepareDecisionPolicy`, and `BattleDecisionPolicy`.
 - The only intended runtime difference is the emitter: server AI uses `ServerAiCommandEmitter`; HumanBot uses `HumanClientCommandEmitter`.
-- `MPTestHumanBotPolicy` is an obsolete compatibility adapter for legacy test callers. New HumanBot work must not call or extend it.
+- The obsolete `MPTestHumanBotPolicy` adapter has been removed; HumanBot work uses the shared policies directly.
 - Strategic AI battle spawn plans are converted into `BattleSpawnMonsterCommand` submissions by `BattleDecisionPolicy`; `SpawnMonsterAtPositionAsync` remains a low-level `MonsterSpawner` mechanism and command executor detail only.
 - Real AI battle auto-spawn bootstrap from `GameManagers.StartBattleForPlayers` / migration rebootstrap is disabled; actual AI must not bypass `BattleDecisionPolicy`.
 - Magic scroll gameplay goes through `UseMagicScrollCommand`; presentation RPCs must remain presentation-only.
@@ -32,7 +32,7 @@ The older combat BehaviorTree was empty, and strategic battle behavior entered t
 
 - `Mdfproject/Assets/Scripts/Commands/AI/AIPlayerController.cs` registers the player id in `ComponentRegistry`, creates a default `MdfBotProfile`, and ticks shared prepare/battle policies.
 - `Mdfproject/Assets/Scripts/Testing/MP/MPTestHumanBotDriver.cs` drives a local input-authority player through shared prepare/battle policies and `HumanClientCommandEmitter`.
-- `MPTestHumanBotPolicy` remains only as an obsolete adapter around `PrepareDecisionPolicy` for legacy test callers.
+- No HumanBot compatibility adapter remains between the driver and the shared decision policies.
 - `Mdfproject/Assets/Scripts/AI/BehaviorTree/Nodes/Actions/AIAttackStrategy.cs` builds `AISpawnPlan`/`AISpawnPhase`/`AISpawnOrder` from the attack monster pool and defender field.
 - `MonsterSpawner.ExecuteSpawnPlanAsync` converts `AISpawnOrder` entries into `BattleSpawnMonsterCommand`; pool consumption is owned by the command.
 

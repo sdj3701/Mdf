@@ -35,7 +35,7 @@ Current scripts:
 
 Battle command-specific scripts default to `--bot-prepare-mode augment-only` so the HumanBot can take a first augment without entering expensive maze wall planning before battle command assertions. `run_human_bot_battle_progression.py` defaults to `full` prepare for Prepare v2 rechecks; pass `--bot-prepare-mode augment-only` when the test should isolate battle command sync only.
 Post-battle lifecycle scripts progress without `--mpFreezeGameFlow`, then call the `--mpTest` automation endpoint `/test/freezeGameFlow` immediately after the battle checkpoint so disconnect/reconnect/Host Migration assertions compare a stable durable state.
-- `run_production_negative_automation.py` - normal non-development build must not expose automation `/ping`.
+- `run_production_negative_automation.py` - normal non-development build must contain no MPTest bootstrap, port, PlayerPrefs mutation, autostart, or auto-exit behavior.
 - `run_matrix.py` - orchestrate selected cases and profiles. Use `--list-cases`, `--list-profiles`, and `--dry-run` before adding a matrix invocation to automation.
 
 Matrix profiles:

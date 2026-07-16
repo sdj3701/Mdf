@@ -178,6 +178,11 @@ public sealed class DefenderSkillPolicy
 
     private static void Log(string phase, DefenderSkillDecision decision, string result)
     {
+        if (!MPTestLogger.IsEnabled)
+        {
+            return;
+        }
+
         var fields = decision.JournalFields != null
             ? new Dictionary<string, object>(decision.JournalFields)
             : new Dictionary<string, object>();

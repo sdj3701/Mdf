@@ -1,0 +1,60 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bbb281ee3bf0b054c82ac2347e9e782c, type: 3}
+  m_Name: MDF Runtime World
+  m_EditorClassIdentifier: 
+  m_GroupName: MDF Runtime World
+  m_Data:
+    m_SerializedData: []
+  m_GUID: 0a0a8efe07c3b424193920a79acc2f2d
+  m_SerializeEntries:
+  - m_GUID: 4c6372d922041704baa139ba979b9205
+    m_Address: Hero
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - CharacterPrefab
+    - mdf-runtime-world
+  - m_GUID: 0336ce3939b88d84baa6095048c203eb
+    m_Address: DestructibleWallPrefab
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - WallPrefab
+    - mdf-runtime-world
+  - m_GUID: 3bf990b075171b04bb58bfb3aa3402cb
+    m_Address: PermanentWallPrefab
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - WallPrefab
+    - mdf-runtime-world
+  - m_GUID: 23db93d9dcd62b140b715dc66412d301
+    m_Address: User_Grid3D
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Manager
+    - mdf-runtime-world
+  - m_GUID: 1831533972272eb408da1971d3a1e504
+    m_Address: Player_Root
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - mdf-runtime-world
+  - m_GUID: e632060e4786c87469cfbf29fea19915
+    m_Address: GameManagers
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - Manager
+    - mdf-runtime-world
+  m_ReadOnly: 0
+  m_Settings: {fileID: 11400000, guid: 372d3192cb4f67b4cbbf6974080e4ce6, type: 2}
+  m_SchemaSet:
+    m_Schemas:
+    - {fileID: 11400000, guid: 603044beb2beb124bbbfddd96aa08263, type: 2}
+    - {fileID: 11400000, guid: b0e2b219c8737e24b92a4a31be5abee9, type: 2}

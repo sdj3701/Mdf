@@ -5,6 +5,9 @@ public class HeadLookController : MonoBehaviour
 {
     private Animator animator;
 
+    public bool HasAppliedLookAt { get; private set; }
+    public int LastLookAtAppliedFrame { get; private set; } = -1;
+
     [Range(0, 1)]
     public float lookAtWeight = 1.0f;
 
@@ -12,9 +15,26 @@ public class HeadLookController : MonoBehaviour
     [Range(0, 5)]
     public float tiltAngle = 1.0f;
 
+    [Range(0f, 1f)]
+    public float lookAtBodyWeight;
+
+    [Range(0f, 1f)]
+    public float lookAtHeadWeight = 1f;
+
+    [Tooltip("0 allows the full look-at rotation; 1 completely clamps it.")]
+    [Range(0f, 1f)]
+    public float lookAtClampWeight = 0.5f;
+
     void Awake()
     {
         animator = GetComponent<Animator>();
+    }
+
+    public bool WasLookAtAppliedRecently(int maximumFrameAge)
+    {
+        return HasAppliedLookAt
+               && LastLookAtAppliedFrame >= 0
+               && Time.frameCount - LastLookAtAppliedFrame <= Mathf.Max(0, maximumFrameAge);
     }
 
     private void OnAnimatorIK(int layerIndex)
@@ -45,7 +65,14 @@ public class HeadLookController : MonoBehaviour
         // 디버깅용 선 그리기 (이제 캐릭터의 앞쪽 위로 선이 나갈 것입니다)
         Debug.DrawLine(headPosition, lookAtTargetPosition, Color.yellow);
 
-        animator.SetLookAtWeight(lookAtWeight, 0f, 1f, 0f, 0.5f);
+        animator.SetLookAtWeight(
+            lookAtWeight,
+            lookAtBodyWeight,
+            lookAtHeadWeight,
+            0f,
+            lookAtClampWeight);
         animator.SetLookAtPosition(lookAtTargetPosition);
+        HasAppliedLookAt = true;
+        LastLookAtAppliedFrame = Time.frameCount;
     }
 }

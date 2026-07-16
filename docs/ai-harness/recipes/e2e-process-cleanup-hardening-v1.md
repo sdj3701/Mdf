@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: cleanup, battle
 Created: 2026-05-08
-Last used: 2026-05-08
-Last verified: 2026-05-08
-Use count: 1
+Last used: 2026-07-15
+Last verified: 2026-07-15
+Use count: 34
 Review after: 2026-08-06
 Triggers: `MDF-MPTest.exe` left running after E2E, Windows process cleanup, orphan detection
 Applies to: `tools/harness/mp/launch_player.py`, HumanBot prepare/battle runners, matrix runner
-Verified by: see Verification section below; migrated from old Status: verified with environment blocker; blocker note preserved in recipe body
+Verified by: see Verification section below; migrated from old Status: verified with environment blocker; blocker note preserved in recipe body; artifacts/mp/20260712-085632-matrix/20260712-085638-human-bot-battle-progression/cleanup-report.json; artifacts/mp/20260712-214518-matrix/20260712-214655-build-host-build-client/cleanup-report.json; artifacts/mp/20260712-234448-matrix/matrix-summary.json; artifacts/mp/20260713-021757-window-close-graceful/cleanup-report.json; artifacts/mp/20260713-085009-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/mp/20260713-095003-editor-host-build-client/cleanup-report.json; artifacts/mp/20260713-103215-editor-host-build-client/cleanup-report.json; artifacts/mp/20260713-123426-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/performance/final-latest-stress-pass/20260714-025614-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/performance/final-swapback-stress-pass/20260714-032207-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/mp/20260714-145919-matrix/matrix-summary.json; artifacts/mp/20260714-152802-two-humanbot-two-ai-smoke/cleanup-report.json; artifacts/builds/20260715-map-theme-personal-win64-v2/launch-smoke-artifacts/cleanup-report.json; artifacts/mp/map-theme-personal/20260715-022416-editor-host-build-client/cleanup-report.json; artifacts/mp/map-theme-personal/20260715-022738-build-host-editor-client/cleanup-report.json; artifacts/builds/20260715-map-theme-personal-win64-v3/launch-smoke-artifacts/cleanup-report.json; artifacts/mp/map-theme-host-migration/20260715-025038-progressed-host-migration-e2e/cleanup-report.json; artifacts/mp/map-theme-host-migration/20260715-025038-progressed-host-migration-e2e/cleanup-report.json; artifacts/mp/demon-system/20260715-104626-human-bot-battle-progression/cleanup-report.json; artifacts/mp/demon-system/20260715-104756-progressed-host-migration-after-battle/cleanup-report.json; artifacts/mp/20260715-105036-matrix/matrix-summary.json; artifacts/mp/20260715-113917-matrix/matrix-summary.json; artifacts/mp/20260715-125915-matrix/20260715-125922-human-bot-battle-progression/cleanup-report.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -39,3 +39,30 @@ Verification:
 Pitfalls:
 - Do not use `Popen.poll()` alone as cleanup proof on Windows. This environment showed `Popen` exit code `1` while CIM/tasklist still listed the same `MDF-MPTest.exe` PID.
 - Do not redact or omit cleanup failures. Report exact orphan PIDs and separate cleanup status from gameplay assertions.
+
+Lifecycle notes:
+- 2026-07-12: verified artifact `artifacts/mp/20260712-085632-matrix/20260712-085638-human-bot-battle-progression/cleanup-report.json`
+- 2026-07-13: Strict smoke cleanup passed with orphanedPids=[].
+- 2026-07-13: verified artifact `artifacts/mp/20260712-214518-matrix/20260712-214655-build-host-build-client/cleanup-report.json`
+- 2026-07-13: Battle profile completed with cleanupStatus=PASS and orphanedPids=[] for all cases.
+- 2026-07-13: verified artifact `artifacts/mp/20260712-234448-matrix/matrix-summary.json`
+- 2026-07-13: verified artifact `artifacts/mp/20260713-021757-window-close-graceful/cleanup-report.json`
+- 2026-07-13: verified artifact `artifacts/mp/20260713-085009-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-07-13: verified artifact `artifacts/mp/20260713-095003-editor-host-build-client/cleanup-report.json`
+- 2026-07-13: verified artifact `artifacts/mp/20260713-103215-editor-host-build-client/cleanup-report.json`
+- 2026-07-13: verified artifact `artifacts/mp/20260713-123426-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-07-14: verified artifact `artifacts/performance/final-latest-stress-pass/20260714-025614-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-07-14: verified artifact `artifacts/performance/final-swapback-stress-pass/20260714-032207-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-07-15: verified artifact `artifacts/mp/20260714-145919-matrix/matrix-summary.json`
+- 2026-07-15: verified artifact `artifacts/mp/20260714-152802-two-humanbot-two-ai-smoke/cleanup-report.json`
+- 2026-07-15: verified artifact `artifacts/builds/20260715-map-theme-personal-win64-v2/launch-smoke-artifacts/cleanup-report.json`
+- 2026-07-15: verified artifact `artifacts/mp/map-theme-personal/20260715-022416-editor-host-build-client/cleanup-report.json`
+- 2026-07-15: verified artifact `artifacts/mp/map-theme-personal/20260715-022738-build-host-editor-client/cleanup-report.json`
+- 2026-07-15: verified artifact `artifacts/builds/20260715-map-theme-personal-win64-v3/launch-smoke-artifacts/cleanup-report.json`
+- 2026-07-15: verified artifact `artifacts/mp/map-theme-host-migration/20260715-025038-progressed-host-migration-e2e/cleanup-report.json`
+- 2026-07-15: verified artifact `artifacts/mp/map-theme-host-migration/20260715-025038-progressed-host-migration-e2e/cleanup-report.json`
+- 2026-07-15: verified artifact `artifacts/mp/demon-system/20260715-104626-human-bot-battle-progression/cleanup-report.json`
+- 2026-07-15: verified artifact `artifacts/mp/demon-system/20260715-104756-progressed-host-migration-after-battle/cleanup-report.json`
+- 2026-07-15: verified artifact `artifacts/mp/20260715-105036-matrix/matrix-summary.json`
+- 2026-07-15: verified artifact `artifacts/mp/20260715-113917-matrix/matrix-summary.json`
+- 2026-07-15: verified artifact `artifacts/mp/20260715-125915-matrix/20260715-125922-human-bot-battle-progression/cleanup-report.json`

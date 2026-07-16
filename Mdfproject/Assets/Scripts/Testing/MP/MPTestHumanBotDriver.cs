@@ -38,6 +38,19 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
     private bool _skipPrepare;
     private bool _prepareAugmentOnly;
     private bool _preferScrollAugment;
+    private bool _hasSubmittedAugmentSelection;
+    private int _uiPresentationCount;
+    private int _shopPurchasePresentationCount;
+    private int _augmentSelectionPresentationCount;
+    private int _panelDismissPresentationCount;
+    private int _uiPresentationFailureCount;
+    private string _lastUiAction;
+    private int _lastUiShopSlotIndex = -1;
+    private bool _lastUiShopVisible;
+    private bool _lastUiAugmentVisible;
+    private bool _lastUiShopSlotPending;
+    private bool _lastUiShopSlotSold;
+    private bool _lastUiShopSlotEnabled;
 
     public BotStatus Status => BuildStatus();
     public object[] RecentJournal => _journal != null ? _journal.Recent : Array.Empty<object>();
@@ -111,6 +124,19 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
         _lastCommandType = null;
         _lastError = null;
         _stopReason = null;
+        _hasSubmittedAugmentSelection = false;
+        _uiPresentationCount = 0;
+        _shopPurchasePresentationCount = 0;
+        _augmentSelectionPresentationCount = 0;
+        _panelDismissPresentationCount = 0;
+        _uiPresentationFailureCount = 0;
+        _lastUiAction = null;
+        _lastUiShopSlotIndex = -1;
+        _lastUiShopVisible = false;
+        _lastUiAugmentVisible = false;
+        _lastUiShopSlotPending = false;
+        _lastUiShopSlotSold = false;
+        _lastUiShopSlotEnabled = false;
         _running = true;
         _startedAt = Time.realtimeSinceStartup;
         _nextDecisionAt = 0f;
@@ -139,6 +165,13 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             _stopReason = reason;
             return;
         }
+
+        PlayerManager localPlayer = GameManagers.Instance != null
+            ? ResolveLocalInputPlayer(GameManagers.Instance)
+            : null;
+        bool hideAugment = _hasSubmittedAugmentSelection
+                           || (localPlayer != null && !HasPresentedAugment(localPlayer));
+        DismissPreparePanels("prepare_panels_closed_on_stop", hideAugment);
 
         _running = false;
         _stopReason = reason;
@@ -171,6 +204,13 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             ? _profile.DecisionIntervalSeconds
             : MdfBotProfile.DefaultDecisionIntervalSeconds;
         decisionInterval = Mathf.Max(decisionInterval, MinimumCommandIntervalSeconds);
+        GameManagers gameManagers = GameManagers.Instance;
+        if (gameManagers != null)
+        {
+            decisionInterval = BattleSpawnCadence.ResolveDecisionInterval(
+                gameManagers.GetGameState(),
+                decisionInterval);
+        }
         _nextDecisionAt = Time.realtimeSinceStartup + decisionInterval;
         TickDecision();
     }
@@ -261,8 +301,6 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             return;
         }
 
-        CloseShopUiBeforeBoardAction(decision);
-
         if (!_commandEmitter.TryEmit(decision, out BattleCommandResult emitResult))
         {
             _lastDecision = decision.Reason;
@@ -279,6 +317,7 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             return;
         }
 
+        PresentAcceptedCommand(decision);
         _commandsIssued++;
         _lastDecision = decision.Reason;
         _lastCommandType = decision.CommandTypeName;
@@ -294,7 +333,7 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
         _journal?.Record(MPTestBotJournal.BuildDecisionEntry(BuildStatus(), decision));
     }
 
-    private static void CloseShopUiAfterPrepareIdle(MdfDecisionContext context, MdfDecision decision)
+    private void CloseShopUiAfterPrepareIdle(MdfDecisionContext context, MdfDecision decision)
     {
         if (context == null || context.GameState != GameManagers.GameState.Prepare)
         {
@@ -307,50 +346,200 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             return;
         }
 
-        CloseShopUi("shop_close_after_shopping_complete", "Observe", context.Actor != null ? context.Actor.playerId : -1);
+        DismissPreparePanels("prepare_panels_closed_after_shopping_complete", hideAugment: true);
     }
 
-    private static void CloseShopUiBeforeBoardAction(MdfDecision decision)
+    private void PresentAcceptedCommand(MdfDecision decision)
     {
-        if (decision == null ||
-            (decision.CommandType != CommandType.PlaceWall && decision.CommandType != CommandType.MoveUnit))
+        if (decision == null)
         {
             return;
         }
 
-        CloseShopUi("shop_close_before_board_action", decision.CommandTypeName, decision.PlayerId);
-    }
+        int shopSlotIndex = decision.Command is BuyUnitCommand buyCommand
+            ? buyCommand.ShopSlotIndex
+            : -1;
+        if (decision.CommandType == CommandType.SelectAugment)
+        {
+            _hasSubmittedAugmentSelection = true;
+        }
 
-    private static void CloseShopUi(string code, string commandTypeName, int playerId)
-    {
         try
         {
-            ShopUIController shopUi = UnityEngine.Object.FindObjectOfType<ShopUIController>(true);
-            bool shopUiPresent = shopUi != null;
-            bool wasVisible = shopUiPresent && shopUi.IsContentVisible();
-            if (wasVisible)
+            if (GamePrepareUIToolkitController.TryPresentHumanBotCommand(
+                    decision.CommandType,
+                    shopSlotIndex,
+                    out GamePrepareUIToolkitController.MpTestPrepareUiPresentationState toolkitState))
             {
-                shopUi.SetContentVisibility(false);
+                RecordUiPresentation(
+                    decision.CommandTypeName,
+                    decision.PlayerId,
+                    toolkitState,
+                    "toolkit");
+                return;
             }
 
-            MPTestLogger.Log("human_bot_ui", wasVisible ? "pass" : "info", code, null, new Dictionary<string, object>
-            {
-                { "commandType", commandTypeName },
-                { "playerId", playerId },
-                { "shopUiPresent", shopUiPresent },
-                { "wasVisible", wasVisible },
-                { "closed", wasVisible }
-            });
+            GamePrepareUIToolkitController.MpTestPrepareUiPresentationState legacyState =
+                PresentLegacyCommand(decision.CommandType, shopSlotIndex);
+            RecordUiPresentation(
+                decision.CommandTypeName,
+                decision.PlayerId,
+                legacyState,
+                "legacy");
         }
         catch (Exception exception)
         {
-            MPTestLogger.Log("human_bot_ui", "fail", code, exception.Message, new Dictionary<string, object>
+            _uiPresentationFailureCount++;
+            MPTestLogger.Log("human_bot_ui", "fail", "command_presentation_exception", exception.Message, new Dictionary<string, object>
             {
-                { "commandType", commandTypeName },
-                { "playerId", playerId },
+                { "commandType", decision.CommandTypeName },
+                { "playerId", decision.PlayerId },
+                { "shopSlotIndex", shopSlotIndex },
                 { "exceptionType", exception.GetType().Name }
             });
         }
+    }
+
+    private GamePrepareUIToolkitController.MpTestPrepareUiPresentationState PresentLegacyCommand(
+        CommandType commandType,
+        int shopSlotIndex)
+    {
+        ShopUIController shopUi = UnityEngine.Object.FindObjectOfType<ShopUIController>(true);
+        AugmentUIController augmentUi = UnityEngine.Object.FindObjectOfType<AugmentUIController>(true);
+        string action = "no_prepare_ui_change";
+        bool pending = false;
+        bool sold = false;
+        bool enabled = false;
+
+        switch (commandType)
+        {
+            case CommandType.BuyUnit:
+                ShopSlot slot = shopUi != null
+                                && shopUi.shopSlots != null
+                                && shopSlotIndex >= 0
+                                && shopSlotIndex < shopUi.shopSlots.Length
+                    ? shopUi.shopSlots[shopSlotIndex]
+                    : null;
+                pending = slot != null && slot.TryBeginPurchasePresentation();
+                sold = slot != null && slot.IsPurchased();
+                enabled = slot != null && slot.buyButton != null && slot.buyButton.interactable;
+                action = pending ? "shop_purchase_pending" : "shop_purchase_pending_rejected";
+                break;
+            case CommandType.SelectAugment:
+                augmentUi?.CloseAfterLocalSubmission();
+                action = "augment_selection_closed";
+                break;
+            case CommandType.PlaceWall:
+            case CommandType.MoveUnit:
+                shopUi?.SetContentVisibility(false);
+                augmentUi?.InitializeAndHide();
+                action = "prepare_panels_closed_for_board_action";
+                break;
+        }
+
+        return new GamePrepareUIToolkitController.MpTestPrepareUiPresentationState(
+            action,
+            shopUi != null && shopUi.IsContentVisible(),
+            augmentUi != null && augmentUi.IsContentVisible(),
+            shopSlotIndex,
+            pending,
+            sold,
+            enabled);
+    }
+
+    private void DismissPreparePanels(string code, bool hideAugment)
+    {
+        try
+        {
+            GamePrepareUIToolkitController.MpTestPrepareUiPresentationState state;
+            string surface;
+            if (GamePrepareUIToolkitController.TryDismissHumanBotPreparePanels(hideAugment, out state))
+            {
+                surface = "toolkit";
+            }
+            else
+            {
+                ShopUIController shopUi = UnityEngine.Object.FindObjectOfType<ShopUIController>(true);
+                AugmentUIController augmentUi = UnityEngine.Object.FindObjectOfType<AugmentUIController>(true);
+                shopUi?.SetContentVisibility(false);
+                if (hideAugment)
+                {
+                    augmentUi?.InitializeAndHide();
+                }
+
+                state = new GamePrepareUIToolkitController.MpTestPrepareUiPresentationState(
+                    hideAugment ? "prepare_panels_dismissed" : "shop_panel_dismissed",
+                    shopUi != null && shopUi.IsContentVisible(),
+                    augmentUi != null && augmentUi.IsContentVisible(),
+                    -1,
+                    false,
+                    false,
+                    false);
+                surface = "legacy";
+            }
+
+            RecordUiPresentation("Observe", _lastPlayerId, state, surface, code);
+        }
+        catch (Exception exception)
+        {
+            _uiPresentationFailureCount++;
+            MPTestLogger.Log("human_bot_ui", "fail", code, exception.Message, new Dictionary<string, object>
+            {
+                { "playerId", _lastPlayerId },
+                { "exceptionType", exception.GetType().Name }
+            });
+        }
+    }
+
+    private void RecordUiPresentation(
+        string commandTypeName,
+        int playerId,
+        GamePrepareUIToolkitController.MpTestPrepareUiPresentationState state,
+        string surface,
+        string code = null)
+    {
+        bool meaningful = !string.Equals(state.Action, "no_prepare_ui_change", StringComparison.Ordinal);
+        if (meaningful)
+        {
+            _uiPresentationCount++;
+        }
+        if (string.Equals(state.Action, "shop_purchase_pending", StringComparison.Ordinal))
+        {
+            _shopPurchasePresentationCount++;
+        }
+        else if (string.Equals(state.Action, "augment_selection_closed", StringComparison.Ordinal))
+        {
+            _augmentSelectionPresentationCount++;
+        }
+        else if (state.Action.Contains("dismissed") || state.Action.Contains("closed_for_board_action"))
+        {
+            _panelDismissPresentationCount++;
+        }
+
+        _lastUiAction = state.Action;
+        _lastUiShopVisible = state.ShopIsVisible;
+        _lastUiAugmentVisible = state.AugmentIsVisible;
+        if (state.ShopSlotIndex >= 0)
+        {
+            _lastUiShopSlotIndex = state.ShopSlotIndex;
+            _lastUiShopSlotPending = state.ShopSlotPending;
+            _lastUiShopSlotSold = state.ShopSlotSold;
+            _lastUiShopSlotEnabled = state.ShopSlotEnabled;
+        }
+
+        MPTestLogger.Log("human_bot_ui", meaningful ? "pass" : "info", code ?? state.Action, null, new Dictionary<string, object>
+        {
+            { "commandType", commandTypeName },
+            { "playerId", playerId },
+            { "surface", surface },
+            { "action", state.Action },
+            { "shopVisible", state.ShopIsVisible },
+            { "augmentVisible", state.AugmentIsVisible },
+            { "shopSlotIndex", state.ShopSlotIndex },
+            { "shopSlotPending", state.ShopSlotPending },
+            { "shopSlotSold", state.ShopSlotSold },
+            { "shopSlotEnabled", state.ShopSlotEnabled }
+        });
     }
 
     private bool ShouldStop()
@@ -425,7 +614,19 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
             StopReason = _stopReason,
             SkipPrepare = _skipPrepare,
             PrepareAugmentOnly = _prepareAugmentOnly,
-            PreferScrollAugment = _preferScrollAugment
+            PreferScrollAugment = _preferScrollAugment,
+            UiPresentationCount = _uiPresentationCount,
+            ShopPurchasePresentationCount = _shopPurchasePresentationCount,
+            AugmentSelectionPresentationCount = _augmentSelectionPresentationCount,
+            PanelDismissPresentationCount = _panelDismissPresentationCount,
+            UiPresentationFailureCount = _uiPresentationFailureCount,
+            LastUiAction = _lastUiAction,
+            LastUiShopSlotIndex = _lastUiShopSlotIndex,
+            LastUiShopVisible = _lastUiShopVisible,
+            LastUiAugmentVisible = _lastUiAugmentVisible,
+            LastUiShopSlotPending = _lastUiShopSlotPending,
+            LastUiShopSlotSold = _lastUiShopSlotSold,
+            LastUiShopSlotEnabled = _lastUiShopSlotEnabled
         };
     }
 
@@ -491,6 +692,18 @@ public sealed class MPTestHumanBotDriver : MonoBehaviour
         [JsonProperty("skipPrepare")] public bool SkipPrepare;
         [JsonProperty("prepareAugmentOnly")] public bool PrepareAugmentOnly;
         [JsonProperty("preferScrollAugment")] public bool PreferScrollAugment;
+        [JsonProperty("uiPresentationCount")] public int UiPresentationCount;
+        [JsonProperty("shopPurchasePresentationCount")] public int ShopPurchasePresentationCount;
+        [JsonProperty("augmentSelectionPresentationCount")] public int AugmentSelectionPresentationCount;
+        [JsonProperty("panelDismissPresentationCount")] public int PanelDismissPresentationCount;
+        [JsonProperty("uiPresentationFailureCount")] public int UiPresentationFailureCount;
+        [JsonProperty("lastUiAction")] public string LastUiAction;
+        [JsonProperty("lastUiShopSlotIndex")] public int LastUiShopSlotIndex;
+        [JsonProperty("lastUiShopVisible")] public bool LastUiShopVisible;
+        [JsonProperty("lastUiAugmentVisible")] public bool LastUiAugmentVisible;
+        [JsonProperty("lastUiShopSlotPending")] public bool LastUiShopSlotPending;
+        [JsonProperty("lastUiShopSlotSold")] public bool LastUiShopSlotSold;
+        [JsonProperty("lastUiShopSlotEnabled")] public bool LastUiShopSlotEnabled;
     }
 }
 #endif

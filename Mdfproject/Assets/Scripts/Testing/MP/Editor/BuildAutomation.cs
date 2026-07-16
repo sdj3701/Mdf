@@ -45,6 +45,9 @@ public static class MPBuildPlayerTool
 
         [ToolParameter("Restore the Editor active build target after the player build. Default: true")]
         public bool RestoreBuildTarget { get; set; }
+
+        [ToolParameter("Enable frame timing statistics in the generated Development player. Default: true")]
+        public bool EnableFrameTimingStats { get; set; }
     }
 
     public static object HandleCommand(JObject parameters)
@@ -57,8 +60,10 @@ public static class MPBuildPlayerTool
         var allowDebugging = p.GetBool("allow_debugging", true);
         var buildAddressables = p.GetBool("build_addressables", true);
         var restoreBuildTarget = p.GetBool("restore_build_target", true);
+        var enableFrameTimingStats = p.GetBool("enable_frame_timing_stats", developmentBuild);
         var originalBuildTarget = EditorUserBuildSettings.activeBuildTarget;
         var originalBuildTargetGroup = BuildPipeline.GetBuildTargetGroup(originalBuildTarget);
+        bool originalFrameTimingStats = PlayerSettings.enableFrameTimingStats;
         bool buildTargetSwitched = false;
         var scenes = EditorBuildSettings.scenes
             .Where(scene => scene.enabled)
@@ -80,6 +85,8 @@ public static class MPBuildPlayerTool
         var locationPathName = Path.Combine(outputDir, BuildExecutableName(target, playerName));
         try
         {
+            PlayerSettings.enableFrameTimingStats = enableFrameTimingStats;
+
             var buildTargetSwitchError = EnsureActiveBuildTarget(target, out buildTargetSwitched);
             if (buildTargetSwitchError != null)
             {
@@ -129,6 +136,7 @@ public static class MPBuildPlayerTool
                 timestampUtc = DateTime.UtcNow.ToString("o"),
                 developmentBuild = (options & BuildOptions.Development) != 0,
                 allowDebugging = (options & BuildOptions.AllowDebugging) != 0,
+                frameTimingStats = PlayerSettings.enableFrameTimingStats,
                 addressables = addressablesMetadata,
                 restoreBuildTarget,
                 originalBuildTarget = originalBuildTarget.ToString(),
@@ -150,6 +158,8 @@ public static class MPBuildPlayerTool
         }
         finally
         {
+            PlayerSettings.enableFrameTimingStats = originalFrameTimingStats;
+
             if (restoreBuildTarget &&
                 buildTargetSwitched &&
                 originalBuildTargetGroup != BuildTargetGroup.Unknown &&

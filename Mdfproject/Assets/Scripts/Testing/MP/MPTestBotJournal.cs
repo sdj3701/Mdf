@@ -48,29 +48,6 @@ public sealed class MPTestBotJournal
         File.AppendAllText(Path, json + Environment.NewLine);
     }
 
-#pragma warning disable CS0618
-    public static object BuildDecisionEntry(MPTestHumanBotDriver.BotStatus status, MPTestHumanBotPolicy.Decision decision)
-    {
-        return new
-        {
-            kind = "bot_decision",
-            ts = DateTime.UtcNow.ToString("o"),
-            seq = status != null ? status.CommandsIssued + 1 : 0,
-            playerId = decision.PlayerId,
-            persona = status != null ? status.Persona : "unknown",
-            gameState = decision.GameState,
-            round = decision.Round,
-            observed = decision.Observed,
-            decision = new
-            {
-                commandType = decision.CommandType,
-                reason = decision.Reason,
-                target = decision.Target
-            }
-        };
-    }
-#pragma warning restore CS0618
-
     public static object BuildDecisionEntry(MPTestHumanBotDriver.BotStatus status, MdfDecision decision)
     {
         return new

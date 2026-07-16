@@ -71,20 +71,20 @@ public class BuffManager : MonoBehaviour
         ApplyStatBuffSchedulerCache(0f, 0f, 0f, 1f);
     }
 
-    public void ApplyBuff(BuffStatEffect buffEffect, GameObject caster)
+    public bool ApplyBuff(BuffStatEffect buffEffect, GameObject caster)
     {
         if (!HasStateAuthorityOrNoNetwork() || buffEffect == null || caster == null)
         {
-            return;
+            return false;
         }
 
         if (IsNetworkStatBuffSchedulerActive())
         {
-            CombatScheduler.Instance.ApplyStatBuff(this, buffEffect, caster);
-            return;
+            return CombatScheduler.Instance.ApplyStatBuff(this, buffEffect, caster);
         }
 
         Debug.LogWarning($"[BuffManager] Ignored stat buff without active CombatScheduler. target={name}, buff={buffEffect.name}");
+        return false;
     }
 
     public void RecalculateStats()
@@ -104,6 +104,11 @@ public class BuffManager : MonoBehaviour
 
             float finalAttackDamage = baseAttackDamage * (1 + attackDamageBonusPercent) + attackDamageBonus;
             float finalAttackSpeed = baseAttackSpeed * (1 + attackSpeedBonusPercent);
+            if (_unit.IsBerserkModeActive)
+            {
+                finalAttackDamage *= 1.5f;
+                finalAttackSpeed *= 1.5f;
+            }
             _unit.ApplyStatModifiers(finalAttackDamage, finalAttackSpeed);
         }
 
@@ -119,6 +124,13 @@ public class BuffManager : MonoBehaviour
                 attackSpeed *= 1 + _schedulerAttackSpeedPercentBonus;
             }
 
+            if (_monster.IsBerserkModeActive)
+            {
+                attackDamage *= 1.5f;
+                attackSpeed *= 1.5f;
+                moveSpeedMultiplier *= 2f;
+            }
+
             _monster.ApplyStatModifiers(attackDamage, attackSpeed, moveSpeedMultiplier);
         }
     }
@@ -127,7 +139,7 @@ public class BuffManager : MonoBehaviour
 
     #region Status Effect System
 
-    public void ApplyStatusEffect(
+    public bool ApplyStatusEffect(
         StatusEffectType type,
         float duration,
         GameObject caster,
@@ -138,12 +150,12 @@ public class BuffManager : MonoBehaviour
     {
         if (!HasStateAuthorityOrNoNetwork())
         {
-            return;
+            return false;
         }
 
         if (IsNetworkStatusSchedulerActive())
         {
-            CombatScheduler.Instance.ApplyStatusEffect(
+            return CombatScheduler.Instance.ApplyStatusEffect(
                 this,
                 type,
                 duration,
@@ -152,10 +164,10 @@ public class BuffManager : MonoBehaviour
                 damagePerTick,
                 slowMultiplier,
                 damageType);
-            return;
         }
 
         Debug.LogWarning($"[BuffManager] Ignored status effect without active CombatScheduler. target={name}, type={type}");
+        return false;
     }
 
     public void RemoveStatusEffect(StatusEffectType type)
@@ -226,28 +238,28 @@ public class BuffManager : MonoBehaviour
 
     #region Convenience Methods
 
-    public void ApplyStun(float duration, GameObject caster)
+    public bool ApplyStun(float duration, GameObject caster)
         => ApplyStatusEffect(StatusEffectType.Stunned, duration, caster);
 
-    public void ApplySlow(float duration, float slowMultiplier, GameObject caster)
+    public bool ApplySlow(float duration, float slowMultiplier, GameObject caster)
         => ApplyStatusEffect(StatusEffectType.Slowed, duration, caster, slowMultiplier: slowMultiplier);
 
-    public void ApplyRoot(float duration, GameObject caster)
+    public bool ApplyRoot(float duration, GameObject caster)
         => ApplyStatusEffect(StatusEffectType.Rooted, duration, caster);
 
-    public void ApplySilence(float duration, GameObject caster)
+    public bool ApplySilence(float duration, GameObject caster)
         => ApplyStatusEffect(StatusEffectType.Silenced, duration, caster);
 
-    public void ApplyBurn(float duration, float damagePerTick, float tickInterval, GameObject caster)
+    public bool ApplyBurn(float duration, float damagePerTick, float tickInterval, GameObject caster)
         => ApplyStatusEffect(StatusEffectType.Burning, duration, caster, tickInterval, damagePerTick, 1f, DamageType.Magic);
 
-    public void ApplyFrostbite(float duration, float damagePerTick, float tickInterval, float slowMultiplier, GameObject caster)
+    public bool ApplyFrostbite(float duration, float damagePerTick, float tickInterval, float slowMultiplier, GameObject caster)
         => ApplyStatusEffect(StatusEffectType.Frostbitten, duration, caster, tickInterval, damagePerTick, slowMultiplier, DamageType.Magic);
 
-    public void ApplyBleed(float duration, float damagePerTick, float tickInterval, GameObject caster)
+    public bool ApplyBleed(float duration, float damagePerTick, float tickInterval, GameObject caster)
         => ApplyStatusEffect(StatusEffectType.Bleeding, duration, caster, tickInterval, damagePerTick, 1f, DamageType.Physical);
 
-    public void ApplyPoison(float duration, float damagePerTick, float tickInterval, GameObject caster)
+    public bool ApplyPoison(float duration, float damagePerTick, float tickInterval, GameObject caster)
         => ApplyStatusEffect(StatusEffectType.Poisoned, duration, caster, tickInterval, damagePerTick, 1f, DamageType.Magic);
 
     #endregion

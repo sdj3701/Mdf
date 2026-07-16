@@ -5,12 +5,14 @@ using UnityEngine;
 
 public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
 {
-    private const float DefaultBattleActionCooldown = 0.75f;
     private const float MinimumBattleCommandLeadTime = 1.25f;
+    private const float SpawnCellReservationSeconds = 3f;
 
     private readonly ScrollTargetEvaluator _scrollTargetEvaluator = new ScrollTargetEvaluator();
     private readonly DefenderSkillPolicy _defenderSkillPolicy = new DefenderSkillPolicy();
     private readonly Dictionary<int, float> _nextBattleDecisionAt = new Dictionary<int, float>();
+    private readonly Dictionary<int, List<SpawnCellReservation>> _recentSpawnCells =
+        new Dictionary<int, List<SpawnCellReservation>>();
 
     public bool TryChoose(MdfDecisionContext context, out MdfDecision decision)
     {
@@ -30,7 +32,7 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
         if (context.PhaseTimerRemaining <= MinimumBattleCommandLeadTime)
         {
             decision = MdfDecision.Observe(context, "battle_phase_ending");
-            Arm(context.PlayerId);
+            Arm(context.PlayerId, CommandType.RequestSyncData);
             LogDecision(decision, "info");
             return false;
         }
@@ -43,9 +45,11 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
 
         if (context.IsCurrentBattleAttacker)
         {
-            if (TryChooseScroll(context, out decision) || TryChooseSpawn(context, out decision))
+            if (TryChooseDemonSkill(context, out decision)
+                || TryChooseScroll(context, out decision)
+                || TryChooseSpawn(context, out decision))
             {
-                Arm(context.PlayerId);
+                Arm(context.PlayerId, decision.CommandType);
                 LogDecision(decision, "pass");
                 return true;
             }
@@ -53,7 +57,7 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
 
         if (context.IsCurrentBattleDefender && TryChooseDefenderSkill(context, out decision))
         {
-            Arm(context.PlayerId);
+            Arm(context.PlayerId, decision.CommandType);
             LogDecision(decision, "pass");
             return true;
         }
@@ -61,6 +65,31 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
         decision = MdfDecision.Observe(context, "no_legal_battle_decision");
         LogDecision(decision, "info");
         return false;
+    }
+
+    private static bool TryChooseDemonSkill(MdfDecisionContext context, out MdfDecision decision)
+    {
+        decision = null;
+        PlayerManager actor = context.Actor;
+        if (actor == null || !actor.CanUseDemonSkill)
+        {
+            return false;
+        }
+
+        var command = new ActivateDemonSkillCommand(actor.playerId);
+        decision = MdfDecision.ForCommand(
+            context,
+            command,
+            CommandType.ActivateDemonSkill,
+            "demon_skill_attack_sequence",
+            $"demon={actor.SelectedDemonKeyHash}",
+            100f,
+            new Dictionary<string, object>
+            {
+                { "demonKeyHash", actor.SelectedDemonKeyHash },
+                { "attackSequenceId", actor.CurrentDemonAttackSequenceId }
+            });
+        return true;
     }
 
     private bool TryChooseScroll(MdfDecisionContext context, out MdfDecision decision)
@@ -153,11 +182,31 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
+        // The policy cooldown starts when a request is emitted, while the authoritative
+        // cadence starts only after the asynchronous spawn transaction commits. Polling
+        // this gate avoids an early duplicate request without delaying the next legal spawn.
+        if (!attacker.IsBattleSpawnCadenceReady(out _))
+        {
+            return false;
+        }
+
+        var affordablePool = attacker.AttackMonsterPool
+            .Where(attacker.CanAffordAttackMonster)
+            .ToList();
+        if (affordablePool.Count == 0)
+        {
+            return false;
+        }
+
+        HashSet<Vector2Int> reservedSpawnCells = GetActiveSpawnCellReservations(
+            attacker.playerId,
+            defender.playerId);
         var strategy = new AIAttackStrategy(
             defender.fieldManager,
             attacker,
-            ResolveSpawnAreaLayer(attacker));
-        var plan = strategy.BuildSpawnPlan(attacker.AttackMonsterPool.ToList());
+            ResolveSpawnAreaLayer(attacker),
+            reservedSpawnCells);
+        var plan = strategy.BuildSpawnPlan(affordablePool);
         var order = plan.Phases
             .SelectMany(phase => phase.Orders)
             .FirstOrDefault(candidate => candidate != null &&
@@ -175,6 +224,11 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
             return false;
         }
 
+        ReserveSpawnCells(
+            attacker.playerId,
+            defender.playerId,
+            order.ReservedNavigationCells);
+
         var command = new BattleSpawnMonsterCommand(
             attacker.playerId,
             defender.playerId,
@@ -182,7 +236,8 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
             order.SpawnPosition,
             1,
             "battle_decision_policy_spawn",
-            attacker.AppliedAttackMonsterPoolRevision);
+            attacker.AppliedAttackMonsterPoolRevision,
+            attacker.AppliedBlackMagicRevision);
 
         decision = MdfDecision.ForBattleSpawnMonster(
             context,
@@ -195,6 +250,8 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
                 { "poolSlotIndex", poolSlotIndex },
                 { "plannedCount", order.Count },
                 { "monster", order.PoolEntry.MonsterData != null ? order.PoolEntry.MonsterData.name : "unknown" },
+                { "blackMagicCost", order.PoolEntry.MonsterData != null ? order.PoolEntry.MonsterData.blackMagicCost : 0 },
+                { "blackMagicCurrent", attacker.AppliedBlackMagicCurrent },
                 { "defenderPlayerId", defender.playerId }
             });
         return true;
@@ -233,16 +290,99 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
                Time.time >= next;
     }
 
-    private void Arm(int playerId)
+    private void Arm(int playerId, CommandType commandType)
     {
         if (playerId >= 0)
         {
-            _nextBattleDecisionAt[playerId] = Time.time + DefaultBattleActionCooldown;
+            _nextBattleDecisionAt[playerId] = Time.time +
+                BattleSpawnCadence.ResolvePolicyCooldown(commandType);
+        }
+    }
+
+    private HashSet<Vector2Int> GetActiveSpawnCellReservations(int attackerPlayerId, int defenderPlayerId)
+    {
+        if (!_recentSpawnCells.TryGetValue(attackerPlayerId, out List<SpawnCellReservation> reservations))
+        {
+            return null;
+        }
+
+        float now = Time.time;
+        HashSet<Vector2Int> active = null;
+        for (int i = reservations.Count - 1; i >= 0; i--)
+        {
+            SpawnCellReservation reservation = reservations[i];
+            if (reservation.ExpiresAt <= now)
+            {
+                reservations.RemoveAt(i);
+                continue;
+            }
+
+            if (reservation.DefenderPlayerId == defenderPlayerId)
+            {
+                if (active == null)
+                {
+                    active = new HashSet<Vector2Int>();
+                }
+                active.Add(reservation.NavigationCell);
+            }
+        }
+
+        if (reservations.Count == 0)
+        {
+            _recentSpawnCells.Remove(attackerPlayerId);
+        }
+        return active;
+    }
+
+    private void ReserveSpawnCells(
+        int attackerPlayerId,
+        int defenderPlayerId,
+        IReadOnlyList<Vector2Int> navigationCells)
+    {
+        if (navigationCells == null || navigationCells.Count == 0)
+        {
+            return;
+        }
+
+        if (!_recentSpawnCells.TryGetValue(attackerPlayerId, out List<SpawnCellReservation> reservations))
+        {
+            reservations = new List<SpawnCellReservation>(navigationCells.Count);
+            _recentSpawnCells.Add(attackerPlayerId, reservations);
+        }
+
+        float expiresAt = Time.time + SpawnCellReservationSeconds;
+        for (int cellIndex = 0; cellIndex < navigationCells.Count; cellIndex++)
+        {
+            Vector2Int navigationCell = navigationCells[cellIndex];
+            bool refreshed = false;
+            for (int reservationIndex = 0; reservationIndex < reservations.Count; reservationIndex++)
+            {
+                if (reservations[reservationIndex].DefenderPlayerId == defenderPlayerId &&
+                    reservations[reservationIndex].NavigationCell == navigationCell)
+                {
+                    reservations[reservationIndex] = new SpawnCellReservation(
+                        defenderPlayerId,
+                        navigationCell,
+                        expiresAt);
+                    refreshed = true;
+                    break;
+                }
+            }
+
+            if (!refreshed)
+            {
+                reservations.Add(new SpawnCellReservation(defenderPlayerId, navigationCell, expiresAt));
+            }
         }
     }
 
     private static void LogDecision(MdfDecision decision, string result)
     {
+        if (!MPTestLogger.IsEnabled)
+        {
+            return;
+        }
+
         MPTestLogger.Log(
             "battle_decision_policy",
             result,
@@ -261,5 +401,19 @@ public sealed class BattleDecisionPolicy : IMdfDecisionPolicy
         public float Score;
         public string Reason;
         public IReadOnlyDictionary<string, object> Fields;
+    }
+
+    private readonly struct SpawnCellReservation
+    {
+        public readonly int DefenderPlayerId;
+        public readonly Vector2Int NavigationCell;
+        public readonly float ExpiresAt;
+
+        public SpawnCellReservation(int defenderPlayerId, Vector2Int navigationCell, float expiresAt)
+        {
+            DefenderPlayerId = defenderPlayerId;
+            NavigationCell = navigationCell;
+            ExpiresAt = expiresAt;
+        }
     }
 }

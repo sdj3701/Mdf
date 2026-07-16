@@ -26,6 +26,9 @@
     [SerializeField] private Sprite waitingSprite;
 
     private PlayerManager trackedPlayer;
+    private int trackedPlayerId = -1;
+
+    public int TrackedPlayerId => trackedPlayerId;
 
     private static bool IsPlayerReadable(PlayerManager player)
     {
@@ -407,6 +410,9 @@
     public void Initialize(PlayerManager player)
     {
         this.trackedPlayer = player;
+        trackedPlayerId = TryGetPlayerIdSafe(player, out int initializedPlayerId)
+            ? initializedPlayerId
+            : -1;
 
          // UI 참조를 보장
          EnsureUIReferences();
@@ -532,9 +538,17 @@
      /// </summary>
     private void OnSlotClicked()
     {
-         if (!IsPlayerReadable(trackedPlayer))
+         if (trackedPlayerId < 0)
          {
              Debug.Log("[PlayerRankSlot] 추적 중인 플레이어가 없습니다");
+             return;
+         }
+
+         // Host Migration replaces PlayerManager instances. Resolve the active object at click time.
+         trackedPlayer = GameManagers.Instance?.GetPlayer(trackedPlayerId);
+         if (!IsPlayerReadable(trackedPlayer))
+         {
+             Debug.Log($"[PlayerRankSlot] Player {trackedPlayerId} is not available in the active registry.");
              return;
          }
 
@@ -545,7 +559,7 @@
          }
 
          // 본인 슬롯 클릭 시 본인 필드로 복귀
-         if (trackedPlayer == CameraManager.Instance.OwnField)
+         if (trackedPlayerId == CameraManager.Instance.OwnPlayerId)
          {
              CameraManager.Instance.ReturnToOwnField();
          }
@@ -554,7 +568,7 @@
              // 다른 플레이어 슬롯 클릭 시 해당 필드로 이동
              // 공격 대상 필드면 공격 모드로 이동
              bool isAttackMode = ShouldUseAttackModeCamera(trackedPlayer);
-             CameraManager.Instance.MoveToPlayerField(trackedPlayer, isAttackMode).Forget();
+             CameraManager.Instance.MoveToPlayerField(trackedPlayerId, isAttackMode).Forget();
          }
      }
      
@@ -608,14 +622,18 @@
      /// </summary>
     public void UpdateUI()
     {
-         if (trackedPlayer == null || !gameObject.activeInHierarchy)
+         if (!gameObject.activeInHierarchy)
          {
              return;
          }
 
          if (!IsPlayerReadable(trackedPlayer))
          {
-             return;
+             trackedPlayer = GameManagers.Instance?.GetPlayer(trackedPlayerId);
+             if (!IsPlayerReadable(trackedPlayer))
+             {
+                 return;
+             }
          }
 
          // UI 참조를 다시 보장 (필요시)

@@ -8,12 +8,12 @@ using UnityEngine;
 public class NotifyAugmentSelectedCommand : ICommand
 {
     public int PlayerId { get; set; }
-    public string AugmentName { get; private set; }
+    public string AugmentContentId { get; private set; }
 
-    public NotifyAugmentSelectedCommand(int playerId, string augmentName)
+    public NotifyAugmentSelectedCommand(int playerId, string augmentContentId)
     {
         PlayerId = playerId;
-        AugmentName = augmentName ?? string.Empty;
+        AugmentContentId = StableDataKeyUtility.NormalizeContentId(augmentContentId);
     }
 
     public void Execute()
@@ -24,16 +24,15 @@ public class NotifyAugmentSelectedCommand : ICommand
         var player = gm.GetPlayer(PlayerId);
         if (player?.augmentManager == null) return;
 
-        var chosenAugment = player.augmentManager.FindAugmentByName(AugmentName);
+        var chosenAugment = player.augmentManager.FindAugmentByContentId(AugmentContentId);
         if (chosenAugment == null)
         {
-            // Debug.LogWarning($"[NotifyAugmentSelectedCommand] 증강 '{AugmentName}'을 찾을 수 없습니다.");
+            // Debug.LogWarning($"[NotifyAugmentSelectedCommand] Unknown augment id '{AugmentContentId}'.");
             return;
         }
 
-        bool isServer = gm.Runner != null && gm.Runner.IsServer;
-
+        player.augmentManager.ApplyAuthoritativeSelectionNotification();
         GameEvents.TriggerAugmentApplied(player, chosenAugment);
-        // Debug.Log($"<color=green>[NotifyAugmentSelectedCommand] Player {PlayerId}: '{AugmentName}' 선택 알림</color>");
+        // Debug.Log($"<color=green>[NotifyAugmentSelectedCommand] Player {PlayerId}: '{AugmentContentId}' selected</color>");
     }
 }

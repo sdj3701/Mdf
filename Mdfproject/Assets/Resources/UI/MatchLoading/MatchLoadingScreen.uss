@@ -1,0 +1,295 @@
+.ml-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #02070d;
+    -unity-font-definition: url("/Assets/Resources/Fonts & Materials/NotoSansKR-VariableFont_wght_UITK.asset");
+}
+
+.ml-backdrop {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background-image: url("/Assets/Resource/Image/UI/Game/arena_background.png");
+    -unity-background-scale-mode: scale-and-crop;
+    opacity: 0.18;
+}
+
+.ml-vignette {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(2, 7, 13, 0.78);
+}
+
+.ml-content {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 900px;
+    height: 790px;
+    margin-left: -450px;
+    margin-top: -395px;
+    align-items: center;
+}
+
+.ml-eyebrow {
+    width: 900px;
+    height: 28px;
+    color: rgba(226, 189, 117, 0.78);
+    font-size: 14px;
+    letter-spacing: 4px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.ml-stage {
+    width: 900px;
+    height: 55px;
+    margin-top: 2px;
+    color: #f8eedb;
+    font-size: 31px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.ml-art-frame {
+    position: relative;
+    width: 720px;
+    height: 405px;
+    margin-top: 14px;
+    overflow: hidden;
+    background-color: #07131d;
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: rgba(203, 156, 79, 0.78);
+    border-right-color: rgba(203, 156, 79, 0.78);
+    border-top-color: rgba(248, 215, 145, 0.92);
+    border-bottom-color: rgba(108, 71, 34, 0.88);
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 12px;
+}
+
+.ml-art {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 720px;
+    height: 405px;
+    background-image: url("/Assets/Resource/Image/UI/Game/arena_background.png");
+    -unity-background-scale-mode: scale-and-crop;
+}
+
+.ml-art-shade {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 88px;
+    background-color: rgba(2, 8, 13, 0.58);
+}
+
+.ml-art-caption {
+    position: absolute;
+    left: 24px;
+    right: 24px;
+    bottom: 18px;
+    height: 42px;
+    color: #f5dfb5;
+    font-size: 22px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+}
+
+.ml-tip-row {
+    width: 820px;
+    min-height: 68px;
+    margin-top: 21px;
+    padding-left: 18px;
+    padding-right: 18px;
+    flex-direction: row;
+    align-items: center;
+    background-color: rgba(7, 21, 31, 0.9);
+    border-left-width: 1px;
+    border-right-width: 1px;
+    border-top-width: 1px;
+    border-bottom-width: 1px;
+    border-left-color: rgba(84, 121, 145, 0.55);
+    border-right-color: rgba(84, 121, 145, 0.55);
+    border-top-color: rgba(124, 157, 178, 0.62);
+    border-bottom-color: rgba(32, 62, 79, 0.78);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+.ml-tip-badge {
+    width: 104px;
+    height: 32px;
+    margin-right: 17px;
+    color: #2b1909;
+    background-color: #e2b86d;
+    font-size: 14px;
+    letter-spacing: 1px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    border-bottom-left-radius: 5px;
+    border-bottom-right-radius: 5px;
+}
+
+.ml-tip {
+    width: 652px;
+    min-height: 42px;
+    color: #d6e0e7;
+    font-size: 18px;
+    white-space: normal;
+    -unity-text-align: middle-left;
+}
+
+.ml-progress-area {
+    position: relative;
+    width: 820px;
+    height: 112px;
+    margin-top: 26px;
+}
+
+.ml-track {
+    position: absolute;
+    left: 0;
+    top: 47px;
+    width: 820px;
+    height: 18px;
+    overflow: visible;
+    background-color: rgba(5, 13, 20, 0.96);
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: #314553;
+    border-right-color: #314553;
+    border-top-color: #5c7281;
+    border-bottom-color: #1c2931;
+    border-top-left-radius: 9px;
+    border-top-right-radius: 9px;
+    border-bottom-left-radius: 9px;
+    border-bottom-right-radius: 9px;
+}
+
+.ml-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 14px;
+    width: 0%;
+    background-color: #b77b33;
+    border-right-width: 3px;
+    border-right-color: #ffe2a5;
+    border-top-left-radius: 7px;
+    border-bottom-left-radius: 7px;
+}
+
+.ml-runner {
+    position: absolute;
+    left: 1%;
+    top: -54px;
+    width: 76px;
+    height: 76px;
+    overflow: visible;
+}
+
+.ml-runner-image {
+    position: absolute;
+    left: 8px;
+    top: 0;
+    width: 62px;
+    height: 62px;
+    background-image: url("/Assets/Resource/Image/Portrait/Monster/Spr_Port_Skeleton.png");
+    -unity-background-scale-mode: scale-and-crop;
+    background-color: #07131c;
+    border-left-width: 2px;
+    border-right-width: 2px;
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+    border-left-color: #c99349;
+    border-right-color: #c99349;
+    border-top-color: #f1cf8a;
+    border-bottom-color: #704622;
+    border-top-left-radius: 31px;
+    border-top-right-radius: 31px;
+    border-bottom-left-radius: 31px;
+    border-bottom-right-radius: 31px;
+}
+
+.ml-runner-shadow {
+    position: absolute;
+    left: 14px;
+    top: 59px;
+    width: 50px;
+    height: 9px;
+    background-color: rgba(0, 0, 0, 0.52);
+    border-top-left-radius: 25px;
+    border-top-right-radius: 25px;
+    border-bottom-left-radius: 25px;
+    border-bottom-right-radius: 25px;
+}
+
+.ml-runner-speed-line {
+    position: absolute;
+    left: -17px;
+    height: 3px;
+    background-color: rgba(226, 184, 109, 0.66);
+}
+
+.ml-runner-speed-line--top {
+    top: 22px;
+    width: 29px;
+}
+
+.ml-runner-speed-line--bottom {
+    top: 39px;
+    left: -7px;
+    width: 20px;
+}
+
+.ml-progress-copy {
+    position: absolute;
+    left: 0;
+    top: 76px;
+    width: 820px;
+    height: 30px;
+    flex-direction: row;
+    justify-content: space-between;
+}
+
+.ml-peers {
+    width: 400px;
+    height: 30px;
+    color: #97aebe;
+    font-size: 15px;
+    -unity-text-align: middle-left;
+}
+
+.ml-percent {
+    width: 120px;
+    height: 30px;
+    color: #f2cf8b;
+    font-size: 19px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-right;
+}

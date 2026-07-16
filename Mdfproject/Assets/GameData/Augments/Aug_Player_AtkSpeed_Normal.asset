@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 854c6d2b89fe346489caf756386b4481, type: 3}
   m_Name: Aug_Player_AtkSpeed_Normal
   m_EditorClassIdentifier: 
+  contentId: augment.player.attack_speed.normal
   augmentName: "\uC544\uAD70 \uACF5\uACA9\uC18D\uB3C4 \uC99D\uAC00 \uB178\uB9D0"
   description: "\uC544\uAD70\uC758 \uACF5\uACA9\uC18D\uB3C4\uB97C 20% \uC99D\uAC00\uC2DC\uD0B5\uB2C8\uB2E4."
   icon: {fileID: 21300000, guid: 022a60747890e4946a4f574da5e3b57d, type: 3}
@@ -19,7 +20,29 @@ MonoBehaviour:
   targetType: 0
   effectType: 1
   value: 0.2
+  effects:
+  - targetType: 0
+    effectType: 1
+    value: 0.2
+    isBossSummon: 0
+    bossMonsterData: {fileID: 0}
+    monsterSpawnEntries: []
+    strengthenedMonsterData: {fileID: 0}
+    monsterHealthBonusPercent: 0
+    monsterDamageBonusPercent: 0
+    monsterMoveSpeedBonusPercent: 0
+    kingDamageBonusPercent: 0
+    kingAttackSpeedBonusPercent: 0
+    kingSkillPowerBonusPercent: 0
+    magicScrollData: {fileID: 0}
   isBossSummon: 0
   bossMonsterData: {fileID: 0}
   monsterSpawnEntries: []
+  strengthenedMonsterData: {fileID: 0}
+  monsterHealthBonusPercent: 0
+  monsterDamageBonusPercent: 0
+  monsterMoveSpeedBonusPercent: 0
+  kingDamageBonusPercent: 0
+  kingAttackSpeedBonusPercent: 0
+  kingSkillPowerBonusPercent: 0
   magicScrollData: {fileID: 0}

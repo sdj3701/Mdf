@@ -51,14 +51,14 @@ public class ZoneController : MonoBehaviour
         Debug.LogWarning(message);
     }
 
-    public void ApplyScheduledTick()
+    public bool ApplyScheduledTick()
     {
         if (!isInitialized)
         {
-            return;
+            return false;
         }
 
-        ApplyTickEffects();
+        return ApplyTickEffects();
     }
 
     public void DestroyScheduledZone()
@@ -72,29 +72,46 @@ public class ZoneController : MonoBehaviour
         Destroy(gameObject);
     }
 
-    private void ApplyTickEffects()
+    private bool ApplyTickEffects()
     {
         if (zoneEffect.effectsPerTick == null || zoneEffect.effectsPerTick.Count == 0)
         {
             LogZoneWarning($"[Zone] {zoneEffect.name} has no tick effects.");
-            return;
+            return true;
         }
 
         List<GameObject> targetsInZone = FindTargetsInZone();
         if (targetsInZone.Count == 0)
         {
-            return;
+            return true;
         }
 
         LogZone($"<color=magenta>[Zone] {zoneEffect.name} applying effects to {targetsInZone.Count} targets.</color>");
+
+        if (!SkillEffect.CanApplyAllEffects(
+                zoneEffect.effectsPerTick,
+                runner,
+                caster,
+                targetsInZone,
+                skillRange,
+                targetingStrategy))
+        {
+            return false;
+        }
 
         foreach (var effect in zoneEffect.effectsPerTick)
         {
             if (effect != null)
             {
-                effect.ApplyEffect(runner, caster, targetsInZone, skillRange, targetingStrategy);
+                if (!effect.TryApplyEffect(runner, caster, targetsInZone, skillRange, targetingStrategy))
+                {
+                    Debug.LogError($"[Zone] Capacity preflight drifted before apply. zone={zoneEffect.name}, effect={effect.name}");
+                    return false;
+                }
             }
         }
+
+        return true;
     }
 
     private List<GameObject> FindTargetsInZone()
@@ -120,7 +137,9 @@ public class ZoneController : MonoBehaviour
         {
             if (schedulerSequence > 0)
             {
-                CombatScheduler.Instance?.ClearScheduledZone(schedulerSequence, $"stateChanged:{newState}");
+                CombatScheduler.Instance?.CloseScheduledZoneForPhaseTransition(
+                    schedulerSequence,
+                    $"stateChanged:{newState}");
                 return;
             }
 

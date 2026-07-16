@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -22,7 +23,7 @@ public static class MPTestStateSnapshot
 
         var snapshot = new Snapshot
         {
-            Version = 1,
+            Version = 4,
             Role = string.IsNullOrWhiteSpace(role) ? options.SafeRole : role,
             CaseName = string.IsNullOrWhiteSpace(caseName) ? options.CaseName : caseName,
             Session = ResolveSession(session, options, networkManager, runner),
@@ -211,6 +212,11 @@ public static class MPTestStateSnapshot
             TransitionToState = gameManagers != null ? SafeString(() => gameManagers.TransitionToStateTarget.ToString(), Unknown) : null,
             SequenceTransitionRemaining = gameManagers != null ? SafeFloat(() => gameManagers.currentSequenceTransitionTimer, 0f) : 0f,
             SequenceTransitionDuration = gameManagers != null ? SafeFloat(() => gameManagers.sequenceTransitionDelaySeconds, 0f) : 0f,
+            CombatExitDebtGateActive = gameManagers != null && SafeBool(() => gameManagers.IsCombatExitDebtGateActive, false),
+            // Retained as an always-false JSON compatibility field for older harness readers.
+            CombatExitDebtSafeStopped = gameManagers != null &&
+                                        SafeBool(() => gameManagers.IsCombatExitDebtTerminalFailureSafeStopped, false),
+            UnresolvedCombatExitDebtCount = gameManagers != null ? SafeInt(() => gameManagers.UnresolvedCombatExitDebtCount, 0) : 0,
             FirstAttackerPlayerId = gameManagers != null ? firstAttackerPlayerId : -1,
             BattleOpponentsHash = HashStableString(battleOpponentsSnapshot),
             MatchFirstAttackerHash = HashStableString(matchFirstAttackerSnapshot),
@@ -288,13 +294,64 @@ public static class MPTestStateSnapshot
         bool isLocal = networkObjectValid && SafeBool(() => networkObject.HasInputAuthority, false);
         bool isAi = SafeBool(() => player.IsAiControlled, false) || ComponentRegistry.Has<AIPlayerController>(playerId.ToString());
         RefreshPlayerRuntimeForSnapshot(player, errors);
+        KingRuntimeMigrationState kingState = SafeRef(
+            player.CaptureKingRuntimeMigrationState,
+            default(KingRuntimeMigrationState));
+        DemonRuntimeMigrationState demonState = SafeRef(
+            player.CaptureDemonRuntimeMigrationState,
+            default(DemonRuntimeMigrationState));
+        bool kingPresentationReady = false;
+        float kingGoalDistance = -1f;
+        float kingConfiguredScaleMultiplier = -1f;
+        float kingWorldScaleDrift = -1f;
+        float kingPresentationTransformDrift = -1f;
+        float kingRigTransformDrift = -1f;
+        bool kingUsesNeutralGoalAnchor = false;
+        bool kingRigPinRequired = false;
+        bool kingRigPinActive = false;
+        bool kingOrientationReady = false;
+        float kingCameraFacingAngle = -1f;
+        bool kingHeadLookActive = false;
+        bool kingHeadLookApplied = false;
+        bool kingBaseHeadPoseComparable = false;
+        KingBaseHeadPoseDiagnostics kingBaseHeadPose = default;
+        int appliedMapThemeId = 0;
+        bool mapThemePresentationReady = SafeBool(
+            () => player.TryCaptureMapThemePresentation(out appliedMapThemeId),
+            false);
+        try
+        {
+            kingPresentationReady = player.TryCaptureKingPresentationDiagnostics(
+                out kingGoalDistance,
+                out kingConfiguredScaleMultiplier,
+                out kingWorldScaleDrift,
+                out kingPresentationTransformDrift,
+                out kingRigTransformDrift,
+                out kingUsesNeutralGoalAnchor,
+                out kingRigPinRequired,
+                out kingRigPinActive);
+            kingOrientationReady = player.TryCaptureKingOrientationDiagnostics(
+                out kingCameraFacingAngle,
+                out kingHeadLookActive,
+                out kingHeadLookApplied);
+            kingBaseHeadPoseComparable = player.TryCaptureKingBaseHeadPoseDiagnostics(
+                out kingBaseHeadPose);
+        }
+        catch (Exception ex)
+        {
+            errors.Add($"player.{playerId}.king.presentation:{ex.GetType().Name}");
+        }
 
         return new PlayerSnapshot
         {
             PlayerId = playerId,
             NetworkId = networkId,
             PlayerRef = playerRef,
-            ConnectionTokenHash = isLocal ? options.ConnectionTokenHash : Unknown,
+            ConnectionTokenHash = PlayerManager.IsValidDurableConnectionTokenHash(player.GetDurableConnectionTokenHash())
+                ? player.GetDurableConnectionTokenHash()
+                : (isLocal && PlayerManager.IsValidDurableConnectionTokenHash(options.ConnectionTokenHash)
+                    ? options.ConnectionTokenHash
+                    : Unknown),
             HasInputAuthority = isLocal,
             HasStateAuthority = networkObjectValid && SafeBool(() => networkObject.HasStateAuthority, false),
             IsLocal = isLocal,
@@ -303,8 +360,52 @@ public static class MPTestStateSnapshot
             Health = SafeInt(player.GetHealth, 0),
             Gold = SafeInt(player.GetGold, 0),
             WallCount = SafeInt(player.GetWallCount, 0),
+            PermanentWallPlacementCount = SafeInt(player.GetPermanentWallPlacementCount, 0),
+            PermanentWallStockRevision = SafeInt(() => player.PermanentWallStockRevision, 0),
+            PermanentWallLayoutRevision = SafeInt(() => player.PermanentWallLayoutRevision, 0),
             IsActivelyFighting = SafeBool(() => player.IsActivelyFighting, false),
             IsAttackerInCurrentBattle = SafeBool(() => player.IsAttackerInCurrentBattle, false),
+            BlackMagicCurrent = SafeInt(() => player.BlackMagicCurrent, 0),
+            BlackMagicMaximum = SafeInt(() => player.BlackMagicMaximum, 0),
+            BlackMagicMaxBonus = SafeInt(() => player.BlackMagicMaxBonus, 0),
+            BlackMagicRevision = SafeInt(() => player.BlackMagicRevision, 0),
+            BlackMagicSequenceId = SafeInt(() => player.BlackMagicSequenceId, 0),
+            SelectedMapThemeId = SafeInt(() => player.SelectedMapThemeId, MapThemeCatalog.DefaultId),
+            AppliedMapThemeId = appliedMapThemeId,
+            MapThemePresentationReady = mapThemePresentationReady,
+            SelectedKingUnitKeyHash = SafeInt(() => player.SelectedKingUnitKeyHash, 0),
+            KingDataReady = SafeBool(() => player.KingRuntimeDataReady, false),
+            KingSkillUsedThisDefense = SafeBool(() => player.KingSkillUsedThisDefense, false),
+            KingCanUseSkill = SafeBool(() => player.CanUseKingSkill, false),
+            KingDefenseSequenceId = kingState.DefenseSequenceId,
+            KingDamageReactionSequence = kingState.DamageReactionSequence,
+            KingAttackPresentationSequence = kingState.AttackPresentationSequence,
+            KingSkillPresentationSequence = kingState.SkillPresentationSequence,
+            KingAttackDamageBonusPermille = kingState.AttackDamageBonusPermille,
+            KingAttackSpeedBonusPermille = kingState.AttackSpeedBonusPermille,
+            KingSkillPowerBonusPermille = kingState.SkillPowerBonusPermille,
+            SelectedDemonKeyHash = SafeInt(() => player.SelectedDemonKeyHash, 0),
+            DemonDataReady = SafeBool(() => player.DemonRuntimeDataReady, false),
+            DemonSkillUsedThisAttack = SafeBool(() => player.DemonSkillUsedThisAttack, false),
+            DemonCanUseSkill = SafeBool(() => player.CanUseDemonSkill, false),
+            DemonAttackSequenceId = demonState.AttackSequenceId,
+            DemonSkillPresentationSequence = demonState.SkillPresentationSequence,
+            KingPresentationReady = kingPresentationReady,
+            KingPresentationGoalDistance = kingPresentationReady ? kingGoalDistance : (float?)null,
+            KingPresentationScaleMultiplier = kingConfiguredScaleMultiplier >= 0f ? kingConfiguredScaleMultiplier : (float?)null,
+            KingPresentationWorldScaleDrift = kingPresentationReady ? kingWorldScaleDrift : (float?)null,
+            KingPresentationTransformDrift = kingPresentationReady ? kingPresentationTransformDrift : (float?)null,
+            KingRigTransformDrift = kingPresentationReady ? kingRigTransformDrift : (float?)null,
+            KingUsesNeutralGoalAnchor = kingPresentationReady ? kingUsesNeutralGoalAnchor : (bool?)null,
+            KingRigPinRequired = kingPresentationReady ? kingRigPinRequired : (bool?)null,
+            KingRigPinActive = kingPresentationReady ? kingRigPinActive : (bool?)null,
+            KingCameraFacingAngle = kingOrientationReady ? kingCameraFacingAngle : (float?)null,
+            KingHeadLookActive = kingOrientationReady ? kingHeadLookActive : (bool?)null,
+            KingHeadLookApplied = kingOrientationReady ? kingHeadLookApplied : (bool?)null,
+            KingHeadPresentationMode = player.KingHeadPresentationMode,
+            KingHeadPose = string.IsNullOrEmpty(kingBaseHeadPose.BaseUnitKey)
+                ? null
+                : CaptureKingHeadPoseSnapshot(kingBaseHeadPoseComparable, kingBaseHeadPose),
             AttackMonsterPoolHash = CaptureAttackMonsterPoolHash(player),
             AttackMonsterPoolParts = CaptureAttackMonsterPoolParts(player),
             OwnedScrollsHash = CaptureOwnedScrollsHash(player),
@@ -315,6 +416,56 @@ public static class MPTestStateSnapshot
             Field = CaptureField(player, errors),
             Monsters = CaptureMonsters(player),
             Ai = CaptureAi(playerId, player)
+        };
+    }
+
+    private static KingHeadPoseSnapshot CaptureKingHeadPoseSnapshot(
+        bool comparable,
+        KingBaseHeadPoseDiagnostics source)
+    {
+        return new KingHeadPoseSnapshot
+        {
+            Comparable = comparable,
+            KingHeadFound = source.KingHeadFound,
+            BaseUnitFound = source.BaseUnitFound,
+            CameraFound = source.CameraFound,
+            BaseUnitKey = source.BaseUnitKey,
+            BaseUnitName = source.BaseUnitName,
+            KingHeadLookRecent = source.KingHeadFound ? source.KingHeadLookRecent : (bool?)null,
+            BaseHeadLookRecent = source.BaseUnitFound ? source.BaseHeadLookRecent : (bool?)null,
+            KingHeadLookFrameAge = source.KingHeadLookFrameAge >= 0
+                ? source.KingHeadLookFrameAge
+                : (int?)null,
+            BaseHeadLookFrameAge = source.BaseHeadLookFrameAge >= 0
+                ? source.BaseHeadLookFrameAge
+                : (int?)null,
+            KingAnimatorCullingMode = string.IsNullOrEmpty(source.KingAnimatorCullingMode)
+                ? null
+                : source.KingAnimatorCullingMode,
+            BaseAnimatorCullingMode = string.IsNullOrEmpty(source.BaseAnimatorCullingMode)
+                ? null
+                : source.BaseAnimatorCullingMode,
+            RootRelativeRotationDeltaDeg = comparable
+                ? source.RootRelativeRotationDeltaDeg
+                : (float?)null,
+            KingForwardElevationDeg = source.KingHeadFound
+                ? source.KingForwardElevationDeg
+                : (float?)null,
+            BaseForwardElevationDeg = source.BaseUnitFound
+                ? source.BaseForwardElevationDeg
+                : (float?)null,
+            KingToCameraAngleDeg = source.KingHeadFound && source.CameraFound
+                ? source.KingToCameraAngleDeg
+                : (float?)null,
+            BaseToCameraAngleDeg = source.BaseUnitFound && source.CameraFound
+                ? source.BaseToCameraAngleDeg
+                : (float?)null,
+            KingToConfiguredLookAngleDeg = source.KingHeadFound
+                ? source.KingToConfiguredLookAngleDeg
+                : (float?)null,
+            BaseToConfiguredLookAngleDeg = source.BaseUnitFound
+                ? source.BaseToConfiguredLookAngleDeg
+                : (float?)null
         };
     }
 
@@ -497,12 +648,15 @@ public static class MPTestStateSnapshot
 
         var parts = monsterDataNames.Select((monsterDataName, index) =>
         {
+            bool isBoss = ReadArrayValue(isBossValues, index, 0) != 0;
+            int blackMagicCost = ResolveAttackMonsterPoolBlackMagicCost(player, index, isBoss);
+            string spendMode = isBoss ? "boss-entitlement" : "black-magic";
             if (string.IsNullOrWhiteSpace(monsterDataName))
             {
-                return $"{index}:null";
+                return $"{index}:type=null;remaining={ReadArrayValue(remainingCounts, index, 0)};max={ReadArrayValue(maxCounts, index, 0)};boss={isBoss};mode={spendMode};blackMagicCost={blackMagicCost};bossId={ReadArrayValue(bossUniqueIds, index, -1)};target={ReadArrayValue(targetPlayerIds, index, -1)};origin={ReadArrayValue(originPlayerIds, index, -1)}";
             }
 
-            return $"{index}:type={monsterDataName.Trim()};remaining={ReadArrayValue(remainingCounts, index, 0)};max={ReadArrayValue(maxCounts, index, 0)};boss={ReadArrayValue(isBossValues, index, 0) != 0};bossId={ReadArrayValue(bossUniqueIds, index, -1)};target={ReadArrayValue(targetPlayerIds, index, -1)};origin={ReadArrayValue(originPlayerIds, index, -1)}";
+            return $"{index}:type={monsterDataName.Trim()};remaining={ReadArrayValue(remainingCounts, index, 0)};max={ReadArrayValue(maxCounts, index, 0)};boss={isBoss};mode={spendMode};blackMagicCost={blackMagicCost};bossId={ReadArrayValue(bossUniqueIds, index, -1)};target={ReadArrayValue(targetPlayerIds, index, -1)};origin={ReadArrayValue(originPlayerIds, index, -1)}";
         }).Concat(new[] { $"revision={revision}" });
         return HashStableParts(parts);
     }
@@ -547,8 +701,28 @@ public static class MPTestStateSnapshot
         return monsterDataNames.Select((monsterDataName, index) =>
         {
             string type = string.IsNullOrWhiteSpace(monsterDataName) ? "null" : monsterDataName.Trim();
-            return $"{index}:type={type};remaining={ReadArrayValue(remainingCounts, index, 0)};max={ReadArrayValue(maxCounts, index, 0)};boss={ReadArrayValue(isBossValues, index, 0) != 0};bossId={ReadArrayValue(bossUniqueIds, index, -1)};target={ReadArrayValue(targetPlayerIds, index, -1)};origin={ReadArrayValue(originPlayerIds, index, -1)};revision={revision}";
+            bool isBoss = ReadArrayValue(isBossValues, index, 0) != 0;
+            int blackMagicCost = ResolveAttackMonsterPoolBlackMagicCost(player, index, isBoss);
+            string spendMode = isBoss ? "boss-entitlement" : "black-magic";
+            return $"{index}:type={type};remaining={ReadArrayValue(remainingCounts, index, 0)};max={ReadArrayValue(maxCounts, index, 0)};boss={isBoss};mode={spendMode};blackMagicCost={blackMagicCost};bossId={ReadArrayValue(bossUniqueIds, index, -1)};target={ReadArrayValue(targetPlayerIds, index, -1)};origin={ReadArrayValue(originPlayerIds, index, -1)};revision={revision}";
         }).ToArray();
+    }
+
+    private static int ResolveAttackMonsterPoolBlackMagicCost(PlayerManager player, int index, bool isBoss)
+    {
+        if (isBoss)
+        {
+            return 0;
+        }
+
+        var pool = SafeRef(() => player.AttackMonsterPool, null);
+        if (pool == null || index < 0 || index >= pool.Count)
+        {
+            return -1;
+        }
+
+        MonsterData monsterData = pool[index]?.MonsterData;
+        return monsterData != null ? Mathf.Max(0, monsterData.blackMagicCost) : -1;
     }
 
     private static int ReadArrayValue(int[] values, int index, int fallback)
@@ -577,7 +751,7 @@ public static class MPTestStateSnapshot
             }
 
             string scrollKey = BuildScriptableObjectKey(scroll, SafeString(() => scroll.scrollName, string.Empty));
-            string skillKey = BuildScriptableObjectKey(scroll.skillData, SafeString(() => scroll.skillData.skillName, string.Empty));
+            string skillKey = BuildScriptableObjectKey(scroll.skillData, SafeString(() => scroll.skillData.ContentId, string.Empty));
             return $"{index}:scroll={scrollKey};asset={scroll.name};skill={skillKey};revision={revision}";
         });
 
@@ -589,11 +763,11 @@ public static class MPTestStateSnapshot
         var presented = SafeRef(() => player.augmentManager != null ? player.augmentManager.GetPresentedAugments() : null, null);
         var chosen = SafeRef(() => player.chosenAugments, null);
         var localPresentedParts = presented != null && presented.Count > 0
-            ? presented.Select(augment => augment != null ? augment.augmentName ?? string.Empty : "null")
+            ? presented.Select(augment => augment != null ? augment.ContentId : "null")
             : Array.Empty<string>() as IEnumerable<string>;
         var networkPresentedParts = SafeRef(() => player.GetPresentedAugmentSnapshotNames(), null) ?? Array.Empty<string>();
         var localSelectedParts = chosen != null && chosen.Count > 0
-            ? chosen.Select(augment => augment != null ? augment.augmentName ?? string.Empty : "null")
+            ? chosen.Select(augment => augment != null ? augment.ContentId : "null")
             : Array.Empty<string>() as IEnumerable<string>;
         var networkSelectedParts = SafeRef(() => player.GetSelectedAugmentSnapshotNames(), null) ?? Array.Empty<string>();
         var selectedParts = networkSelectedParts.Any() ? networkSelectedParts : localSelectedParts;
@@ -651,7 +825,7 @@ public static class MPTestStateSnapshot
         int playerId = SafeInt(() => player.playerId, -1);
         foreach (var augment in EnumerateSelectedAugmentsForSnapshot(player))
         {
-            yield return $"selected;owner={playerId};augment={SafeString(() => augment.augmentName, string.Empty)};target={ResolveAugmentTargetPart(player, augment)}";
+            yield return $"selected;owner={playerId};augment={SafeString(() => augment.ContentId, string.Empty)};target={ResolveAugmentTargetPart(player, augment)}";
         }
 
     }
@@ -675,9 +849,9 @@ public static class MPTestStateSnapshot
             yield break;
         }
 
-        foreach (string augmentName in names.Where(name => !string.IsNullOrWhiteSpace(name)))
+        foreach (string augmentContentId in names.Where(name => !string.IsNullOrWhiteSpace(name)))
         {
-            AugmentData augment = SafeRef(() => player.augmentManager.FindAugmentByName(augmentName), null);
+            AugmentData augment = SafeRef(() => player.augmentManager.FindAugmentByContentId(augmentContentId), null);
             if (augment != null)
             {
                 yield return augment;
@@ -687,35 +861,69 @@ public static class MPTestStateSnapshot
 
     private static string BuildAugmentEffectPart(AugmentData augment)
     {
-        string name = SafeString(() => augment.augmentName, string.Empty);
-        int valuePermille = Mathf.RoundToInt(SafeFloat(() => augment.value, 0f) * 1000f);
-        return $"name={name};tier={SafeString(() => augment.tier.ToString(), Unknown)};effect={SafeString(() => augment.effectType.ToString(), Unknown)};targetType={SafeString(() => augment.targetType.ToString(), Unknown)};valuePermille={valuePermille};payload={BuildAugmentPayloadPart(augment)}";
+        string contentId = SafeString(() => augment.ContentId, string.Empty);
+        var parts = new List<string>(augment.EffectCount);
+        for (int index = 0; index < augment.EffectCount; index++)
+        {
+            AugmentEffectData effect = augment.GetEffect(index);
+            parts.Add(effect == null ? $"{index}:null" : $"{index}:{BuildAugmentEffectPayloadPart(effect)}");
+        }
+
+        return $"contentId={contentId};tier={SafeString(() => augment.tier.ToString(), Unknown)};effects=[{string.Join("|", parts)}]";
     }
 
-    private static string BuildAugmentPayloadPart(AugmentData augment)
+    private static string BuildAugmentEffectPayloadPart(AugmentEffectData effect)
     {
-        if (augment == null)
+        if (effect == null)
         {
             return "null";
         }
 
-        if (augment.effectType == EffectType.SpawnMonsterOnEnemyField)
+        int valuePermille = Mathf.RoundToInt(SafeFloat(() => effect.value, 0f) * 1000f);
+        string payload = BuildAugmentPayloadPart(effect);
+        return $"effect={SafeString(() => effect.effectType.ToString(), Unknown)};targetType={SafeString(() => effect.targetType.ToString(), Unknown)};valuePermille={valuePermille};payload={payload}";
+    }
+
+    private static string BuildAugmentPayloadPart(AugmentEffectData effect)
+    {
+        if (effect.effectType == EffectType.SpawnMonsterOnEnemyField)
         {
-            if (augment.isBossSummon)
+            if (effect.isBossSummon)
             {
-                return "boss=" + BuildMonsterDataKey(augment.bossMonsterData);
+                return "boss=" + BuildMonsterDataKey(effect.bossMonsterData);
             }
 
-            var entries = augment.monsterSpawnEntries ?? new List<MonsterSpawnEntry>();
+            var entries = effect.monsterSpawnEntries ?? new List<MonsterSpawnEntry>();
             return "monsters=" + string.Join(",", entries
                 .Where(entry => entry != null && entry.monsterData != null && entry.count > 0)
                 .Select(entry => $"{BuildMonsterDataKey(entry.monsterData)}x{entry.count}")
                 .OrderBy(part => part, StringComparer.Ordinal));
         }
 
-        if (augment.effectType == EffectType.GrantMagicScroll)
+        if (effect.effectType == EffectType.GrantMagicScroll)
         {
-            return "scroll=" + BuildScriptableObjectKey(augment.magicScrollData, augment.magicScrollData != null ? augment.magicScrollData.scrollName : string.Empty);
+            return "scroll=" + BuildScriptableObjectKey(effect.magicScrollData, effect.magicScrollData != null ? effect.magicScrollData.scrollName : string.Empty);
+        }
+
+        if (effect.effectType == EffectType.StrengthenMonsterType)
+        {
+            int healthPermille = Mathf.RoundToInt(SafeFloat(() => effect.monsterHealthBonusPercent, 0f) * 1000f);
+            int damagePermille = Mathf.RoundToInt(SafeFloat(() => effect.monsterDamageBonusPercent, 0f) * 1000f);
+            int moveSpeedPermille = Mathf.RoundToInt(SafeFloat(() => effect.monsterMoveSpeedBonusPercent, 0f) * 1000f);
+            return $"monster={BuildMonsterDataKey(effect.strengthenedMonsterData)};healthPermille={healthPermille};damagePermille={damagePermille};moveSpeedPermille={moveSpeedPermille}";
+        }
+
+        if (effect.effectType == EffectType.StrengthenKing)
+        {
+            int damagePermille = Mathf.RoundToInt(SafeFloat(() => effect.kingDamageBonusPercent, 0f) * 1000f);
+            int speedPermille = Mathf.RoundToInt(SafeFloat(() => effect.kingAttackSpeedBonusPercent, 0f) * 1000f);
+            int skillPermille = Mathf.RoundToInt(SafeFloat(() => effect.kingSkillPowerBonusPercent, 0f) * 1000f);
+            return $"kingDamagePermille={damagePermille};kingSpeedPermille={speedPermille};kingSkillPermille={skillPermille}";
+        }
+
+        if (effect.effectType == EffectType.IncreaseBlackMagicMaximum)
+        {
+            return $"blackMagicMaximumDelta={Mathf.RoundToInt(SafeFloat(() => effect.value, 0f))}";
         }
 
         return "none";
@@ -728,7 +936,21 @@ public static class MPTestStateSnapshot
             return "unknown";
         }
 
-        if (augment.targetType == TargetType.Player)
+        bool targetsPlayer = false;
+        bool targetsOpponent = false;
+        for (int index = 0; index < augment.EffectCount; index++)
+        {
+            AugmentEffectData effect = augment.GetEffect(index);
+            targetsPlayer |= effect != null && effect.targetType == TargetType.Player;
+            targetsOpponent |= effect != null && effect.targetType == TargetType.Opponent;
+        }
+
+        if (targetsPlayer && targetsOpponent)
+        {
+            return "mixed";
+        }
+
+        if (targetsPlayer)
         {
             return "player:" + SafeInt(() => player.playerId, -1);
         }
@@ -759,11 +981,22 @@ public static class MPTestStateSnapshot
                 DeadUnitsHash = Unknown,
                 PlacedUnitsHash = Unknown,
                 PlacedUnitParts = Array.Empty<string>(),
+                UnitRuntimeStateHash = Unknown,
+                UnitRuntimeStateParts = Array.Empty<string>(),
+                UnitAttackCooldownHash = Unknown,
+                UnitAttackCooldownParts = Array.Empty<string>(),
                 DestructibleWallCount = null,
                 PermanentWallCount = null,
+                PlayerPlacedPermanentWallCount = null,
+                PlayerPlacedPermanentWallHash = Unknown,
                 WallHash = Unknown,
+                WallParts = Array.Empty<string>(),
+                DestructibleWallHealthHash = Unknown,
+                DestructibleWallHealthParts = Array.Empty<string>(),
                 PathReady = false,
-                GoalReady = SafeBool(() => player.goalTransform != null, false)
+                GoalReady = SafeBool(() => player.goalTransform != null, false),
+                GoalCell = Unknown,
+                RegularUnitGoalViolationCount = null
             };
         }
 
@@ -771,6 +1004,18 @@ public static class MPTestStateSnapshot
         string[] wallParts = string.IsNullOrEmpty(wallCells)
             ? Array.Empty<string>()
             : wallCells.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+        string destructibleWallHealth = SafeString(field.BuildDestructibleWallHealthSnapshot, string.Empty);
+        string[] destructibleWallHealthParts = string.IsNullOrEmpty(destructibleWallHealth)
+            ? Array.Empty<string>()
+            : destructibleWallHealth.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries);
+        int[] playerPlacedPermanentWalls = SafeRef(
+            field.GetPlayerPlacedPermanentWallFlatPositions,
+            Array.Empty<int>());
+        var playerPlacedPermanentWallParts = new List<string>(playerPlacedPermanentWalls.Length / 2);
+        for (int i = 0; i + 1 < playerPlacedPermanentWalls.Length; i += 2)
+        {
+            playerPlacedPermanentWallParts.Add($"{playerPlacedPermanentWalls[i]},{playerPlacedPermanentWalls[i + 1]}");
+        }
 
         List<Unit> units = new List<Unit>();
         try
@@ -791,6 +1036,14 @@ public static class MPTestStateSnapshot
             .Select(unit => BuildUnitLifecyclePart(field, unit))
             .OrderBy(part => part, StringComparer.Ordinal)
             .ToArray();
+        var runtimeStateParts = units
+            .Select(unit => BuildUnitRuntimeStatePart(field, unit))
+            .OrderBy(part => part, StringComparer.Ordinal)
+            .ToArray();
+        var attackCooldownParts = units
+            .Select(unit => BuildUnitAttackCooldownPart(field, unit))
+            .OrderBy(part => part, StringComparer.Ordinal)
+            .ToArray();
 
         return new FieldSnapshot
         {
@@ -807,11 +1060,26 @@ public static class MPTestStateSnapshot
             DeadUnitsHash = deadUnitParts.Length > 0 ? HashStableParts(deadUnitParts) : Unknown,
             PlacedUnitsHash = HashStableParts(unitParts),
             PlacedUnitParts = unitParts,
+            UnitRuntimeStateHash = HashStableParts(runtimeStateParts),
+            UnitRuntimeStateParts = runtimeStateParts,
+            UnitAttackCooldownHash = HashStableParts(attackCooldownParts),
+            UnitAttackCooldownParts = attackCooldownParts,
             DestructibleWallCount = wallParts.Count(part => part.StartsWith("D", StringComparison.Ordinal)),
             PermanentWallCount = wallParts.Count(part => part.StartsWith("P", StringComparison.Ordinal)),
+            PlayerPlacedPermanentWallCount = playerPlacedPermanentWallParts.Count,
+            PlayerPlacedPermanentWallHash = HashStableParts(playerPlacedPermanentWallParts),
             WallHash = HashStableString(wallCells),
+            WallParts = wallParts,
+            DestructibleWallHealthHash = HashStableString(destructibleWallHealth),
+            DestructibleWallHealthParts = destructibleWallHealthParts,
             PathReady = SafeBool(() => player.astarGrid != null, false),
-            GoalReady = SafeBool(() => player.goalTransform != null, false)
+            GoalReady = SafeBool(() => player.goalTransform != null, false),
+            GoalCell = SafeString(() =>
+            {
+                Vector3Int goalCell = field.GetGoalGridPosition();
+                return $"{goalCell.x},{goalCell.y},{goalCell.z}";
+            }, Unknown),
+            RegularUnitGoalViolationCount = SafeInt(field.GetRegularUnitGoalViolationCount, 0)
         };
     }
 
@@ -839,6 +1107,47 @@ public static class MPTestStateSnapshot
     {
         int hpBucket = BuildHpBucket(SafeFloat(() => unit.CurrentHealth, 0f), SafeFloat(() => unit.MaxHealth, 0f));
         return $"{BuildUnitPart(field, unit)};dead={SafeBool(() => unit.IsDead, false)};active={SafeBool(() => unit.gameObject.activeInHierarchy, false)};hpBucket={hpBucket}";
+    }
+
+    private static string BuildUnitRuntimeStatePart(FieldManager field, Unit unit)
+    {
+        var position = SafeRef(() => field.GetUnitPosition(unit), (Vector3Int?)null);
+        string positionPart = position.HasValue
+            ? $"{position.Value.x},{position.Value.y},{position.Value.z}"
+            : "unknown-pos";
+        string dataKey = SafeString(() => unit.UnitDataKeyForRoster, "unknown-data");
+        var runtime = new FieldUnitMigrationSnapshot
+        {
+            UnitDataKey = dataKey,
+            StarLevel = SafeInt(() => unit.StarLevelForRoster, 1),
+            Position = position ?? default
+        };
+        try
+        {
+            unit.CaptureMigrationRuntimeState(ref runtime);
+        }
+        catch
+        {
+            return $"{positionPart}:{dataKey}:runtime=unknown";
+        }
+
+        int hpMilli = Mathf.RoundToInt(runtime.CurrentHealth * 1000f);
+        int maxHpMilli = Mathf.RoundToInt(runtime.MaxHealth * 1000f);
+        int manaMilli = Mathf.RoundToInt(runtime.CurrentMana * 1000f);
+        int maxManaMilli = Mathf.RoundToInt(runtime.MaxMana * 1000f);
+        return $"{positionPart}:{dataKey}:star={runtime.StarLevel};hpMilli={hpMilli};maxHpMilli={maxHpMilli};manaMilli={manaMilli};maxManaMilli={maxManaMilli};activation={runtime.ActivationMode};hasActivation={runtime.HasActivationMode};dead={runtime.IsDead}";
+    }
+
+    private static string BuildUnitAttackCooldownPart(FieldManager field, Unit unit)
+    {
+        var position = SafeRef(() => field.GetUnitPosition(unit), (Vector3Int?)null);
+        string positionPart = position.HasValue
+            ? $"{position.Value.x},{position.Value.y},{position.Value.z}"
+            : "unknown-pos";
+        string dataKey = SafeString(() => unit.UnitDataKeyForRoster, "unknown-data");
+        int cooldownDeciseconds = Mathf.RoundToInt(
+            SafeFloat(unit.CaptureAttackCooldownRemaining, 0f) * 10f);
+        return $"{positionPart}:{dataKey}:attackCooldownDs={cooldownDeciseconds}";
     }
 
     private static bool ShouldIncludeUnitPositionInSnapshot()
@@ -1030,8 +1339,10 @@ public static class MPTestStateSnapshot
         float maxHp = SafeFloat(() => monster.NetworkedMaxHP, 0f);
         int hpPermille = maxHp > 0f ? Mathf.RoundToInt(Mathf.Clamp01(hp / maxHp) * 1000f) : -1;
         var statusBar = SafeRef(() => monster.GetComponentInChildren<StatusBarUI>(true), null);
-        bool healthBarVisible = statusBar != null && SafeBool(() => statusBar.healthBarImage != null && statusBar.healthBarImage.gameObject.activeSelf, false);
-        bool healthBarBackgroundVisible = statusBar != null && SafeBool(() => statusBar.healthBarBackgroundImage != null && statusBar.healthBarBackgroundImage.gameObject.activeSelf, false);
+        bool statusBarRootActive = statusBar != null && SafeBool(() => statusBar.gameObject.activeInHierarchy, false);
+        bool statusBarCameraHidden = statusBar != null && SafeBool(() => statusBar.IsHiddenByCameraField, false);
+        bool healthBarVisible = statusBarRootActive && SafeBool(() => statusBar.healthBarImage != null && statusBar.healthBarImage.gameObject.activeInHierarchy, false);
+        bool healthBarBackgroundVisible = statusBarRootActive && SafeBool(() => statusBar.healthBarBackgroundImage != null && statusBar.healthBarBackgroundImage.gameObject.activeInHierarchy, false);
         float fillAmount = statusBar != null ? SafeFloat(() => statusBar.healthBarImage != null ? statusBar.healthBarImage.fillAmount : -1f, -1f) : -1f;
         int fillPermille = fillAmount >= 0f ? Mathf.RoundToInt(Mathf.Clamp01(fillAmount) * 1000f) : -1;
         int ownerId = SafeInt(() => monster.SnapshotOwnerPlayerId, -1);
@@ -1040,7 +1351,7 @@ public static class MPTestStateSnapshot
         int bossOriginId = isBoss ? SafeInt(() => monster.SnapshotBossOriginPlayerId, -1) : -1;
         string networkId = SafeString(() => monster.Object.Id.ToString(), "no-network");
         bool active = SafeBool(() => monster.gameObject.activeInHierarchy, false);
-        return $"type={BuildMonsterDataKey(monster)};owner={ownerId};net={networkId};boss={isBoss};bossId={bossUniqueId};bossOrigin={bossOriginId};hp={Mathf.RoundToInt(hp)};max={Mathf.RoundToInt(maxHp)};hpPermille={hpPermille};healthBarVisible={healthBarVisible};healthBarBgVisible={healthBarBackgroundVisible};healthBarFillPermille={fillPermille};active={active}";
+        return $"type={BuildMonsterDataKey(monster)};owner={ownerId};net={networkId};boss={isBoss};bossId={bossUniqueId};bossOrigin={bossOriginId};hp={Mathf.RoundToInt(hp)};max={Mathf.RoundToInt(maxHp)};hpPermille={hpPermille};statusBarRootActive={statusBarRootActive};statusBarCameraHidden={statusBarCameraHidden};healthBarVisible={healthBarVisible};healthBarBgVisible={healthBarBackgroundVisible};healthBarFillPermille={fillPermille};active={active}";
     }
 
     private static string BuildMonsterOwnerOriginPart(PlayerManager fieldOwner, Monster monster)
@@ -1070,7 +1381,7 @@ public static class MPTestStateSnapshot
 
     private static string BuildMonsterBossPoolIdentityPart(Monster monster)
     {
-        return $"type={BuildMonsterDataKey(monster)};bossId={SafeInt(() => monster.SnapshotBossUniqueId, -1)};bossOrigin={SafeInt(() => monster.SnapshotBossOriginPlayerId, -1)};owner={SafeInt(() => monster.SnapshotOwnerPlayerId, -1)}";
+        return $"type={BuildMonsterDataKey(monster)};bossId={SafeInt(() => monster.SnapshotBossUniqueId, -1)};bossOrigin={SafeInt(() => monster.SnapshotBossOriginPlayerId, -1)};owner={SafeInt(() => monster.SnapshotOwnerPlayerId, -1)};attacker={SafeInt(() => monster.SnapshotSpawnAttackerPlayerId, -1)}";
     }
 
     private static int BuildHpBucket(float currentHp, float maxHp)
@@ -1250,6 +1561,17 @@ public static class MPTestStateSnapshot
             PendingFireCapacityDrops = report.PendingFireCapacityDrops,
             PendingHitCapacityDrops = report.PendingHitCapacityDrops,
             PresentationEventDrops = report.PresentationEventDrops,
+            StatusCapacityCoalesces = report.StatusCapacityCoalesces,
+            StatBuffCapacityCoalesces = report.StatBuffCapacityCoalesces,
+            ZoneCapacityCoalesces = report.ZoneCapacityCoalesces,
+            PendingFireCapacityFallbacks = report.PendingFireCapacityFallbacks,
+            PendingHitCapacityFallbacks = report.PendingHitCapacityFallbacks,
+            StatusCapacityBackpressures = report.StatusCapacityBackpressures,
+            StatBuffCapacityBackpressures = report.StatBuffCapacityBackpressures,
+            ZoneCapacityBackpressures = report.ZoneCapacityBackpressures,
+            ZoneDueDebtPhaseCancellations = report.ZoneDueDebtPhaseCancellations,
+            ZoneDebtTerminalTargetInvalidations = report.ZoneDebtTerminalTargetInvalidations,
+            ZoneDebtTerminalFailures = report.ZoneDebtTerminalFailures,
             CurrentPendingFireActive = report.CurrentPendingFireActive,
             CurrentPendingHitActive = report.CurrentPendingHitActive,
             CurrentActiveStatusEffects = report.CurrentActiveStatusEffects,
@@ -1426,12 +1748,22 @@ public static class MPTestStateSnapshot
     private static HostMigrationSnapshot CaptureHostMigration()
     {
         var handler = HostMigrationHandler.Instance;
+        MigrationRestoreReport restoreReport = handler != null
+            ? handler.LastMigrationRestoreReport
+            : MigrationRestoreReport.Empty("host_migration");
         return new HostMigrationSnapshot
         {
             HandlerExists = handler != null,
             IsMigrating = handler != null && handler.IsMigrating,
             RecoverySucceeded = handler != null ? handler.MigrationRecoverySucceeded : (bool?)null,
             AiTakeoverReady = handler != null ? handler.IsAiTakeoverReady : (bool?)null,
+            RestoreCaptured = handler != null ? restoreReport.Captured : (int?)null,
+            RestoreRestored = handler != null ? restoreReport.Restored : (int?)null,
+            RestoreSkipped = handler != null ? restoreReport.Skipped : (int?)null,
+            RestoreFailed = handler != null ? restoreReport.Failed : (int?)null,
+            RestoreMissing = handler != null ? restoreReport.Missing : (int?)null,
+            RestoreTerminal = handler != null ? restoreReport.IsTerminal : (bool?)null,
+            RestorePendingAsync = handler != null ? handler.PendingMigrationRestoreCount : (int?)null,
             LastEvent = string.IsNullOrWhiteSpace(MPTestHostMigrationEvents.LastEvent) ? Unknown : MPTestHostMigrationEvents.LastEvent,
             EventCount = MPTestHostMigrationEvents.EventCount,
             OnHostMigrationCount = MPTestHostMigrationEvents.OnHostMigrationCount,
@@ -1599,6 +1931,9 @@ public static class MPTestStateSnapshot
         [JsonProperty("transitionToState")] public string TransitionToState;
         [JsonProperty("sequenceTransitionRemaining")] public float SequenceTransitionRemaining;
         [JsonProperty("sequenceTransitionDuration")] public float SequenceTransitionDuration;
+        [JsonProperty("combatExitDebtGateActive")] public bool CombatExitDebtGateActive;
+        [JsonProperty("combatExitDebtSafeStopped")] public bool CombatExitDebtSafeStopped;
+        [JsonProperty("unresolvedCombatExitDebtCount")] public int UnresolvedCombatExitDebtCount;
         [JsonProperty("firstAttackerPlayerId")] public int FirstAttackerPlayerId;
         [JsonProperty("battleOpponentsHash")] public string BattleOpponentsHash;
         [JsonProperty("matchFirstAttackerHash")] public string MatchFirstAttackerHash;
@@ -1624,8 +1959,50 @@ public static class MPTestStateSnapshot
         [JsonProperty("health")] public int Health;
         [JsonProperty("gold")] public int Gold;
         [JsonProperty("wallCount")] public int WallCount;
+        [JsonProperty("permanentWallPlacementCount")] public int PermanentWallPlacementCount;
+        [JsonProperty("permanentWallStockRevision")] public int PermanentWallStockRevision;
+        [JsonProperty("permanentWallLayoutRevision")] public int PermanentWallLayoutRevision;
         [JsonProperty("isActivelyFighting")] public bool IsActivelyFighting;
         [JsonProperty("isAttackerInCurrentBattle")] public bool IsAttackerInCurrentBattle;
+        [JsonProperty("blackMagicCurrent")] public int BlackMagicCurrent;
+        [JsonProperty("blackMagicMaximum")] public int BlackMagicMaximum;
+        [JsonProperty("blackMagicMaxBonus")] public int BlackMagicMaxBonus;
+        [JsonProperty("blackMagicRevision")] public int BlackMagicRevision;
+        [JsonProperty("blackMagicSequenceId")] public int BlackMagicSequenceId;
+        [JsonProperty("selectedMapThemeId")] public int SelectedMapThemeId;
+        [JsonProperty("appliedMapThemeId")] public int AppliedMapThemeId;
+        [JsonProperty("mapThemePresentationReady")] public bool MapThemePresentationReady;
+        [JsonProperty("selectedKingUnitKeyHash")] public int SelectedKingUnitKeyHash;
+        [JsonProperty("kingDataReady")] public bool KingDataReady;
+        [JsonProperty("kingSkillUsedThisDefense")] public bool KingSkillUsedThisDefense;
+        [JsonProperty("kingCanUseSkill")] public bool KingCanUseSkill;
+        [JsonProperty("kingDefenseSequenceId")] public int KingDefenseSequenceId;
+        [JsonProperty("kingDamageReactionSequence")] public int KingDamageReactionSequence;
+        [JsonProperty("kingAttackPresentationSequence")] public int KingAttackPresentationSequence;
+        [JsonProperty("kingSkillPresentationSequence")] public int KingSkillPresentationSequence;
+        [JsonProperty("kingAttackDamageBonusPermille")] public int KingAttackDamageBonusPermille;
+        [JsonProperty("kingAttackSpeedBonusPermille")] public int KingAttackSpeedBonusPermille;
+        [JsonProperty("kingSkillPowerBonusPermille")] public int KingSkillPowerBonusPermille;
+        [JsonProperty("selectedDemonKeyHash")] public int SelectedDemonKeyHash;
+        [JsonProperty("demonDataReady")] public bool DemonDataReady;
+        [JsonProperty("demonSkillUsedThisAttack")] public bool DemonSkillUsedThisAttack;
+        [JsonProperty("demonCanUseSkill")] public bool DemonCanUseSkill;
+        [JsonProperty("demonAttackSequenceId")] public int DemonAttackSequenceId;
+        [JsonProperty("demonSkillPresentationSequence")] public int DemonSkillPresentationSequence;
+        [JsonProperty("kingPresentationReady")] public bool KingPresentationReady;
+        [JsonProperty("kingPresentationGoalDistance")] public float? KingPresentationGoalDistance;
+        [JsonProperty("kingPresentationScaleMultiplier")] public float? KingPresentationScaleMultiplier;
+        [JsonProperty("kingPresentationWorldScaleDrift")] public float? KingPresentationWorldScaleDrift;
+        [JsonProperty("kingPresentationTransformDrift")] public float? KingPresentationTransformDrift;
+        [JsonProperty("kingRigTransformDrift")] public float? KingRigTransformDrift;
+        [JsonProperty("kingUsesNeutralGoalAnchor")] public bool? KingUsesNeutralGoalAnchor;
+        [JsonProperty("kingRigPinRequired")] public bool? KingRigPinRequired;
+        [JsonProperty("kingRigPinActive")] public bool? KingRigPinActive;
+        [JsonProperty("kingCameraFacingAngle")] public float? KingCameraFacingAngle;
+        [JsonProperty("kingHeadLookActive")] public bool? KingHeadLookActive;
+        [JsonProperty("kingHeadLookApplied")] public bool? KingHeadLookApplied;
+        [JsonProperty("kingHeadPresentationMode")] public string KingHeadPresentationMode;
+        [JsonProperty("kingHeadPose")] public KingHeadPoseSnapshot KingHeadPose;
         [JsonProperty("attackMonsterPoolHash")] public string AttackMonsterPoolHash;
         [JsonProperty("attackMonsterPoolParts")] public string[] AttackMonsterPoolParts;
         [JsonProperty("ownedScrollsHash")] public string OwnedScrollsHash;
@@ -1636,6 +2013,30 @@ public static class MPTestStateSnapshot
         [JsonProperty("field")] public FieldSnapshot Field;
         [JsonProperty("monsters")] public MonsterSnapshot Monsters;
         [JsonProperty("ai")] public AiSnapshot Ai;
+    }
+
+    [Serializable]
+    public sealed class KingHeadPoseSnapshot
+    {
+        [JsonProperty("comparable")] public bool Comparable;
+        [JsonProperty("kingHeadFound")] public bool KingHeadFound;
+        [JsonProperty("baseUnitFound")] public bool BaseUnitFound;
+        [JsonProperty("cameraFound")] public bool CameraFound;
+        [JsonProperty("baseUnitKey")] public string BaseUnitKey;
+        [JsonProperty("baseUnitName")] public string BaseUnitName;
+        [JsonProperty("kingHeadLookRecent")] public bool? KingHeadLookRecent;
+        [JsonProperty("baseHeadLookRecent")] public bool? BaseHeadLookRecent;
+        [JsonProperty("kingHeadLookFrameAge")] public int? KingHeadLookFrameAge;
+        [JsonProperty("baseHeadLookFrameAge")] public int? BaseHeadLookFrameAge;
+        [JsonProperty("kingAnimatorCullingMode")] public string KingAnimatorCullingMode;
+        [JsonProperty("baseAnimatorCullingMode")] public string BaseAnimatorCullingMode;
+        [JsonProperty("rootRelativeRotationDeltaDeg")] public float? RootRelativeRotationDeltaDeg;
+        [JsonProperty("kingForwardElevationDeg")] public float? KingForwardElevationDeg;
+        [JsonProperty("baseForwardElevationDeg")] public float? BaseForwardElevationDeg;
+        [JsonProperty("kingToCameraAngleDeg")] public float? KingToCameraAngleDeg;
+        [JsonProperty("baseToCameraAngleDeg")] public float? BaseToCameraAngleDeg;
+        [JsonProperty("kingToConfiguredLookAngleDeg")] public float? KingToConfiguredLookAngleDeg;
+        [JsonProperty("baseToConfiguredLookAngleDeg")] public float? BaseToConfiguredLookAngleDeg;
     }
 
     [Serializable]
@@ -1675,11 +2076,22 @@ public static class MPTestStateSnapshot
         [JsonProperty("deadUnitsHash")] public string DeadUnitsHash;
         [JsonProperty("placedUnitsHash")] public string PlacedUnitsHash;
         [JsonProperty("placedUnitParts")] public string[] PlacedUnitParts;
+        [JsonProperty("unitRuntimeStateHash")] public string UnitRuntimeStateHash;
+        [JsonProperty("unitRuntimeStateParts")] public string[] UnitRuntimeStateParts;
+        [JsonProperty("unitAttackCooldownHash")] public string UnitAttackCooldownHash;
+        [JsonProperty("unitAttackCooldownParts")] public string[] UnitAttackCooldownParts;
         [JsonProperty("destructibleWallCount")] public int? DestructibleWallCount;
         [JsonProperty("permanentWallCount")] public int? PermanentWallCount;
+        [JsonProperty("playerPlacedPermanentWallCount")] public int? PlayerPlacedPermanentWallCount;
+        [JsonProperty("playerPlacedPermanentWallHash")] public string PlayerPlacedPermanentWallHash;
         [JsonProperty("wallHash")] public string WallHash;
+        [JsonProperty("wallParts")] public string[] WallParts;
+        [JsonProperty("destructibleWallHealthHash")] public string DestructibleWallHealthHash;
+        [JsonProperty("destructibleWallHealthParts")] public string[] DestructibleWallHealthParts;
         [JsonProperty("pathReady")] public bool PathReady;
         [JsonProperty("goalReady")] public bool GoalReady;
+        [JsonProperty("goalCell")] public string GoalCell;
+        [JsonProperty("regularUnitGoalViolationCount")] public int? RegularUnitGoalViolationCount;
     }
 
     [Serializable]
@@ -1744,6 +2156,17 @@ public static class MPTestStateSnapshot
         [JsonProperty("pendingFireCapacityDrops")] public int PendingFireCapacityDrops;
         [JsonProperty("pendingHitCapacityDrops")] public int PendingHitCapacityDrops;
         [JsonProperty("presentationEventDrops")] public int PresentationEventDrops;
+        [JsonProperty("statusCapacityCoalesces")] public int StatusCapacityCoalesces;
+        [JsonProperty("statBuffCapacityCoalesces")] public int StatBuffCapacityCoalesces;
+        [JsonProperty("zoneCapacityCoalesces")] public int ZoneCapacityCoalesces;
+        [JsonProperty("pendingFireCapacityFallbacks")] public int PendingFireCapacityFallbacks;
+        [JsonProperty("pendingHitCapacityFallbacks")] public int PendingHitCapacityFallbacks;
+        [JsonProperty("statusCapacityBackpressures")] public int StatusCapacityBackpressures;
+        [JsonProperty("statBuffCapacityBackpressures")] public int StatBuffCapacityBackpressures;
+        [JsonProperty("zoneCapacityBackpressures")] public int ZoneCapacityBackpressures;
+        [JsonProperty("zoneDueDebtPhaseCancellations")] public int ZoneDueDebtPhaseCancellations;
+        [JsonProperty("zoneDebtTerminalTargetInvalidations")] public int ZoneDebtTerminalTargetInvalidations;
+        [JsonProperty("zoneDebtTerminalFailures")] public int ZoneDebtTerminalFailures;
         [JsonProperty("currentPendingFireActive")] public int CurrentPendingFireActive;
         [JsonProperty("currentPendingHitActive")] public int CurrentPendingHitActive;
         [JsonProperty("currentActiveStatusEffects")] public int CurrentActiveStatusEffects;
@@ -1784,6 +2207,13 @@ public static class MPTestStateSnapshot
         [JsonProperty("isMigrating")] public bool IsMigrating;
         [JsonProperty("recoverySucceeded")] public bool? RecoverySucceeded;
         [JsonProperty("aiTakeoverReady")] public bool? AiTakeoverReady;
+        [JsonProperty("restoreCaptured")] public int? RestoreCaptured;
+        [JsonProperty("restoreRestored")] public int? RestoreRestored;
+        [JsonProperty("restoreSkipped")] public int? RestoreSkipped;
+        [JsonProperty("restoreFailed")] public int? RestoreFailed;
+        [JsonProperty("restoreMissing")] public int? RestoreMissing;
+        [JsonProperty("restoreTerminal")] public bool? RestoreTerminal;
+        [JsonProperty("restorePendingAsync")] public int? RestorePendingAsync;
         [JsonProperty("lastEvent")] public string LastEvent;
         [JsonProperty("eventCount")] public int EventCount;
         [JsonProperty("onHostMigrationCount")] public int OnHostMigrationCount;
@@ -1827,3 +2257,4 @@ public static class MPTestStateSnapshot
         [JsonProperty("lastRevision")] public int? LastRevision;
     }
 }
+#endif

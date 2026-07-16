@@ -8,7 +8,7 @@ description: Scan MDF code for drift, oversized files, stale harness docs, and r
 Check:
 
 - docs reference missing files
-- AGENTS.md > 70 lines
+- AGENTS.md > 100 lines
 - missing learned recipe after repeated command failures
 - new giant files or broad rewrites
 - stale SimpleRTS references

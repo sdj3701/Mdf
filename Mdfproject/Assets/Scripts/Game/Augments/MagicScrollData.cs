@@ -18,8 +18,14 @@ public enum MagicScrollTargetDomain
 }
 
 [CreateAssetMenu(fileName = "New MagicScrollData", menuName = "Game/Magic Scroll Data")]
-public class MagicScrollData : ScriptableObject
+public class MagicScrollData : ScriptableObject, IStableContentIdentity
 {
+    [SerializeField, Tooltip("Immutable gameplay identity. Do not change after release.")]
+    private string contentId;
+
+    public string ContentId => StableDataKeyUtility.NormalizeContentId(contentId);
+    public int ContentIdHash => StableDataKeyUtility.StableContentIdHash(contentId);
+
     [Header("Base Info")]
     [Tooltip("Scroll display name.")]
     public string scrollName;

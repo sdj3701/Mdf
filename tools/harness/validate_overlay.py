@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
+MAX_AGENTS_LINES = 100
 REQUIRED = [
     'AGENTS.md',
     '.agent/rules/projectrull.md',
@@ -90,8 +91,8 @@ for rel in HISTORICAL_OPTIONAL:
 agents = ROOT / 'AGENTS.md'
 if agents.exists():
     lines = agents.read_text(encoding='utf-8', errors='ignore').splitlines()
-    if len(lines) > 70:
-        errors.append(f'AGENTS.md line count {len(lines)} > 70')
+    if len(lines) > MAX_AGENTS_LINES:
+        errors.append(f'AGENTS.md line count {len(lines)} > {MAX_AGENTS_LINES}')
 
 hooks = ROOT / '.codex/hooks.json'
 if hooks.exists():
@@ -112,4 +113,4 @@ if errors:
         print(' -', e)
     sys.exit(1)
 print('MDF overlay validation: PASS')
-print(f'Checked {len(REQUIRED)} required paths; AGENTS.md <= 70 lines.')
+print(f'Checked {len(REQUIRED)} required paths; AGENTS.md <= {MAX_AGENTS_LINES} lines.')

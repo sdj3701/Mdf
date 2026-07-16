@@ -6,7 +6,7 @@ public sealed class StatusBarSkillButtonInputEditModeTests
     [Test]
     public void StatusBarSkillButtonProvidesToolkitRaycastFallbackClickPath()
     {
-        string source = System.IO.File.ReadAllText("Assets/Scripts/UI/StatusBarUI.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/UI/StatusBarUI.cs");
 
         Assert.That(source, Does.Contain("ActiveStatusBars"));
         Assert.That(source, Does.Contain("IsPointerOverActiveSkillButton"));
@@ -20,7 +20,7 @@ public sealed class StatusBarSkillButtonInputEditModeTests
     [Test]
     public void FieldBlockingInputChecksSkillButtonBeforeToolkitPassthrough()
     {
-        string source = System.IO.File.ReadAllText("Assets/Scripts/Managers/MdfInput.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/MdfInput.cs");
         int methodStart = source.IndexOf("public static bool IsPointerOverFieldBlockingUI()", System.StringComparison.Ordinal);
         Assert.That(methodStart, Is.GreaterThanOrEqualTo(0));
 
@@ -36,7 +36,7 @@ public sealed class StatusBarSkillButtonInputEditModeTests
     [Test]
     public void StatusBarPassthroughKeepsOnlySkillButtonBlockingFieldInput()
     {
-        string source = System.IO.File.ReadAllText("Assets/Scripts/Managers/MdfInput.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/MdfInput.cs");
         Assert.That(source, Does.Contain("return !StatusBarUI.IsPointerOverActiveSkillButton(pointerPosition);"));
     }
 }

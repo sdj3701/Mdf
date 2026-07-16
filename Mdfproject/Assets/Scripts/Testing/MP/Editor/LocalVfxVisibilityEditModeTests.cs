@@ -1,6 +1,8 @@
 #if UNITY_EDITOR
 using System.IO;
+using System.Reflection;
 using NUnit.Framework;
+using UnityEngine;
 
 public sealed class LocalVfxVisibilityEditModeTests
 {
@@ -20,9 +22,83 @@ public sealed class LocalVfxVisibilityEditModeTests
     }
 
     [Test]
+    public void MonsterStatusBarVisibilityAllowsOnlyViewedFieldAndFailsOpen()
+    {
+        Assert.That(StatusBarUI.ShouldShowMonsterStatusBar(1, 1), Is.True);
+        Assert.That(StatusBarUI.ShouldShowMonsterStatusBar(1, 2), Is.False);
+        Assert.That(StatusBarUI.ShouldShowMonsterStatusBar(-1, 2), Is.True);
+        Assert.That(StatusBarUI.ShouldShowMonsterStatusBar(2, -1), Is.True);
+    }
+
+    [Test]
+    public void MonsterStatusBarKeepsCameraSubscriptionWhileInactive()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        MethodInfo awake = typeof(StatusBarUI).GetMethod("Awake", members);
+        MethodInfo onDisable = typeof(StatusBarUI).GetMethod("OnDisable", members);
+        MethodInfo onDestroy = typeof(StatusBarUI).GetMethod("OnDestroy", members);
+        MethodInfo refresh = typeof(StatusBarUI).GetMethod(nameof(StatusBarUI.RefreshCameraFieldVisibility), members);
+        MethodInfo reset = typeof(StatusBarUI).GetMethod(nameof(StatusBarUI.ResetForReuse), members);
+
+        Assert.That(awake, Is.Not.Null);
+        Assert.That(onDisable, Is.Not.Null);
+        Assert.That(onDestroy, Is.Not.Null);
+        Assert.That(refresh, Is.Not.Null);
+        Assert.That(reset, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            awake,
+            typeof(CameraManager),
+            "add_OnCurrentViewingFieldChanged"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            onDestroy,
+            typeof(CameraManager),
+            "remove_OnCurrentViewingFieldChanged"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            onDisable,
+            typeof(CameraManager),
+            "remove_OnCurrentViewingFieldChanged"), Is.False,
+            "Camera-hidden status bars must stay subscribed so a later field switch can reactivate them.");
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            refresh,
+            typeof(CameraManager),
+            "get_CurrentViewingPlayerId"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            refresh,
+            typeof(Monster),
+            "get_SnapshotOwnerPlayerId"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            refresh,
+            typeof(GameObject),
+            nameof(GameObject.SetActive)), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            reset,
+            typeof(StatusBarUI),
+            nameof(StatusBarUI.RefreshCameraFieldVisibility)), Is.True);
+    }
+
+    [Test]
+    public void SkillMonsterAndScrollVfxUseTheSharedTimedPoolPath()
+    {
+        string poolSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/VfxPoolManager.cs");
+        string unitSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Units/Unit.cs");
+        string monsterSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Monsters/Monster.cs");
+        string scrollSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Skills/ScrollCaster.cs");
+
+        Assert.That(poolSource, Does.Contain("public static GameObject SpawnTimed("));
+        Assert.That(poolSource, Does.Contain("manager.Spawn(prefab, position, rotation, parent)"));
+        Assert.That(poolSource, Does.Contain("autoDestroy.Initialize(safeLifetime);"));
+        Assert.That(unitSource, Does.Contain("VfxPoolManager.SpawnTimed("));
+        Assert.That(monsterSource, Does.Contain("VfxPoolManager.SpawnTimed("));
+        Assert.That(scrollSource, Does.Contain("VfxPoolManager.SpawnTimed("));
+        Assert.That(unitSource, Does.Not.Contain("Instantiate(currentSkillData.vfxPrefab"));
+        Assert.That(monsterSource, Does.Not.Contain("Instantiate(skillData.vfxPrefab"));
+        Assert.That(scrollSource, Does.Not.Contain("Instantiate(skillData.vfxPrefab"));
+    }
+
+    [Test]
     public void CombatSchedulerFiltersLocalVfxRpcPlayback()
     {
-        string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
+        string schedulerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/CombatScheduler.cs");
 
         Assert.That(schedulerSource, Does.Contain("LocalVfxVisibility.ShouldPlay(attacker, target, LocalVfxVisibilityEventKind.Projectile)"));
         Assert.That(schedulerSource, Does.Contain("ProjectileVfxManager.RecordSkippedCombatEvent(Runner, attacker, target, fireTick, hitTick);"));
@@ -34,7 +110,7 @@ public sealed class LocalVfxVisibilityEditModeTests
     [Test]
     public void LocalVfxVisibilityUsesCameraFieldAndGameplayOwnerIds()
     {
-        string visibilitySource = File.ReadAllText("Assets/Scripts/VFX/LocalVfxVisibility.cs");
+        string visibilitySource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/LocalVfxVisibility.cs");
 
         Assert.That(visibilitySource, Does.Contain("CameraManager.Instance"));
         Assert.That(visibilitySource, Does.Contain("CurrentViewingField"));
@@ -47,9 +123,9 @@ public sealed class LocalVfxVisibilityEditModeTests
     [Test]
     public void ProjectileVfxCatchUpUsesLocalSkippedEventBuffer()
     {
-        string managerSource = File.ReadAllText("Assets/Scripts/VFX/ProjectileVfxManager.cs");
-        string cameraSource = File.ReadAllText("Assets/Scripts/Managers/CameraManager.cs");
-        string schedulerSource = File.ReadAllText("Assets/Scripts/Managers/CombatScheduler.cs");
+        string managerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/VFX/ProjectileVfxManager.cs");
+        string cameraSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/CameraManager.cs");
+        string schedulerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/CombatScheduler.cs");
 
         Assert.That(cameraSource, Does.Contain("public static event System.Action<PlayerManager> OnCurrentViewingFieldChanged"));
         Assert.That(cameraSource, Does.Contain("OnCurrentViewingFieldChanged?.Invoke(targetPlayer);"));

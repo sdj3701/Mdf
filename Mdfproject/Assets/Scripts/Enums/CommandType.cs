@@ -19,6 +19,10 @@ public enum CommandType
     BattleSpawnMonster = 12,
     // Routed through GameManagers.BattleCommands as a State Authority battle action, not CommandProcessor broadcast.
     UseMagicScroll = 13,
+    SetSkillActivationMode = 14,
+    ActivateKingSkill = 15,
+    UpgradeWall = 16,
+    ActivateDemonSkill = 17,
 
 
     // ===== Sync Commands (100-199) =====

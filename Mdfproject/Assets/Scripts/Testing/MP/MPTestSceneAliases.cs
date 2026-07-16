@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
 using System;
 using System.Collections.Generic;
 using GameCore.Enums;
@@ -32,3 +33,4 @@ public static class MPTestSceneAliases
         return string.Equals(Normalize(actual), Normalize(expected), StringComparison.Ordinal);
     }
 }
+#endif

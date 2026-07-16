@@ -35,7 +35,7 @@ Phase 25 does not make MDF deterministic. It hardens obvious authority boundarie
 | AI maze planning | `MazePlanner`: `Environment.TickCount`, `System.Random`, shuffles, `Stopwatch` search limits | AI/bot decision planning | Maze randomness chooses candidate wall commands. Durable effects must still pass through authority command validation and wall snapshots. Do not use it as deterministic replay evidence. |
 | AI prepare cadence | `AIPacer` and `BuildMazeAction` `Random.Range` delays | AI decision pacing | Timing should not be asserted directly. Harness waits on state gates and accepted durable outcomes. |
 | AI attack spawn pacing | `AIAttackStrategy` random phase delays | AI combat pacing | Authoritative spawn requests still need attacker/defender validation and battle-state assertions. |
-| HumanBot policy | `MPTestHumanBotPolicy` `System.Random(seed)` | Test-only bot decision tie-breaks | Seed is a diagnostic label unless every gameplay RNG source is separately controlled. |
+| HumanBot policy | Shared `PrepareDecisionPolicy` `System.Random(seed)` | Test-only bot decision tie-breaks when driven by HumanBot | Seed is a diagnostic label unless every gameplay RNG source is separately controlled. |
 
 ## Client Visual Or Identity Randomness
 

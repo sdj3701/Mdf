@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 854c6d2b89fe346489caf756386b4481, type: 3}
   m_Name: Aug_Spawn_Reaper_Normal
   m_EditorClassIdentifier: 
+  contentId: augment.boss.reaper.normal
   augmentName: "\uBCF4\uC2A4\uBAAC\uC2A4\uD130 \uC18C\uD658(\uC800\uC9C0\uBD88\uAC00)"
   description: "\uC0C1\uB300\uC758 \uC655\uAD6D\uC5D0 \uB9AC\uD37C\uB97C \uC18C\uD658\uD569\uB2C8\uB2E4.
     \uB9AC\uD37C\uB294 \uC18C\uD658\uC7A5\uC18C \uC774\uC678\uC5D4 \uD1B5\uC81C\uD560
@@ -22,7 +23,29 @@ MonoBehaviour:
   targetType: 1
   effectType: 6
   value: 0
+  effects:
+  - targetType: 1
+    effectType: 6
+    value: 0
+    isBossSummon: 1
+    bossMonsterData: {fileID: 11400000, guid: 15d29adc601e6a44fbc4a3e009ddd7d1, type: 2}
+    monsterSpawnEntries: []
+    strengthenedMonsterData: {fileID: 0}
+    monsterHealthBonusPercent: 0
+    monsterDamageBonusPercent: 0
+    monsterMoveSpeedBonusPercent: 0
+    kingDamageBonusPercent: 0
+    kingAttackSpeedBonusPercent: 0
+    kingSkillPowerBonusPercent: 0
+    magicScrollData: {fileID: 0}
   isBossSummon: 1
   bossMonsterData: {fileID: 11400000, guid: 15d29adc601e6a44fbc4a3e009ddd7d1, type: 2}
   monsterSpawnEntries: []
+  strengthenedMonsterData: {fileID: 0}
+  monsterHealthBonusPercent: 0
+  monsterDamageBonusPercent: 0
+  monsterMoveSpeedBonusPercent: 0
+  kingDamageBonusPercent: 0
+  kingAttackSpeedBonusPercent: 0
+  kingSkillPowerBonusPercent: 0
   magicScrollData: {fileID: 0}

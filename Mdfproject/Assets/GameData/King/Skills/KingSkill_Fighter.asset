@@ -1,0 +1,32 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 527aae111f667914f95eea592ddd0c9c, type: 3}
+  m_Name: KingSkill_Fighter
+  m_EditorClassIdentifier: 
+  contentId: king.skill.fighter
+  skillName: "\uC655\uC2E4 \uB300\uAC80\uCC38"
+  description: "\uAD6D\uC655 \uC8FC\uBCC0\uC744 \uD06C\uAC8C \uBCA0\uC5B4 \uAC00\uAE4C\uC6B4
+    \uBAA8\uB4E0 \uC801\uC5D0\uAC8C \uAC15\uD55C \uBB3C\uB9AC \uD53C\uD574\uB97C
+    \uC90D\uB2C8\uB2E4."
+  iconKey: Spr_Port_Fighter
+  effectKind: 1
+  radius: 5
+  maxTargets: 0
+  damageMultiplier: 3
+  flatDamage: 0
+  damageType: 0
+  healPlayerAmount: 0
+  statusEffect: 0
+  statusDuration: 0
+  slowMultiplier: 1
+  dotTickInterval: 0
+  dotDamagePerTick: 0

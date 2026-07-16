@@ -11,6 +11,10 @@ def main() -> int:
         description="Inject synthetic pending fire/hit load at a frozen battle checkpoint and verify it survives Host Migration."
     )
     add_common_args(parser)
+    # The runtime capacity probe exercises a real authority Unit as well as a Monster.
+    # Unlike the lighter migration cases, this scenario must let the HumanBot buy and
+    # place at least one unit during Prepare instead of running augment-only setup.
+    parser.set_defaults(bot_prepare_mode="full")
     parser.add_argument("--pending-fire-count", type=int, default=48)
     parser.add_argument("--pending-hit-count", type=int, default=72)
     parser.add_argument("--pending-delay-ticks", type=int, default=3600)
@@ -23,6 +27,7 @@ def main() -> int:
         require_any_battle_command=True,
         migrate_after_battle=True,
         inject_pending_load_before_migration=True,
+        verify_capacity_recovery_before_migration=True,
     )
 
 

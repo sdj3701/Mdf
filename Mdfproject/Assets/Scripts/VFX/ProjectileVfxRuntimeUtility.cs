@@ -46,23 +46,33 @@ public static class ProjectileVfxRuntimeUtility
             return;
         }
 
-        PrepareRenderersForVfxVisibility(instance);
-        ApplyDynamicLighting(instance, dynamicLightIntensity, dynamicLightRange);
+        ProjectileVfxComponentCache cache = ProjectileVfxComponentCache.GetOrCreate(instance);
+        PrepareRenderersForVfxVisibility(cache);
+        ApplyDynamicLighting(cache, dynamicLightIntensity, dynamicLightRange);
 
         float resolvedPlaybackSpeed = Mathf.Max(0.01f, playbackSpeed);
-        var trails = instance.GetComponentsInChildren<TrailRenderer>(true);
+        TrailRenderer[] trails = cache.Trails;
         for (int i = 0; i < trails.Length; i++)
         {
-            trails[i].Clear();
+            if (trails[i] != null)
+            {
+                trails[i].Clear();
+            }
         }
 
-        var particles = instance.GetComponentsInChildren<ParticleSystem>(true);
+        ParticleSystem[] particles = cache.Particles;
         for (int i = 0; i < particles.Length; i++)
         {
-            var main = particles[i].main;
+            ParticleSystem particle = particles[i];
+            if (particle == null)
+            {
+                continue;
+            }
+
+            var main = particle.main;
             main.simulationSpeed = resolvedPlaybackSpeed;
-            particles[i].Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-            particles[i].Play(true);
+            particle.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            particle.Play(true);
         }
     }
 
@@ -73,31 +83,41 @@ public static class ProjectileVfxRuntimeUtility
             return;
         }
 
-        PrepareRenderersForVfxVisibility(instance);
+        ProjectileVfxComponentCache cache = ProjectileVfxComponentCache.GetOrCreate(instance);
+        PrepareRenderersForVfxVisibility(cache);
 
-        var projectile = instance.GetComponent<Projectile>();
+        Projectile projectile = cache.Projectile;
         if (projectile != null)
         {
             projectile.SetVisualOnly(true);
         }
 
-        var rigidbodies = instance.GetComponentsInChildren<Rigidbody>(true);
+        Rigidbody[] rigidbodies = cache.Rigidbodies;
         for (int i = 0; i < rigidbodies.Length; i++)
         {
-            rigidbodies[i].velocity = Vector3.zero;
-            rigidbodies[i].angularVelocity = Vector3.zero;
-            rigidbodies[i].isKinematic = true;
+            Rigidbody rigidbody = rigidbodies[i];
+            if (rigidbody == null)
+            {
+                continue;
+            }
+
+            rigidbody.velocity = Vector3.zero;
+            rigidbody.angularVelocity = Vector3.zero;
+            rigidbody.isKinematic = true;
         }
 
-        var colliders = instance.GetComponentsInChildren<Collider>(true);
+        Collider[] colliders = cache.Colliders;
         for (int i = 0; i < colliders.Length; i++)
         {
-            colliders[i].enabled = false;
+            if (colliders[i] != null)
+            {
+                colliders[i].enabled = false;
+            }
         }
 
-        ApplyDynamicLighting(instance, dynamicLightIntensity, dynamicLightRange);
+        ApplyDynamicLighting(cache, dynamicLightIntensity, dynamicLightRange);
 
-        var behaviours = instance.GetComponentsInChildren<MonoBehaviour>(true);
+        MonoBehaviour[] behaviours = cache.Behaviours;
         for (int i = 0; i < behaviours.Length; i++)
         {
             MonoBehaviour behaviour = behaviours[i];
@@ -114,37 +134,53 @@ public static class ProjectileVfxRuntimeUtility
         }
     }
 
-    private static void PrepareRenderersForVfxVisibility(GameObject instance)
+    private static void PrepareRenderersForVfxVisibility(ProjectileVfxComponentCache cache)
     {
-        var renderers = instance.GetComponentsInChildren<Renderer>(true);
+        Renderer[] renderers = cache.Renderers;
         for (int i = 0; i < renderers.Length; i++)
         {
             Renderer renderer = renderers[i];
+            if (renderer == null)
+            {
+                continue;
+            }
+
             renderer.allowOcclusionWhenDynamic = false;
             renderer.sortingOrder = Mathf.Max(renderer.sortingOrder, BasicAttackVfxSortingOrder);
         }
     }
 
-    private static void ApplyDynamicLighting(GameObject instance, float dynamicLightIntensity, float dynamicLightRange)
+    private static void ApplyDynamicLighting(ProjectileVfxComponentCache cache, float dynamicLightIntensity, float dynamicLightRange)
     {
         float resolvedIntensity = Mathf.Max(0f, dynamicLightIntensity);
         float resolvedRange = Mathf.Max(0f, dynamicLightRange);
         bool enableDynamicLighting = resolvedIntensity > 0f && resolvedRange > 0f;
 
-        var lights = instance.GetComponentsInChildren<Light>(true);
+        Light[] lights = cache.Lights;
         for (int i = 0; i < lights.Length; i++)
         {
-            lights[i].enabled = enableDynamicLighting;
+            Light light = lights[i];
+            if (light == null)
+            {
+                continue;
+            }
+
+            light.enabled = enableDynamicLighting;
             if (enableDynamicLighting)
             {
-                lights[i].intensity = resolvedIntensity;
-                lights[i].range = resolvedRange;
+                light.intensity = resolvedIntensity;
+                light.range = resolvedRange;
             }
         }
 
-        var particles = instance.GetComponentsInChildren<ParticleSystem>(true);
+        ParticleSystem[] particles = cache.Particles;
         for (int i = 0; i < particles.Length; i++)
         {
+            if (particles[i] == null)
+            {
+                continue;
+            }
+
             var lightsModule = particles[i].lights;
             lightsModule.enabled = enableDynamicLighting;
         }

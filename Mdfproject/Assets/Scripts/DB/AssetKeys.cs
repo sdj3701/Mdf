@@ -16,4 +16,4 @@ public static class AssetKeys
 }
 
 
-// 다른 클래스에서 이렇게 사용 await AssetLoader.LoadAssetAsync<Sprite>(AssetKeys.Icon_Warrior);
+// Runtime callers must retain an AddressableAssetOwner or explicit AddressableAssetLease.

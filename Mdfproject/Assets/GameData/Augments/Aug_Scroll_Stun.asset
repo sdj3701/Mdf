@@ -12,7 +12,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 854c6d2b89fe346489caf756386b4481, type: 3}
   m_Name: Aug_Scroll_Stun
   m_EditorClassIdentifier: 
-  augmentName: "\uB9C8\uBC95\uC2A4\uD06C\uB864(\uD68C\uBCF5)"
+  contentId: augment.scroll.stun
+  augmentName: "\uB9C8\uBC95\uC2A4\uD06C\uB864(\uAE30\uC808)"
   description: "\uC801\uAD70\uB4E4\uC744 \uAE30\uC808\uC2DC\uD0A4\uB294 \uB9C8\uBC95
     \uC2A4\uD06C\uB864\uC785\uB2C8\uB2E4."
   icon: {fileID: 21300000, guid: dff70d1d31f2b7f43bc06b7515a4a87c, type: 3}
@@ -20,7 +21,29 @@ MonoBehaviour:
   targetType: 0
   effectType: 7
   value: 0
+  effects:
+  - targetType: 0
+    effectType: 7
+    value: 0
+    isBossSummon: 0
+    bossMonsterData: {fileID: 0}
+    monsterSpawnEntries: []
+    strengthenedMonsterData: {fileID: 0}
+    monsterHealthBonusPercent: 0
+    monsterDamageBonusPercent: 0
+    monsterMoveSpeedBonusPercent: 0
+    kingDamageBonusPercent: 0
+    kingAttackSpeedBonusPercent: 0
+    kingSkillPowerBonusPercent: 0
+    magicScrollData: {fileID: 11400000, guid: aa8a54f103477b740a66a45bea14b2fa, type: 2}
   isBossSummon: 0
   bossMonsterData: {fileID: 0}
   monsterSpawnEntries: []
+  strengthenedMonsterData: {fileID: 0}
+  monsterHealthBonusPercent: 0
+  monsterDamageBonusPercent: 0
+  monsterMoveSpeedBonusPercent: 0
+  kingDamageBonusPercent: 0
+  kingAttackSpeedBonusPercent: 0
+  kingSkillPowerBonusPercent: 0
   magicScrollData: {fileID: 11400000, guid: aa8a54f103477b740a66a45bea14b2fa, type: 2}

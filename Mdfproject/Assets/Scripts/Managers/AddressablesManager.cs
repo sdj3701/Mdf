@@ -4,15 +4,21 @@ using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
-using UnityEngine.ResourceManagement.ResourceLocations;
+using UnityEngine.Serialization;
+using MDF.Runtime.Assets;
+
+public enum AddressablesBootLoadPolicy
+{
+    CatalogOnly = 0
+}
 
 public class AddressablesManager : MonoBehaviour
 {
     public static AddressablesManager Instance { get; private set; }
 
-    [Header("Preload Settings")]
-    [SerializeField] private bool autoPreloadAllOnStart = false;
-    [SerializeField] private bool logPreloadProgress = true;
+    [Header("Addressables Initialization")]
+    [SerializeField, FormerlySerializedAs("autoPreloadAllOnStart")] private bool autoInitializeOnStart = true;
+    [SerializeField, FormerlySerializedAs("logPreloadProgress")] private bool logInitializationProgress = true;
 
     [Header("Game Prefabs (Addressables AssetReference)")]
     [SerializeField] private AssetReference playerManagerPrefabRef;
@@ -23,7 +29,7 @@ public class AddressablesManager : MonoBehaviour
     public bool AssetsReady { get; private set; }
     public bool IsPreloading { get; private set; }
     public bool GamePrefabsLoaded { get; private set; }
-    public bool AutoPreloadAllOnStart => autoPreloadAllOnStart;
+    public static AddressablesBootLoadPolicy BootLoadPolicy => AddressablesBootLoadPolicy.CatalogOnly;
 
     // 캐시된 게임 프리팹
     private GameObject _playerManagerPrefab;
@@ -37,10 +43,9 @@ public class AddressablesManager : MonoBehaviour
     public GameObject DefaultMonsterPrefab => _defaultMonsterPrefab;
     public WaveDatabase WaveDatabase => _waveDatabase;
 
-    private bool _preloadCompleted;
-    private AsyncOperationHandle<IList<Object>> _preloadHandle;
+    private bool _initializationCompleted;
+    private System.Exception _initializationFailure;
     private bool _gamePrefabsLoading;
-    private string _gamePrefabsLoadReason = "direct";
 
     private void Awake()
     {
@@ -57,47 +62,25 @@ public class AddressablesManager : MonoBehaviour
 
     private async void Start()
     {
-        if (autoPreloadAllOnStart)
+        if (autoInitializeOnStart)
         {
-            await PreloadAllAsync();
-        }
-    }
-
-    public void BeginGamePrefabsPreload(string reason)
-    {
-        string safeReason = string.IsNullOrEmpty(reason) ? "unknown" : reason;
-        if (GamePrefabsLoaded && AreGamePrefabCachesReady())
-        {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            LogLoadMarker("game_prefabs_preload_cached", new Dictionary<string, object>
+            try
             {
-                { "reason", safeReason }
-            });
-#endif
-            return;
-        }
-
-        if (_gamePrefabsLoading)
-        {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            LogLoadMarker("game_prefabs_preload_joined", new Dictionary<string, object>
+                await InitializeAsync();
+            }
+            catch (System.Exception e)
             {
-                { "reason", safeReason }
-            });
-#endif
-            return;
+                Debug.LogError($"[AddressablesManager] Initialization failed: {e.Message}");
+            }
         }
-
-        _gamePrefabsLoadReason = safeReason;
-        LoadGamePrefabsAsync().Forget();
     }
 
     /// <summary>
-    /// 모든 Addressables 에셋을 씬 시작 시점에 로드합니다.
+    /// Initializes the Addressables catalog without loading every registered asset.
     /// </summary>
-    public async UniTask PreloadAllAsync()
+    public async UniTask InitializeAsync()
     {
-        if (_preloadCompleted)
+        if (_initializationCompleted)
         {
             AssetsReady = true;
             return;
@@ -106,47 +89,56 @@ public class AddressablesManager : MonoBehaviour
         if (IsPreloading)
         {
             await UniTask.WaitUntil(() => !IsPreloading);
+
+            if (!_initializationCompleted)
+            {
+                throw _initializationFailure ?? new System.InvalidOperationException("Addressables initialization did not complete.");
+            }
+
             return;
         }
 
         IsPreloading = true;
         AssetsReady = false;
 
-        if (logPreloadProgress)
+        if (logInitializationProgress)
         {
-            Debug.Log("[AddressablesManager] PreloadAll 시작");
+            Debug.Log("[AddressablesManager] Catalog initialization started.");
         }
 
         try
         {
-            var initHandle = Addressables.InitializeAsync();
-            await initHandle.Task;
-
-            List<IResourceLocation> locations = CollectAllObjectLocations();
-            if (locations.Count == 0)
+            var initHandle = Addressables.InitializeAsync(false);
+            try
             {
-                Debug.LogWarning("[AddressablesManager] PreloadAll 대상 에셋이 없습니다.");
-                AssetsReady = true;
-                _preloadCompleted = true;
-                return;
-            }
+                await initHandle.Task;
 
-            _preloadHandle = Addressables.LoadAssetsAsync<Object>(locations, null);
-            await _preloadHandle.Task;
-
-            if (_preloadHandle.Status == AsyncOperationStatus.Succeeded)
-            {
-                AssetsReady = true;
-                _preloadCompleted = true;
-                if (logPreloadProgress)
+                if (initHandle.Status != AsyncOperationStatus.Succeeded)
                 {
-                    Debug.Log($"[AddressablesManager] PreloadAll 완료: {locations.Count}개");
+                    throw initHandle.OperationException ??
+                          new System.InvalidOperationException("Addressables initialization failed.");
                 }
             }
-            else
+            finally
             {
-                Debug.LogError($"[AddressablesManager] PreloadAll 실패: {_preloadHandle.OperationException?.Message}");
+                if (initHandle.IsValid())
+                {
+                    Addressables.Release(initHandle);
+                }
             }
+
+            AssetsReady = true;
+            _initializationCompleted = true;
+            _initializationFailure = null;
+            if (logInitializationProgress)
+            {
+                Debug.Log("[AddressablesManager] Catalog initialization completed. Assets will load on demand.");
+            }
+        }
+        catch (System.Exception e)
+        {
+            _initializationFailure = e;
+            throw;
         }
         finally
         {
@@ -155,12 +147,21 @@ public class AddressablesManager : MonoBehaviour
     }
 
     /// <summary>
+    /// Backward-compatible entry point. This now initializes only the catalog and does not preload all assets.
+    /// </summary>
+    [System.Obsolete("Use InitializeAsync. Full-catalog preload has been removed.")]
+    public UniTask PreloadAllAsync()
+    {
+        return InitializeAsync();
+    }
+
+    /// <summary>
     /// 게임에서 사용하는 핵심 프리팹들을 로드합니다.
     /// </summary>
-    public async UniTask LoadGamePrefabsAsync()
+    public async UniTask<bool> LoadGamePrefabsAsync()
     {
         if (GamePrefabsLoaded && AreGamePrefabCachesReady())
-            return;
+            return true;
 
         if (_gamePrefabsLoading)
         {
@@ -169,21 +170,12 @@ public class AddressablesManager : MonoBehaviour
             if (AreGamePrefabCachesReady())
             {
                 GamePrefabsLoaded = true;
-                return;
+                return true;
             }
         }
 
         Debug.Log("[AddressablesManager] 게임 프리팹 로딩 시작...");
         _gamePrefabsLoading = true;
-        float startTime = Time.realtimeSinceStartup;
-
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-        LogLoadMarker("game_prefabs_load_begin", new Dictionary<string, object>
-        {
-            { "reason", _gamePrefabsLoadReason },
-            { "cacheSummary", BuildGamePrefabCacheSummary() }
-        });
-#endif
 
         try
         {
@@ -223,18 +215,10 @@ public class AddressablesManager : MonoBehaviour
         }
         finally
         {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            LogLoadMarker("game_prefabs_load_end", new Dictionary<string, object>
-            {
-                { "reason", _gamePrefabsLoadReason },
-                { "elapsedMs", Mathf.RoundToInt((Time.realtimeSinceStartup - startTime) * 1000f) },
-                { "loaded", GamePrefabsLoaded },
-                { "cacheSummary", BuildGamePrefabCacheSummary() }
-            });
-#endif
-            _gamePrefabsLoadReason = "direct";
             _gamePrefabsLoading = false;
         }
+
+        return GamePrefabsLoaded;
     }
 
     private async UniTask LoadPrefabAsync(AssetReference assetRef, System.Action<GameObject> onLoaded, string prefabName)
@@ -245,18 +229,9 @@ public class AddressablesManager : MonoBehaviour
         if (await TryUseExistingOperationHandleAsync(assetRef, onLoaded, prefabName))
             return;
 
-        var handle = assetRef.LoadAssetAsync<GameObject>();
-        await handle.Task;
-
-        if (handle.Status == AsyncOperationStatus.Succeeded && handle.Result != null)
-        {
-            onLoaded?.Invoke(handle.Result);
-            Debug.Log($"[AddressablesManager] {prefabName} 프리팹 로드 성공");
-        }
-        else
-        {
-            Debug.LogError($"[AddressablesManager] {prefabName} 프리팹 로드 실패: {handle.OperationException?.Message}");
-        }
+        GameObject loaded = await LoadReferenceWithRetryAsync<GameObject>(assetRef, prefabName);
+        onLoaded?.Invoke(loaded);
+        Debug.Log($"[AddressablesManager] Required prefab loaded: {prefabName}");
     }
 
     private async UniTask LoadWaveDatabaseAsync()
@@ -267,18 +242,44 @@ public class AddressablesManager : MonoBehaviour
         if (await TryUseExistingOperationHandleAsync<WaveDatabase>(waveDatabaseRef, database => _waveDatabase = database, "WaveDatabase"))
             return;
 
-        var handle = waveDatabaseRef.LoadAssetAsync<WaveDatabase>();
-        await handle.Task;
+        _waveDatabase = await LoadReferenceWithRetryAsync<WaveDatabase>(waveDatabaseRef, "WaveDatabase");
+        Debug.Log("[AddressablesManager] Required WaveDatabase loaded.");
+    }
 
-        if (handle.Status == AsyncOperationStatus.Succeeded && handle.Result != null)
+    private static async UniTask<T> LoadReferenceWithRetryAsync<T>(AssetReference assetReference, string assetName)
+        where T : class
+    {
+        System.Exception lastFailure = null;
+        for (int attempt = 1; attempt <= 2; attempt++)
         {
-            _waveDatabase = handle.Result;
-            Debug.Log("[AddressablesManager] WaveDatabase 로드 완료");
+            AsyncOperationHandle<T> handle = assetReference.LoadAssetAsync<T>();
+            try
+            {
+                T loaded = await handle.Task;
+                if (handle.Status == AsyncOperationStatus.Succeeded && IsLoadedAssetValid(loaded))
+                {
+                    return loaded;
+                }
+
+                lastFailure = handle.OperationException ??
+                              new System.InvalidOperationException($"Addressables returned no asset for {assetName}.");
+            }
+            catch (System.Exception exception)
+            {
+                lastFailure = exception;
+            }
+
+            ReleaseAssetReference(assetReference);
+            if (attempt < 2)
+            {
+                Debug.LogWarning($"[AddressablesManager] {assetName} load attempt {attempt} failed; retrying once. {lastFailure?.Message}");
+                await UniTask.Yield();
+            }
         }
-        else
-        {
-            Debug.LogError($"[AddressablesManager] WaveDatabase 로드 실패: {handle.OperationException?.Message}");
-        }
+
+        throw new System.InvalidOperationException(
+            $"Addressables failed to load required asset {assetName} after retry.",
+            lastFailure);
     }
 
     private bool AreGamePrefabCachesReady()
@@ -291,7 +292,7 @@ public class AddressablesManager : MonoBehaviour
 
     private static bool IsCacheReady<T>(AssetReference assetRef, T cachedAsset) where T : class
     {
-        return !IsReferenceLoadable(assetRef) || IsLoadedAssetValid(cachedAsset);
+        return IsReferenceLoadable(assetRef) && IsLoadedAssetValid(cachedAsset);
     }
 
     private static bool IsReferenceLoadable(AssetReference assetRef)
@@ -327,21 +328,31 @@ public class AddressablesManager : MonoBehaviour
         if (assetRef == null)
             return false;
 
-        var handle = assetRef.OperationHandle;
+        AsyncOperationHandle handle = assetRef.OperationHandle;
         if (!handle.IsValid())
             return false;
 
-        await handle.Task;
+        try
+        {
+            await handle.Task;
+        }
+        catch (System.Exception exception)
+        {
+            Debug.LogWarning($"[AddressablesManager] {assetName} existing operation failed and will be retried: {exception.Message}");
+            ReleaseAssetReference(assetRef);
+            return false;
+        }
 
         if (handle.Status == AsyncOperationStatus.Succeeded && handle.Result is T loadedAsset && IsLoadedAssetValid(loadedAsset))
         {
             onLoaded?.Invoke(loadedAsset);
-            Debug.Log($"[AddressablesManager] {assetName} OperationHandle 재사용");
+            Debug.Log($"[AddressablesManager] Reused existing operation: {assetName}");
             return true;
         }
 
-        Debug.LogError($"[AddressablesManager] {assetName} 기존 OperationHandle 사용 실패: {handle.OperationException?.Message}");
-        return true;
+        Debug.LogWarning($"[AddressablesManager] {assetName} existing operation is unusable and will be retried: {handle.OperationException?.Message}");
+        ReleaseAssetReference(assetRef);
+        return false;
     }
 
     private string BuildGamePrefabCacheSummary()
@@ -349,99 +360,62 @@ public class AddressablesManager : MonoBehaviour
         return $"PlayerManager={IsLoadedAssetValid(_playerManagerPrefab)}, Grid={IsLoadedAssetValid(_gridPrefab)}, Monster={IsLoadedAssetValid(_defaultMonsterPrefab)}, WaveDatabase={IsLoadedAssetValid(_waveDatabase)}";
     }
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-    private static void LogLoadMarker(string code, IDictionary<string, object> fields)
-    {
-        if (!MPTestCommandLine.IsEnabled)
-        {
-            return;
-        }
-
-        MPTestLogger.Log("load_marker", "pass", code, null, fields);
-    }
-#endif
-
-    private static List<IResourceLocation> CollectAllObjectLocations()
-    {
-        var results = new List<IResourceLocation>();
-        var seen = new HashSet<string>();
-
-        foreach (var locator in Addressables.ResourceLocators)
-        {
-            foreach (var key in locator.Keys)
-            {
-                IList<IResourceLocation> locations;
-                bool wasLogEnabled = Debug.unityLogger.logEnabled;
-                try
-                {
-                    // Unity Editor's AddressableAssetSettingsLocator can emit missing-script warnings
-                    // while probing keys. These entries are skipped below, so keep the console clean.
-                    Debug.unityLogger.logEnabled = false;
-                    if (!locator.Locate(key, typeof(Object), out locations))
-                    {
-                        continue;
-                    }
-                }
-                catch (System.Exception)
-                {
-                    // Missing Script 등의 문제가 있는 에셋은 건너뛰기
-                    continue;
-                }
-                finally
-                {
-                    Debug.unityLogger.logEnabled = wasLogEnabled;
-                }
-
-                for (int i = 0; i < locations.Count; i++)
-                {
-                    var location = locations[i];
-                    if (location == null)
-                    {
-                        continue;
-                    }
-
-                    if (!typeof(Object).IsAssignableFrom(location.ResourceType))
-                    {
-                        continue;
-                    }
-
-                    string id = string.IsNullOrEmpty(location.InternalId) ? location.PrimaryKey : location.InternalId;
-                    if (string.IsNullOrEmpty(id) || !seen.Add(id))
-                    {
-                        continue;
-                    }
-
-                    results.Add(location);
-                }
-            }
-        }
-
-        return results;
-    }
-
     /// <summary>
     /// 어드레서블 에셋을 로드하고 지정된 부모 아래에 인스턴스화합니다.
     /// </summary>
     public async UniTask<GameObject> LoadObject(string name, Transform parent = null)
     {
-        var handle = Addressables.LoadAssetAsync<GameObject>(name);
-        await handle.Task;
-
-        if (handle.Status == AsyncOperationStatus.Succeeded)
+        AddressableAssetLease<GameObject> lease = await AssetLoader.AcquireAssetAsync<GameObject>(name);
+        if (lease == null || lease.Asset == null)
         {
-            return OnAssetLoaded(handle, name, parent);
-        }
-        else
-        {
-            Debug.LogError($"{name} 비동기 로드 실패: {handle.OperationException?.Message}");
+            lease?.Dispose();
             return null;
+        }
+
+        GameObject instance = null;
+        try
+        {
+            instance = Instantiate(lease.Asset, parent);
+            AddressableInstanceLease instanceLease = instance.GetComponent<AddressableInstanceLease>();
+            if (instanceLease == null)
+            {
+                instanceLease = instance.AddComponent<AddressableInstanceLease>();
+            }
+
+            instanceLease.Initialize(lease);
+            return instance;
+        }
+        catch
+        {
+            lease.Dispose();
+            if (instance != null)
+            {
+                Destroy(instance);
+            }
+
+            throw;
         }
     }
 
-    private GameObject OnAssetLoaded(AsyncOperationHandle<GameObject> handle, string name, Transform parent)
+    private void OnDestroy()
     {
-        GameObject prefabAsset = handle.Result;
-        GameObject instance = Instantiate(prefabAsset, parent);
-        return instance;
+        if (Instance != this)
+        {
+            return;
+        }
+
+        ReleaseAssetReference(playerManagerPrefabRef);
+        ReleaseAssetReference(gridPrefabRef);
+        ReleaseAssetReference(defaultMonsterPrefabRef);
+        ReleaseAssetReference(waveDatabaseRef);
+        Instance = null;
+    }
+
+    private static void ReleaseAssetReference(AssetReference assetReference)
+    {
+        if (assetReference != null && assetReference.OperationHandle.IsValid())
+        {
+            assetReference.ReleaseAsset();
+        }
     }
 }

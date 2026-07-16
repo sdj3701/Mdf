@@ -343,7 +343,7 @@ flowchart TD
 | --- | --- | --- |
 | `Main Camera` | `ComponentAutoRegister`, `GetPlayerCamera` | 카메라 등록과 로컬 플레이어 위치 반영 |
 | `CameraManager` | `CameraManager` | 필드 간 카메라 이동/복귀 |
-| `Addressable Manager` | `AddressablesManager`, `AddressableAssetLoader` | Addressables 데이터/prefab 로딩 |
+| `Addressable Manager` | `AddressablesManager` | 수명 추적 캐시를 통한 Addressables 데이터/prefab 로딩 |
 | `VfxManager` | `ProjectileVfxManager`, `VfxPoolManager` | 전투 투사체 VFX와 pooling |
 | `GameInitialrizer` | `GameSceneInitializer` | runner 확인, Single/Multi 모드 시작, GameManagers 스폰 |
 | `EventSystem` | Unity input module | UI 입력 처리 |
@@ -719,22 +719,11 @@ flowchart TD
 
 - custom id가 비어 있으면 GameObject 이름을 쓰므로 이름 변경에 취약하다. 중요한 오브젝트는 custom id를 명시하는 것이 좋다.
 
-### `AddressableAssetLoader`
+### 정적 Addressables 경로
 
-파일: `Mdfproject/Assets/Scripts/ComponentRegistrySystem/StaticAssets/AddressableAssetLoader.cs`
-
-기능:
-
-- 타일, sprite 등 일부 static asset을 Addressables에서 로드해 `AssetRegistry`에 등록한다.
-- 현재는 `BreakWall`, `Spr_Port_Warrior` 같은 일부 key를 로드한다.
-
-왜 이렇게 만들었는가:
-
-- grid tile과 sprite 같은 정적 자산을 registry로 빠르게 조회하기 위한 loader다.
-
-개선/추천:
-
-- 로드 대상 목록이 코드에 박혀 있다. inspector list나 Addressables label 기반으로 바꾸면 확장성이 좋아진다.
+과거의 `AddressableAssetLoader`/`AssetRegistry`와 하드코딩된 `BreakWall`,
+`Spr_Port_Warrior` 로드는 제거됐다. 정적 에셋도 현재의 수명 추적 Addressables 캐시를
+사용하며, `ComponentRegistry`는 동적으로 생성되는 런타임 컴포넌트 조회에만 사용한다.
 
 ### `ProjectileVfxManager`
 

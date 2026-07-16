@@ -1,3 +1,4 @@
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -28,6 +29,10 @@ public static class MPTestAssertions
         if (snapshot.Game == null || !snapshot.Game.HasGameManagers)
         {
             result.AddError("gameManagers_missing");
+        }
+        else if (snapshot.Game.CombatExitDebtSafeStopped)
+        {
+            result.AddError("game.combatExitDebtSafeStopped expected=false actual=true");
         }
 
         if (!string.IsNullOrEmpty(expectedGameState))
@@ -77,7 +82,68 @@ public static class MPTestAssertions
             {
                 result.AddError($"player.{player.PlayerId}.wallCount_negative {player.WallCount}");
             }
+
+            if (player.PermanentWallPlacementCount < 0)
+            {
+                result.AddError($"player.{player.PlayerId}.permanentWallPlacementCount_negative {player.PermanentWallPlacementCount}");
+            }
+
+            if (player.BlackMagicCurrent < 0 || player.BlackMagicMaximum < 0 || player.BlackMagicMaxBonus < 0)
+            {
+                result.AddError(
+                    $"player.{player.PlayerId}.blackMagic_negative current={player.BlackMagicCurrent} maximum={player.BlackMagicMaximum} bonus={player.BlackMagicMaxBonus}");
+            }
+
+            if (player.BlackMagicCurrent > player.BlackMagicMaximum)
+            {
+                result.AddError(
+                    $"player.{player.PlayerId}.blackMagic_exceeds_maximum current={player.BlackMagicCurrent} maximum={player.BlackMagicMaximum}");
+            }
+
+            if (snapshot.Version >= 2 && !KingSelectionCatalog.IsValidHash(player.SelectedKingUnitKeyHash))
+            {
+                result.AddError(
+                    $"player.{player.PlayerId}.king_selection_invalid hash={player.SelectedKingUnitKeyHash}");
+            }
+
+            if (snapshot.Version >= 4 && !DemonSelectionCatalog.IsAllowedHash(player.SelectedDemonKeyHash))
+            {
+                result.AddError(
+                    $"player.{player.PlayerId}.demon_selection_invalid hash={player.SelectedDemonKeyHash}");
+            }
+
+            if (snapshot.Version >= 3 && !MapThemeCatalog.IsAllowed(player.SelectedMapThemeId))
+            {
+                result.AddError(
+                    $"player.{player.PlayerId}.map_theme_invalid id={player.SelectedMapThemeId}");
+            }
+
+            string gameState = snapshot.Game != null ? snapshot.Game.CurrentState : null;
+            bool kingDataRequired = string.Equals(gameState, GameManagers.GameState.Prepare.ToString(), StringComparison.OrdinalIgnoreCase)
+                                    || string.Equals(gameState, GameManagers.GameState.Battle1.ToString(), StringComparison.OrdinalIgnoreCase)
+                                    || string.Equals(gameState, GameManagers.GameState.Battle2.ToString(), StringComparison.OrdinalIgnoreCase);
+            if (snapshot.Version >= 2 && kingDataRequired && !player.KingDataReady)
+            {
+                result.AddError($"player.{player.PlayerId}.king_data_not_ready");
+            }
+            if (snapshot.Version >= 4 && kingDataRequired && !player.DemonDataReady)
+            {
+                result.AddError($"player.{player.PlayerId}.demon_data_not_ready");
+            }
+            if (snapshot.Version >= 3 && kingDataRequired && !player.MapThemePresentationReady)
+            {
+                result.AddError($"player.{player.PlayerId}.map_theme_presentation_not_ready");
+            }
+            if (snapshot.Version >= 3
+                && player.MapThemePresentationReady
+                && player.AppliedMapThemeId != player.SelectedMapThemeId)
+            {
+                result.AddError(
+                    $"player.{player.PlayerId}.map_theme_mismatch selected={player.SelectedMapThemeId} applied={player.AppliedMapThemeId}");
+            }
         }
+
+        AssertNoCombatCapacityDrops(result, snapshot.NetworkBudget);
 
         if (snapshot.Errors != null && snapshot.Errors.Count > 0)
         {
@@ -88,6 +154,45 @@ public static class MPTestAssertions
         }
 
         return result;
+    }
+
+    private static void AssertNoCombatCapacityDrops(
+        AssertionResult result,
+        MPTestStateSnapshot.NetworkBudgetSnapshot budget)
+    {
+        if (result == null || budget == null)
+        {
+            return;
+        }
+
+        AddCapacityDropError(result, "status", budget.StatusCapacityDrops);
+        AddCapacityDropError(result, "statBuff", budget.StatBuffCapacityDrops);
+        AddCapacityDropError(result, "zone", budget.ZoneCapacityDrops);
+        AddCapacityDropError(result, "pendingFire", budget.PendingFireCapacityDrops);
+        AddCapacityDropError(result, "pendingHit", budget.PendingHitCapacityDrops);
+        if (budget.ZoneDueDebtPhaseCancellations > 0)
+        {
+            result.AddWarning(
+                $"networkBudget.zoneDueDebtPhaseCancellations actual={budget.ZoneDueDebtPhaseCancellations}");
+        }
+        if (budget.ZoneDebtTerminalTargetInvalidations > 0)
+        {
+            result.AddWarning(
+                $"networkBudget.zoneDebtTerminalTargetInvalidations actual={budget.ZoneDebtTerminalTargetInvalidations}");
+        }
+        if (budget.ZoneDebtTerminalFailures > 0)
+        {
+            result.Errors.Add(
+                $"networkBudget.zoneDebtTerminalFailures expected=0 actual={budget.ZoneDebtTerminalFailures}");
+        }
+    }
+
+    private static void AddCapacityDropError(AssertionResult result, string kind, int count)
+    {
+        if (count > 0)
+        {
+            result.AddError($"networkBudget.{kind}CapacityDrops expected=0 actual={count}");
+        }
     }
 
     public static AssertionResult CompareDurable(
@@ -153,6 +258,29 @@ public static class MPTestAssertions
             CompareEqual(result, $"player.{left.PlayerId}.health", left.Health, right.Health);
             CompareEqual(result, $"player.{left.PlayerId}.gold", left.Gold, right.Gold);
             CompareEqual(result, $"player.{left.PlayerId}.wallCount", left.WallCount, right.WallCount);
+            CompareEqual(result, $"player.{left.PlayerId}.permanentWallPlacementCount", left.PermanentWallPlacementCount, right.PermanentWallPlacementCount);
+            CompareEqual(result, $"player.{left.PlayerId}.permanentWallStockRevision", left.PermanentWallStockRevision, right.PermanentWallStockRevision);
+            CompareEqual(result, $"player.{left.PlayerId}.permanentWallLayoutRevision", left.PermanentWallLayoutRevision, right.PermanentWallLayoutRevision);
+            CompareEqual(result, $"player.{left.PlayerId}.blackMagicCurrent", left.BlackMagicCurrent, right.BlackMagicCurrent);
+            CompareEqual(result, $"player.{left.PlayerId}.blackMagicMaximum", left.BlackMagicMaximum, right.BlackMagicMaximum);
+            CompareEqual(result, $"player.{left.PlayerId}.blackMagicMaxBonus", left.BlackMagicMaxBonus, right.BlackMagicMaxBonus);
+            CompareEqual(result, $"player.{left.PlayerId}.blackMagicRevision", left.BlackMagicRevision, right.BlackMagicRevision);
+            CompareEqual(result, $"player.{left.PlayerId}.blackMagicSequenceId", left.BlackMagicSequenceId, right.BlackMagicSequenceId);
+            CompareEqual(result, $"player.{left.PlayerId}.selectedMapThemeId", left.SelectedMapThemeId, right.SelectedMapThemeId);
+            CompareEqual(result, $"player.{left.PlayerId}.mapThemePresentationReady", left.MapThemePresentationReady, right.MapThemePresentationReady);
+            if (left.MapThemePresentationReady && right.MapThemePresentationReady)
+            {
+                CompareEqual(result, $"player.{left.PlayerId}.appliedMapThemeId", left.AppliedMapThemeId, right.AppliedMapThemeId);
+            }
+            CompareEqual(result, $"player.{left.PlayerId}.selectedKingUnitKeyHash", left.SelectedKingUnitKeyHash, right.SelectedKingUnitKeyHash);
+            CompareEqual(result, $"player.{left.PlayerId}.kingSkillUsedThisDefense", left.KingSkillUsedThisDefense, right.KingSkillUsedThisDefense);
+            CompareEqual(result, $"player.{left.PlayerId}.kingDefenseSequenceId", left.KingDefenseSequenceId, right.KingDefenseSequenceId);
+            CompareEqual(result, $"player.{left.PlayerId}.kingAttackDamageBonusPermille", left.KingAttackDamageBonusPermille, right.KingAttackDamageBonusPermille);
+            CompareEqual(result, $"player.{left.PlayerId}.kingAttackSpeedBonusPermille", left.KingAttackSpeedBonusPermille, right.KingAttackSpeedBonusPermille);
+            CompareEqual(result, $"player.{left.PlayerId}.kingSkillPowerBonusPermille", left.KingSkillPowerBonusPermille, right.KingSkillPowerBonusPermille);
+            CompareEqual(result, $"player.{left.PlayerId}.selectedDemonKeyHash", left.SelectedDemonKeyHash, right.SelectedDemonKeyHash);
+            CompareEqual(result, $"player.{left.PlayerId}.demonSkillUsedThisAttack", left.DemonSkillUsedThisAttack, right.DemonSkillUsedThisAttack);
+            CompareEqual(result, $"player.{left.PlayerId}.demonAttackSequenceId", left.DemonAttackSequenceId, right.DemonAttackSequenceId);
             CompareKnownOrMissing(result, $"player.{left.PlayerId}.attackMonsterPoolHash", left.AttackMonsterPoolHash, right.AttackMonsterPoolHash);
             CompareKnownOrMissing(result, $"player.{left.PlayerId}.ownedScrollsHash", left.OwnedScrollsHash, right.OwnedScrollsHash);
             CompareEqual(result, $"player.{left.PlayerId}.ownedScrollRevision", left.OwnedScrollRevision, right.OwnedScrollRevision);
@@ -255,9 +383,23 @@ public static class MPTestAssertions
         CompareKnownHash(result, $"player.{playerId}.field.placedUnitsHash", expected.PlacedUnitsHash, actual.PlacedUnitsHash);
         CompareNullable(result, $"player.{playerId}.field.destructibleWallCount", expected.DestructibleWallCount, actual.DestructibleWallCount);
         CompareNullable(result, $"player.{playerId}.field.permanentWallCount", expected.PermanentWallCount, actual.PermanentWallCount);
+        CompareNullable(result, $"player.{playerId}.field.playerPlacedPermanentWallCount", expected.PlayerPlacedPermanentWallCount, actual.PlayerPlacedPermanentWallCount);
+        CompareKnownHash(result, $"player.{playerId}.field.playerPlacedPermanentWallHash", expected.PlayerPlacedPermanentWallHash, actual.PlayerPlacedPermanentWallHash);
         CompareKnownHash(result, $"player.{playerId}.field.wallHash", expected.WallHash, actual.WallHash);
+        CompareKnownOrRequired(
+            result,
+            $"player.{playerId}.field.destructibleWallHealthHash",
+            expected.DestructibleWallHealthHash,
+            actual.DestructibleWallHealthHash,
+            CountPositive(expected.DestructibleWallCount) || CountPositive(actual.DestructibleWallCount));
         CompareEqual(result, $"player.{playerId}.field.pathReady", expected.PathReady, actual.PathReady);
         CompareEqual(result, $"player.{playerId}.field.goalReady", expected.GoalReady, actual.GoalReady);
+        CompareEqual(result, $"player.{playerId}.field.goalCell", expected.GoalCell, actual.GoalCell);
+        CompareNullable(
+            result,
+            $"player.{playerId}.field.regularUnitGoalViolationCount",
+            expected.RegularUnitGoalViolationCount,
+            actual.RegularUnitGoalViolationCount);
     }
 
     private static void CompareMonsters(
@@ -469,3 +611,4 @@ public static class MPTestAssertions
         }
     }
 }
+#endif

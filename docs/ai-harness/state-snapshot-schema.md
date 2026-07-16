@@ -4,11 +4,16 @@
 
 Snapshots must contain stable comparable game state, not raw Unity object dumps.
 
+`connectionTokenHash` is the durable one-way identity carrier replicated by the
+authoritative `PlayerManager`; raw connection tokens must never appear in snapshots.
+When `destructibleWallCount > 0`, `destructibleWallHealthHash` is required and is
+compared across peers and across host migration.
+
 ## JSON shape
 
 ```json
 {
-  "version": 1,
+  "version": 4,
   "role": "host|client|editor-host|editor-client",
   "caseName": "game_smoke",
   "session": "mp-...",
@@ -44,7 +49,7 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
       "playerId": 0,
       "networkId": "123",
       "playerRef": "PlayerRef:1",
-      "connectionTokenHash": "sha256:...",
+      "connectionTokenHash": "64 lowercase SHA-256 hex chars",
       "hasInputAuthority": true,
       "hasStateAuthority": true,
       "isLocal": true,
@@ -55,6 +60,65 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
       "wallCount": 5,
       "isActivelyFighting": false,
       "isAttackerInCurrentBattle": false,
+      "blackMagicCurrent": 10,
+      "blackMagicMaximum": 10,
+      "blackMagicMaxBonus": 0,
+      "blackMagicRevision": 1,
+      "blackMagicSequenceId": 5,
+      "selectedMapThemeId": 2,
+      "appliedMapThemeId": 2,
+      "mapThemePresentationReady": true,
+      "selectedKingUnitKeyHash": 123456789,
+      "kingDataReady": true,
+      "kingSkillUsedThisDefense": false,
+      "kingCanUseSkill": true,
+      "kingDefenseSequenceId": 1,
+      "kingDamageReactionSequence": 0,
+      "kingAttackPresentationSequence": 0,
+      "kingSkillPresentationSequence": 0,
+      "kingAttackDamageBonusPermille": 0,
+      "kingAttackSpeedBonusPermille": 0,
+      "kingSkillPowerBonusPermille": 0,
+      "selectedDemonKeyHash": 123456789,
+      "demonDataReady": true,
+      "demonSkillUsedThisAttack": false,
+      "demonCanUseSkill": true,
+      "demonAttackSequenceId": 5,
+      "demonSkillPresentationSequence": 0,
+      "kingPresentationReady": true,
+      "kingPresentationGoalDistance": 0.0,
+      "kingPresentationScaleMultiplier": 1.3,
+      "kingPresentationWorldScaleDrift": 0.0,
+      "kingPresentationTransformDrift": 0.0,
+      "kingRigTransformDrift": 0.0,
+      "kingUsesNeutralGoalAnchor": true,
+      "kingRigPinRequired": true,
+      "kingRigPinActive": true,
+      "kingCameraFacingAngle": 0.0,
+      "kingHeadLookActive": true,
+      "kingHeadLookApplied": true,
+      "kingHeadPresentationMode": "base_head_look",
+      "kingHeadPose": {
+        "comparable": true,
+        "kingHeadFound": true,
+        "baseUnitFound": true,
+        "cameraFound": true,
+        "baseUnitKey": "UnitData_Mage",
+        "baseUnitName": "Mage(Clone)",
+        "kingHeadLookRecent": true,
+        "baseHeadLookRecent": true,
+        "kingHeadLookFrameAge": 1,
+        "baseHeadLookFrameAge": 1,
+        "kingAnimatorCullingMode": "AlwaysAnimate",
+        "baseAnimatorCullingMode": "CullUpdateTransforms",
+        "rootRelativeRotationDeltaDeg": 0.5,
+        "kingForwardElevationDeg": 42.0,
+        "baseForwardElevationDeg": 41.8,
+        "kingToCameraAngleDeg": 8.0,
+        "baseToCameraAngleDeg": 8.4,
+        "kingToConfiguredLookAngleDeg": 4.0,
+        "baseToConfiguredLookAngleDeg": 4.2
+      },
       "attackMonsterPoolHash": "sha256:...",
       "ownedScrollsHash": "sha256:...",
       "ownedScrollRevision": 0,
@@ -82,10 +146,13 @@ Snapshots must contain stable comparable game state, not raw Unity object dumps.
         "placedUnitCount": 2,
         "placedUnitsHash": "sha256:...",
         "destructibleWallCount": 3,
+        "destructibleWallHealthHash": "sha256:...",
         "permanentWallCount": 5,
         "wallHash": "sha256:...",
         "pathReady": true,
-        "goalReady": true
+        "goalReady": true,
+        "goalCell": "5,4,0",
+        "regularUnitGoalViolationCount": 0
       },
       "monsters": {
         "aliveCount": 0,
@@ -180,14 +247,21 @@ Exact or hash-equal after stable wait:
 - survivor boss pending/assignment counts and hashes when available; non-zero state on only one peer is a failure
 - player ids and player count
 - player HP/gold/wall counts
+- player Black Magic current/maximum/personal maximum bonus/revision/attack-sequence identity
+- player cosmetic map theme selection and applied presentation id; schema v3 requires a valid per-player selection and a bound field presenter during Prepare/Battle
+- player King selection, data readiness, once-per-defense skill consumption/sequence, presentation sequences, and cumulative augment bonuses; schema v2 requires a valid selection hash and loaded King data during Prepare/Battle
 - shop snapshot hashes
 - augment presented/selected counts, active effect/target counts, and active effect/target hashes when available
 - field unit/wall aggregate hashes
 - monster alive counts, legacy living hashes, semantic type hashes, owner/origin hashes, type/count/HP-bucket hashes, target/player hashes, HP bucket hashes, and boss/pool identity hashes after battle stabilization
 - active buff/status/zone counts and semantic hashes after scroll or skill effects
 - command sequence/last durable command, including accepted battle command sequence, monster spawn sequence, magic scroll use sequence, and rejected battle command count
-- attack monster pool hash after authoritative spawn acceptance
+- attack monster pool hash after authoritative spawn acceptance; each slot part includes its `blackMagicCost` and spend `mode` (`black-magic` or `boss-entitlement`)
 - manual/strategic skill readiness hashes after defender skill state stabilizes
+- King skill readiness is phase- and role-dependent presentation state; durable comparisons use selection, consumed flag, defense sequence, and cumulative bonuses rather than requiring `kingCanUseSkill` to match during transient phase changes
+- King presentation diagnostics are local visual assertions: a stable Prepare sample requires a neutral sibling anchor, planar Goal distance near zero, configured scale multiplier `1.3`, near-zero world-scale/root/rig drift, and a camera-facing yaw error near zero. `kingHeadPresentationMode=base_head_look` additionally requires an active copied head-look controller and `kingHeadLookApplied=true`; `base_idle` intentionally disables field-unit LookAt and uses the base prefab Animator's idle head pose. Compare these per peer rather than treating their transient readiness as durable network state.
+- `kingHeadPose` is optional local visual telemetry and exists only when the selected King's base UnitData is loaded. `comparable=true` additionally requires a live ordinary field unit with the same UnitData and valid Humanoid Head bones. A large `rootRelativeRotationDeltaDeg`, materially different forward elevations, or different configured-look angles while both `*HeadLookRecent` values are true proves an Animator/IK pose divergence. Near-equal pose values with a bad screenshot points instead to camera framing, scale, renderer, or model accessories. This object is diagnostic and is not a durable cross-peer state assertion.
+- `field.goalCell` and `field.regularUnitGoalViolationCount` are durable placement invariants. The violation count must be zero on every peer; Goal-targeted regular-unit requests must be rejected without changing `placedUnitsHash`.
 - For conditional Phase 10 required values such as battle hashes during `Battle1`/`Battle2`, survivor hashes with non-zero counts, and `commands.lastCommand` with advanced battle command counters, any `unknown`/missing value is a failure, including both peers missing the value. For optional absent state, such as no living boss monsters, both sides may remain `unknown`.
 
 Allowed differences:
@@ -237,6 +311,7 @@ Battle smoke:
 - `battleOpponentsHash` and `matchFirstAttackerHash` come from the state-authority battle map or its Networked read-only fallback, not from mutating lookup methods
 - active battle flags are consistent
 - `attackMonsterPoolHash` is deterministic for null, empty, and non-empty pools; empty-vs-nonempty pool drift must not be hidden behind `unknown`
+- attacker `blackMagicCurrent`, `blackMagicMaximum`, `blackMagicMaxBonus`, `blackMagicRevision`, and `blackMagicSequenceId` are exact-equal across peers; migration must preserve them without refilling the active sequence
 - `ownedScrollsHash` is deterministic for null, empty, and non-empty scroll inventories and includes the authoritative scroll revision
 - `useMagicScrollSeq` increments only when State Authority applies a scroll's gameplay effects
 - `activateSkillSeq` increments only when State Authority executes an accepted manual/strategic `ActivateSkillCommand`
@@ -254,6 +329,8 @@ Host migration:
 - migration callback/resume events exist in logs
 - post-migration GameManagers exists on active runner
 - player/field/wall/shop/AI state restored
+- every player's selected/applied cosmetic map theme restored exactly; a host change must not collapse all fields to the new host's local preference
+- Black Magic current/maximum/bonus/revision/sequence id restored exactly; host migration never starts a new attack-sequence refill by itself
 - no duplicate `playerId`
 - stale `PlayerRef` not used as durable identity
 

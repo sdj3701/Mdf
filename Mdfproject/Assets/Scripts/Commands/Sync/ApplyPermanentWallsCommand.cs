@@ -8,11 +8,13 @@ using UnityEngine;
 public class ApplyPermanentWallsCommand : ICommand
 {
     public int PlayerId { get; set; }
+    public int LayoutRevision { get; private set; }
     public int[] FlatPositions { get; private set; }
 
-    public ApplyPermanentWallsCommand(int playerId, int[] flatPositions)
+    public ApplyPermanentWallsCommand(int playerId, int layoutRevision, int[] flatPositions)
     {
         PlayerId = playerId;
+        LayoutRevision = layoutRevision;
         FlatPositions = flatPositions ?? System.Array.Empty<int>();
     }
 
@@ -24,7 +26,7 @@ public class ApplyPermanentWallsCommand : ICommand
         var player = gm.GetPlayer(PlayerId);
         if (player?.fieldManager != null)
         {
-            player.fieldManager.ApplyPermanentWallsFromServer(FlatPositions);
+            player.fieldManager.ApplyPermanentWallsFromServer(LayoutRevision, FlatPositions);
             Debug.Log($"<color=cyan>[ApplyPermanentWallsCommand] Player {PlayerId}: {FlatPositions.Length}개 영구 벽 적용</color>");
         }
     }

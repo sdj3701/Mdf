@@ -45,6 +45,7 @@ public static class BattleSpawnMonsterMpTestLogger
             { "defenderPlayerId", command.DefenderPlayerId },
             { "poolSlotIndex", command.PoolSlotIndex },
             { "observedAttackMonsterPoolRevision", command.ObservedAttackMonsterPoolRevision },
+            { "observedBlackMagicRevision", command.ObservedBlackMagicRevision },
             { "count", command.Count },
             { "scope", command.Scope.ToString() },
             { "success", commandResult.Success },

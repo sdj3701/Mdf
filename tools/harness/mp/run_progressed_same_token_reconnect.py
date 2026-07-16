@@ -158,6 +158,9 @@ def compare_reconnect_target(host_snapshot: dict[str, Any], client_snapshot: dic
         ("health", ("health",)),
         ("gold", ("gold",)),
         ("wallCount", ("wallCount",)),
+        ("permanentWallPlacementCount", ("permanentWallPlacementCount",)),
+        ("permanentWallStockRevision", ("permanentWallStockRevision",)),
+        ("permanentWallLayoutRevision", ("permanentWallLayoutRevision",)),
         ("shop.itemsHash", ("shop", "itemsHash")),
         ("shop.revision", ("shop", "revision")),
         ("augment.presentedCount", ("augment", "presentedCount")),
@@ -166,6 +169,8 @@ def compare_reconnect_target(host_snapshot: dict[str, Any], client_snapshot: dic
         ("augment.selectedHash", ("augment", "selectedHash")),
         ("field.gridHash", ("field", "gridHash")),
         ("field.permanentWallCount", ("field", "permanentWallCount")),
+        ("field.playerPlacedPermanentWallCount", ("field", "playerPlacedPermanentWallCount")),
+        ("field.playerPlacedPermanentWallHash", ("field", "playerPlacedPermanentWallHash")),
         ("field.wallHash", ("field", "wallHash")),
         ("field.placedUnitCount", ("field", "placedUnitCount")),
         ("field.placedUnitsHash", ("field", "placedUnitsHash")),
@@ -372,6 +377,7 @@ def run(args: argparse.Namespace) -> int:
     client_b_proc: PlayerProcess | None = None
     failures: list[str] = []
     target_player_id = -1
+    durable_client_connection_hash = "unknown"
 
     write_json(artifact_dir / "run.json", {
         "case": CASE_NAME,
@@ -528,6 +534,8 @@ def run(args: argparse.Namespace) -> int:
 
         target_player_id = int(progression.get("botPlayerId", -1)) if isinstance(progression, dict) else -1
         client_a_local = local_player(client_progressed)
+        if isinstance(client_a_local, dict):
+            durable_client_connection_hash = str(client_a_local.get("connectionTokenHash") or "unknown")
         if target_player_id < 0 and isinstance(client_a_local, dict):
             target_player_id = int(client_a_local.get("playerId", -1))
         if target_player_id < 0:
@@ -535,8 +543,8 @@ def run(args: argparse.Namespace) -> int:
         else:
             write_json(artifact_dir / "reconnect-target.json", {
                 "playerId": target_player_id,
-                "connectionTokenHash": client_a_local.get("connectionTokenHash") if isinstance(client_a_local, dict) else "unknown",
-                "expectedConnectionTokenHash": client_connection_hash,
+                "connectionTokenHash": durable_client_connection_hash,
+                "redactedConnectionTokenHash": client_connection_hash,
             })
 
         write_json(artifact_dir / "checkpoint-summary.json", {
@@ -619,7 +627,7 @@ def run(args: argparse.Namespace) -> int:
                 artifact_dir,
                 host_progressed,
                 target_player_id,
-                client_connection_hash,
+                durable_client_connection_hash,
                 args.reconnect_timeout,
                 args.scene,
                 args.expected_players,

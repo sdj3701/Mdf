@@ -48,6 +48,12 @@ public sealed class MPTestMainThreadDispatcher : MonoBehaviour
         return item.Task;
     }
 
+    public static async Task<T> RunAsync<T>(Func<Task<T>> action)
+    {
+        Task<T> innerTask = await Run(action);
+        return await innerTask;
+    }
+
     private void Awake()
     {
         if (_instance != null && _instance != this)

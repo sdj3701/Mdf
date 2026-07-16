@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: battle
 Created: 2026-05-06
-Last used: 2026-05-31
-Last verified: 2026-05-31
-Use count: 5
+Last used: 2026-07-15
+Last verified: 2026-07-15
+Use count: 7
 Review after: 2026-08-04
 Triggers: magic scroll use, client-side VFX broadcast, scroll inventory hash drift, buff/status/zone side effects
 Applies to: `UseMagicScrollCommand`, `GameManagers.RPC_RequestUseMagicScrollCommand`, `PlayerManager.OwnedScrolls`, `ScrollCaster`, `MPTestStateSnapshot`
-Verified by: see Verification section below; migrated from old Status: compile-verified; battle scroll E2E still needs a dedicated runner; artifacts/mp/20260530-185136-matrix/20260530-185141-magic-scroll-command; artifacts/mp/20260530-190027-matrix/20260530-190032-magic-scroll-command
+Verified by: see Verification section below; migrated from old Status: compile-verified; battle scroll E2E still needs a dedicated runner; artifacts/mp/20260530-185136-matrix/20260530-185141-magic-scroll-command; artifacts/mp/20260530-190027-matrix/20260530-190032-magic-scroll-command; artifacts/mp/20260715-053152-matrix/20260715-053356-magic-scroll-command/result.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -39,3 +39,4 @@ Verification:
 Lifecycle notes:
 - 2026-05-31: verified artifact `artifacts/mp/20260530-185136-matrix/20260530-185141-magic-scroll-command`
 - 2026-05-31: verified artifact `artifacts/mp/20260530-190027-matrix/20260530-190032-magic-scroll-command`
+- 2026-07-15: verified artifact `artifacts/mp/20260715-053152-matrix/20260715-053356-magic-scroll-command/result.json`

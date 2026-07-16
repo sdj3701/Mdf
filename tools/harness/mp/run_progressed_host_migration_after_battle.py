@@ -18,6 +18,7 @@ def main() -> int:
         require_scroll=False,
         require_any_battle_command=True,
         migrate_after_battle=True,
+        probe_portrait_after_migration=True,
     )
 
 

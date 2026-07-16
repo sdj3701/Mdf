@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: battle, feature-workflow
 Created: 2026-05-08
-Last used: 2026-05-31
-Last verified: 2026-05-31
-Use count: 8
+Last used: 2026-07-15
+Last verified: 2026-07-15
+Use count: 19
 Review after: 2026-08-06
 Triggers: matrix cost control, random-aware runs, battle-heavy runs, nightly automation
 Applies to: `tools/harness/mp/run_matrix.py`, matrix docs, HumanBot/battle seed sweeps
-Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260510-100906-matrix; artifacts/mp/20260530-171651-matrix; artifacts/mp/20260530-175140-matrix
+Verified by: see Verification section below; migrated from old Status: verified; artifacts/mp/20260510-100906-matrix; artifacts/mp/20260530-171651-matrix; artifacts/mp/20260530-175140-matrix; artifacts/mp/20260712-085632-matrix/matrix-summary.json; artifacts/mp/20260714-142121-matrix/matrix-summary.json; artifacts/mp/20260715-003234-matrix/matrix-summary.json; artifacts/mp/20260715-010530-matrix/matrix-summary.json; artifacts/mp/20260715-011304-matrix/matrix-summary.json; artifacts/mp/20260715-125915-matrix/matrix-summary.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -51,3 +51,9 @@ Lifecycle notes:
 - 2026-05-31: verified artifact `artifacts/mp/20260530-171651-matrix`
 - 2026-05-31: Used targeted progressed-host-migration-after-battle case for scheduler lifecycle hardening.
 - 2026-05-31: verified artifact `artifacts/mp/20260530-175140-matrix`
+- 2026-07-12: verified artifact `artifacts/mp/20260712-085632-matrix/matrix-summary.json`
+- 2026-07-15: verified artifact `artifacts/mp/20260714-142121-matrix/matrix-summary.json`
+- 2026-07-15: verified artifact `artifacts/mp/20260715-003234-matrix/matrix-summary.json`
+- 2026-07-15: verified artifact `artifacts/mp/20260715-010530-matrix/matrix-summary.json`
+- 2026-07-15: verified artifact `artifacts/mp/20260715-011304-matrix/matrix-summary.json`
+- 2026-07-15: verified artifact `artifacts/mp/20260715-125915-matrix/matrix-summary.json`

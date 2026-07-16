@@ -3,9 +3,11 @@ using UnityEngine;
 using System.Collections.Generic; // List 사용을 위해 추가
 
 [CreateAssetMenu(fileName = "New SkillData", menuName = "Game/Skill Data")]
-public class SkillData : ScriptableObject
+public class SkillData : ScriptableObject, IStableContentIdentity
 {
     [Header("기본 정보")]
+    [SerializeField, Tooltip("Immutable gameplay identity. Never change this after the content ships.")]
+    private string contentId;
     public string skillName;
     [TextArea(3, 5)]
     public string description;
@@ -33,4 +35,7 @@ public class SkillData : ScriptableObject
     [Header("시각 효과 (선택)")]
     [Tooltip("스킬 발동 시 클라이언트에서 생성할 이펙트 프리팹 (네트워크 객체 X)")]
     public GameObject vfxPrefab;
+
+    public string ContentId => StableDataKeyUtility.NormalizeContentId(contentId);
+    public int ContentIdHash => StableDataKeyUtility.StableContentIdHash(contentId);
 }

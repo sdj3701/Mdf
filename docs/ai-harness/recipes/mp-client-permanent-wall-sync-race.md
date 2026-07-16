@@ -4,13 +4,13 @@ Status: active
 Pinned: false
 Category: harness
 Created: 2026-05-05
-Last used: 2026-05-05
-Last verified: 2026-05-05
-Use count: 1
+Last used: 2026-07-13
+Last verified: 2026-07-13
+Use count: 5
 Review after: 2026-08-03
 Triggers: matrix-only `build-host-editor-client` wallHash mismatch, `state_ready_timeout`, client permanentWallCount 0/1
 Applies to: `PlayerManager.RPC_ApplyPermanentWalls`, `FieldManager.ApplyPermanentWallsFromServer`, `run_matrix.py`
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260713-041007-permanent-wall-placement/result.json; artifacts/mp/20260713-055045-permanent-wall-placement/result.json; artifacts/mp/20260713-063604-permanent-wall-placement/result.json
 Replacement: none
 Archive policy: archive only after explicit review when unused for 180 days and no active docs/scripts reference it
 
@@ -29,3 +29,8 @@ Verification:
 - `artifacts/mp/20260505-122826-matrix/matrix-summary.json` passed all matrix cases: Editor Host + Build Client, Build Host + Editor Client, Build Host + Build Client, AI fill, disconnect AI takeover, same-token reconnect, and 4-player smoke.
 - `artifacts/mp/20260505-125052-build-host-editor-client` reproduced the standalone miss with `state_ready_timeout` and `snapshot_mismatch`.
 - `artifacts/mp/20260505-125705-build-host-editor-client` passed after adding the authority rebroadcast payload and rebuilding the Development player at `artifacts/builds/20260505-125616/MDF-MPTest.exe`.
+
+Lifecycle notes:
+- 2026-07-13: verified artifact `artifacts/mp/20260713-041007-permanent-wall-placement/result.json`
+- 2026-07-13: verified artifact `artifacts/mp/20260713-055045-permanent-wall-placement/result.json`
+- 2026-07-13: verified artifact `artifacts/mp/20260713-063604-permanent-wall-placement/result.json`

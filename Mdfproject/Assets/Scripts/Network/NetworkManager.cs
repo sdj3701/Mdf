@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Reflection;
 using Fusion;
@@ -36,6 +37,22 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // 서버에서 플레이어들을 관리하기 위한 딕셔너리입니다.
     private readonly Dictionary<PlayerRef, NetworkObject> _spawnedCharacters = new Dictionary<PlayerRef, NetworkObject>();
     private readonly Dictionary<PlayerRef, string> _connectionTokensByPlayer = new Dictionary<PlayerRef, string>();
+    private readonly LobbyKingSelectionSessionCache _lobbyKingSelections = new LobbyKingSelectionSessionCache();
+    private readonly LobbyDemonSelectionSessionCache _lobbyDemonSelections = new LobbyDemonSelectionSessionCache();
+    private readonly LobbyMapThemeSessionCache _lobbyMapThemes = new LobbyMapThemeSessionCache();
+    private readonly Dictionary<int, PendingDisconnectedAiTakeover> _pendingDisconnectedAiTakeovers = new Dictionary<int, PendingDisconnectedAiTakeover>();
+    private int _disconnectedAiTakeoverGeneration;
+
+    private sealed class PendingDisconnectedAiTakeover
+    {
+        public int PlayerId;
+        public string ConnectionToken;
+        public PlayerRef DisconnectedPlayer;
+        public NetworkRunner Runner;
+        public PlayerManager PlayerManager;
+        public int Generation;
+        public Coroutine Coroutine;
+    }
 
     [Header("Lobby & UI")]
     // 현재 로비에 있는 세션(방) 목록을 저장합니다.
@@ -99,6 +116,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
                 gameObject.AddComponent<HostMigrationHandler>();
             }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            MPTestBootstrap.TryInitialize();
+#endif
+
             RegisterCloudConnectionLostHandlerIfAvailable();
         }
         else
@@ -116,6 +137,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     {
         if (Instance == this)
         {
+            CancelAllPendingDisconnectedAiTakeovers();
             CancelPendingConnectionLossFallback();
             UnregisterCloudConnectionLostHandlerIfAvailable();
         }
@@ -132,6 +154,11 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public void SetRunnerAfterMigration(NetworkRunner newRunner)
     {
         Debug.Log($"<color=cyan>[NetworkManager] SetRunnerAfterMigration - 새 Runner 설정</color>");
+        // PlayerRef values belong to one runner and can be reassigned after migration.
+        // Keep durable token selections, but discard every runner-local shortcut.
+        _lobbyKingSelections.ClearPlayerRefs();
+        _lobbyDemonSelections.ClearPlayerRefs();
+        _lobbyMapThemes.ClearPlayerRefs();
         _runner = newRunner;
         
         // 콜백 다시 등록
@@ -167,6 +194,17 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     public async void JoinLobby()
     {
         if (_runner != null) return;
+        if (!MdfNetworkProtocol.ApplyToGlobalSettings(out string protocolReason))
+        {
+            Debug.LogError($"[NetworkManager] Lobby connection blocked because the network protocol version could not be applied. reason={protocolReason}");
+            State = ConnectionState.Disconnected;
+            SetNetworkUiBlock(NetworkUiBlockReason.None);
+            return;
+        }
+
+        _lobbyKingSelections.Clear();
+        _lobbyDemonSelections.Clear();
+        _lobbyMapThemes.Clear();
         State = ConnectionState.Connecting; // 새 중간 상태
         SetNetworkUiBlock(NetworkUiBlockReason.LobbyBootstrap);
 
@@ -422,9 +460,18 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         State = ConnectionState.InGame; // 상태를 '게임 중'으로 변경
         SetNetworkUiBlock(NetworkUiBlockReason.None);
 
+        // Clear stale runner-local values on every peer before the authority enriches
+        // this connection from its durable token. PlayerRef values may be reused.
+        _lobbyKingSelections.ForgetPlayerRef(player.PlayerId);
+        _lobbyDemonSelections.ForgetPlayerRef(player.PlayerId);
+        _lobbyMapThemes.ForgetPlayerRef(player.PlayerId);
+
         if (runner.IsServer)
         {
             CachePlayerConnectionToken(runner, player);
+            PrepareLobbyKingSelectionForJoinedPlayer(runner, player);
+            PrepareLobbyDemonSelectionForJoinedPlayer(runner, player);
+            PrepareLobbyMapThemeForJoinedPlayer(runner, player);
 
             if (TryReassociateDisconnectedPlayer(runner, player))
             {
@@ -464,6 +511,7 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
                 NetworkObject networkPlayerObject = runner.Spawn(_playerPrefab, Vector3.zero, Quaternion.identity, player);
                 _spawnedCharacters[player] = networkPlayerObject;
+                PublishDurableConnectionTokenHash(runner, player, networkPlayerObject);
             }
         }
 
@@ -478,9 +526,43 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         bool isMigrating = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
         _spawnedCharacters.TryGetValue(player, out NetworkObject networkObject);
 
+        _lobbyKingSelections.ForgetPlayerRef(player.PlayerId);
+        _lobbyDemonSelections.ForgetPlayerRef(player.PlayerId);
+        _lobbyMapThemes.ForgetPlayerRef(player.PlayerId);
+        string disconnectedObjectScene = networkObject != null && networkObject.IsValid
+            ? networkObject.gameObject.scene.name
+            : SceneManager.GetActiveScene().name;
+        if (ShouldCleanupDisconnectedLobbyObject(disconnectedObjectScene, isMigrating))
+        {
+            if (runner != null && runner.IsRunning && runner.IsServer)
+            {
+                NetworkObject lobbyObject = networkObject;
+                if (lobbyObject == null || !lobbyObject.IsValid)
+                {
+                    NetworkPlayer lobbyPlayer = FindObjectsOfType<NetworkPlayer>(true)
+                        .FirstOrDefault(candidate => candidate != null
+                            && candidate.Runner == runner
+                            && candidate.Object != null
+                            && candidate.Object.IsValid
+                            && candidate.Object.InputAuthority == player);
+                    lobbyObject = lobbyPlayer != null ? lobbyPlayer.Object : null;
+                }
+
+                if (lobbyObject != null && lobbyObject.IsValid)
+                {
+                    runner.Despawn(lobbyObject);
+                }
+            }
+
+            _spawnedCharacters.Remove(player);
+            OnPlayerLeftEvent?.Invoke(player);
+            return;
+        }
+
         PlayerManager runtimePlayer = FindPlayerManagerForInputAuthority(runner, player);
         NetworkObject preservedObject = runtimePlayer != null ? runtimePlayer.Object : null;
         NetworkObject cacheObject = preservedObject != null && preservedObject.IsValid ? preservedObject : networkObject;
+        string disconnectedToken = GetCachedOrCurrentConnectionToken(runner, player);
 
         CacheDisconnectedPlayerData(runner, player, cacheObject);
 
@@ -490,9 +572,23 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
 
             if (!isMigrating && runner != null && runner.IsServer)
             {
-                if (!TryEnableDisconnectedAiTakeover(runner, player, runtimePlayer, out string notReadyReason))
+                int disconnectedPlayerId = runtimePlayer.playerId;
+                CancelPendingDisconnectedAiTakeover(disconnectedPlayerId, null);
+                if (!TryEnableDisconnectedAiTakeover(
+                        runner,
+                        player,
+                        runtimePlayer,
+                        disconnectedPlayerId,
+                        disconnectedToken,
+                        out string notReadyReason))
                 {
-                    StartCoroutine(RetryDisconnectedAiTakeover(runner, player, runtimePlayer, notReadyReason));
+                    ScheduleDisconnectedAiTakeoverRetry(
+                        runner,
+                        player,
+                        runtimePlayer,
+                        disconnectedPlayerId,
+                        disconnectedToken,
+                        notReadyReason);
                 }
             }
 
@@ -526,6 +622,8 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     // Runner가 종료되었을 때 호출됩니다. (연결 끊김, 스스로 나가기 등)
     public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
     {
+        CancelPendingDisconnectedAiTakeoversForRunner(runner);
+
         string runnerName = runner != null ? runner.name : "null";
         string activeRunnerName = _runner != null ? _runner.name : "null";
         bool isMigrating = HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating;
@@ -556,7 +654,13 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             Destroy(runner);
             return;
         }
-        
+
+        HostMigrationHandler.Instance?.ClearReconnectCacheForMatchEnd();
+        _connectionTokensByPlayer.Clear();
+        _lobbyKingSelections.Clear();
+        _lobbyDemonSelections.Clear();
+        _lobbyMapThemes.Clear();
+
         State = ConnectionState.Disconnected; // 상태를 '연결 끊김'으로 변경
         _startGameInProgress = false;
         SetNetworkUiBlock(NetworkUiBlockReason.None);
@@ -646,9 +750,16 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         if (runner != null && runner == _runner)
         {
             LastFusionSceneName = SceneManager.GetActiveScene().name;
+            MatchLoadingScreenController.NotifySceneLoadDone();
         }
     }
-    public void OnSceneLoadStart(NetworkRunner runner) { }
+    public void OnSceneLoadStart(NetworkRunner runner)
+    {
+        if (runner != null && runner == _runner)
+        {
+            MatchLoadingScreenController.NotifySceneLoadStart();
+        }
+    }
     public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }
 
     private PlayerManager FindPlayerManagerForInputAuthority(NetworkRunner runner, PlayerRef player)
@@ -694,7 +805,13 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
     }
 
-    private bool TryEnableDisconnectedAiTakeover(NetworkRunner runner, PlayerRef player, PlayerManager playerManager, out string reason)
+    private bool TryEnableDisconnectedAiTakeover(
+        NetworkRunner runner,
+        PlayerRef player,
+        PlayerManager playerManager,
+        int expectedPlayerId,
+        string expectedConnectionToken,
+        out string reason)
     {
         reason = null;
 
@@ -708,6 +825,39 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         {
             reason = "player_manager_invalid";
             return false;
+        }
+
+        if (playerManager.Runner != runner || !playerManager.Object.HasStateAuthority)
+        {
+            reason = "player_manager_not_authoritative";
+            return false;
+        }
+
+        _connectionTokensByPlayer.TryGetValue(player, out string cachedConnectionToken);
+        bool hasInputAuthority = playerManager.Object.InputAuthority != PlayerRef.None;
+        bool hasActiveConnection = HasActiveConnectionForDurablePlayer(runner, expectedPlayerId);
+        if (!ValidateDisconnectedAiTakeoverIdentity(
+                expectedPlayerId,
+                expectedConnectionToken,
+                playerManager.playerId,
+                cachedConnectionToken,
+                hasInputAuthority,
+                hasActiveConnection,
+                out reason))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(expectedConnectionToken))
+        {
+            var migrationHandler = HostMigrationHandler.Instance;
+            if (migrationHandler == null
+                || !migrationHandler.TryGetCachedPlayerData(expectedConnectionToken, out var cachedPlayerData)
+                || cachedPlayerData.PlayerId != expectedPlayerId)
+            {
+                reason = "durable_identity_cache_mismatch";
+                return false;
+            }
         }
 
         var gameManagers = GameManagers.Instance;
@@ -766,27 +916,207 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         return true;
     }
 
-    private IEnumerator RetryDisconnectedAiTakeover(NetworkRunner runner, PlayerRef player, PlayerManager playerManager, string initialReason)
+    private static bool ValidateDisconnectedAiTakeoverIdentity(
+        int expectedPlayerId,
+        string expectedConnectionToken,
+        int actualPlayerId,
+        string cachedConnectionToken,
+        bool hasInputAuthority,
+        bool hasActiveConnection,
+        out string reason)
+    {
+        if (expectedPlayerId < 0 || actualPlayerId != expectedPlayerId)
+        {
+            reason = "durable_player_id_mismatch";
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(expectedConnectionToken)
+            && !string.Equals(expectedConnectionToken, cachedConnectionToken, StringComparison.Ordinal))
+        {
+            reason = "durable_connection_token_mismatch";
+            return false;
+        }
+
+        if (hasInputAuthority)
+        {
+            reason = "input_authority_reassigned";
+            return false;
+        }
+
+        if (hasActiveConnection)
+        {
+            reason = "durable_player_reconnected";
+            return false;
+        }
+
+        reason = null;
+        return true;
+    }
+
+    private bool HasActiveConnectionForDurablePlayer(NetworkRunner runner, int expectedPlayerId)
+    {
+        if (runner == null || expectedPlayerId < 0)
+        {
+            return false;
+        }
+
+        var candidates = FindObjectsOfType<PlayerManager>(true);
+        foreach (var candidate in candidates)
+        {
+            if (candidate == null
+                || candidate.playerId != expectedPlayerId
+                || candidate.Runner != runner
+                || candidate.Object == null
+                || !candidate.Object.IsValid)
+            {
+                continue;
+            }
+
+            PlayerRef inputAuthority = candidate.Object.InputAuthority;
+            if (inputAuthority != PlayerRef.None && IsActivePlayer(runner, inputAuthority))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void ScheduleDisconnectedAiTakeoverRetry(
+        NetworkRunner runner,
+        PlayerRef player,
+        PlayerManager playerManager,
+        int expectedPlayerId,
+        string expectedConnectionToken,
+        string initialReason)
+    {
+        CancelPendingDisconnectedAiTakeover(expectedPlayerId, null);
+
+        var pending = new PendingDisconnectedAiTakeover
+        {
+            PlayerId = expectedPlayerId,
+            ConnectionToken = expectedConnectionToken,
+            DisconnectedPlayer = player,
+            Runner = runner,
+            PlayerManager = playerManager,
+            Generation = ++_disconnectedAiTakeoverGeneration
+        };
+
+        _pendingDisconnectedAiTakeovers[expectedPlayerId] = pending;
+        Coroutine coroutine = StartCoroutine(RetryDisconnectedAiTakeover(pending, initialReason));
+        if (IsCurrentDisconnectedAiTakeover(pending))
+        {
+            pending.Coroutine = coroutine;
+        }
+    }
+
+    private IEnumerator RetryDisconnectedAiTakeover(PendingDisconnectedAiTakeover pending, string initialReason)
     {
         string reason = initialReason;
         float deadline = Time.realtimeSinceStartup + 10f;
         while (Time.realtimeSinceStartup < deadline)
         {
-            if (TryEnableDisconnectedAiTakeover(runner, player, playerManager, out reason))
+            if (!IsCurrentDisconnectedAiTakeover(pending))
             {
+                yield break;
+            }
+
+            if (TryEnableDisconnectedAiTakeover(
+                    pending.Runner,
+                    pending.DisconnectedPlayer,
+                    pending.PlayerManager,
+                    pending.PlayerId,
+                    pending.ConnectionToken,
+                    out reason))
+            {
+                CompleteDisconnectedAiTakeoverRetry(pending);
                 yield break;
             }
 
             yield return new WaitForSeconds(0.5f);
         }
 
+        CompleteDisconnectedAiTakeoverRetry(pending);
+
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestLogger.Log("disconnect_ai_takeover", "fail", "not_ready", reason, new Dictionary<string, object>
         {
-            { "leftPlayerRef", player.ToString() },
+            { "leftPlayerRef", pending.DisconnectedPlayer.ToString() },
+            { "playerId", pending.PlayerId },
+            { "generation", pending.Generation },
             { "initialReason", initialReason ?? "unknown" }
         });
 #endif
+    }
+
+    private bool IsCurrentDisconnectedAiTakeover(PendingDisconnectedAiTakeover pending)
+    {
+        return pending != null
+            && _pendingDisconnectedAiTakeovers.TryGetValue(pending.PlayerId, out var current)
+            && ReferenceEquals(current, pending)
+            && current.Generation == pending.Generation;
+    }
+
+    private void CompleteDisconnectedAiTakeoverRetry(PendingDisconnectedAiTakeover pending)
+    {
+        if (IsCurrentDisconnectedAiTakeover(pending))
+        {
+            _pendingDisconnectedAiTakeovers.Remove(pending.PlayerId);
+        }
+    }
+
+    private void CancelPendingDisconnectedAiTakeover(int playerId, string expectedConnectionToken)
+    {
+        if (!_pendingDisconnectedAiTakeovers.TryGetValue(playerId, out var pending))
+        {
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(expectedConnectionToken)
+            && !string.IsNullOrEmpty(pending.ConnectionToken)
+            && !string.Equals(expectedConnectionToken, pending.ConnectionToken, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _pendingDisconnectedAiTakeovers.Remove(playerId);
+        if (pending.Coroutine != null)
+        {
+            StopCoroutine(pending.Coroutine);
+        }
+    }
+
+    private void CancelPendingDisconnectedAiTakeoversForRunner(NetworkRunner runner)
+    {
+        if (runner == null)
+        {
+            CancelAllPendingDisconnectedAiTakeovers();
+            return;
+        }
+
+        var playerIds = new List<int>();
+        foreach (var entry in _pendingDisconnectedAiTakeovers)
+        {
+            if (entry.Value.Runner == runner)
+            {
+                playerIds.Add(entry.Key);
+            }
+        }
+
+        for (int i = 0; i < playerIds.Count; i++)
+        {
+            CancelPendingDisconnectedAiTakeover(playerIds[i], null);
+        }
+    }
+
+    private void CancelAllPendingDisconnectedAiTakeovers()
+    {
+        var playerIds = new List<int>(_pendingDisconnectedAiTakeovers.Keys);
+        for (int i = 0; i < playerIds.Count; i++)
+        {
+            CancelPendingDisconnectedAiTakeover(playerIds[i], null);
+        }
     }
 
     private void ReleaseDisconnectedAiTakeover(PlayerManager playerManager, PlayerRef joinedPlayer)
@@ -859,13 +1189,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
                 out _,
                 forceRebuild: true);
 
-            int[] permanentWalls = player.fieldManager.GetPermanentWallFlatPositions();
-            if (permanentWalls.Length <= 0)
-            {
-                continue;
-            }
-
-            player.RPC_ApplyPermanentWalls(permanentWalls);
+            int[] permanentWalls = player.fieldManager.BuildPermanentWallSyncPayload(
+                "NetworkManager.ReconnectLateJoinSync");
+            player.RPC_ApplyPermanentWalls(player.PermanentWallLayoutRevision, permanentWalls);
             wallSyncs++;
         }
 
@@ -957,13 +1283,339 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         return _connectionTokensByPlayer.TryGetValue(player, out string cachedToken) ? cachedToken : null;
     }
 
+    private string ResolveLobbyKingConnectionTokenHash(
+        NetworkRunner runner,
+        PlayerRef player,
+        NetworkObject playerObject = null)
+    {
+        if (runner != null && runner.IsServer)
+        {
+            string rawTokenHash = DurableConnectionTokenIdentity.BuildHash(
+                GetCachedOrCurrentConnectionToken(runner, player));
+            if (PlayerManager.IsValidDurableConnectionTokenHash(rawTokenHash))
+            {
+                return rawTokenHash;
+            }
+        }
+
+        PlayerManager playerManager = null;
+        if (playerObject != null && playerObject.IsValid)
+        {
+            playerObject.TryGetComponent(out playerManager);
+        }
+
+        playerManager ??= FindPlayerManagerForInputAuthority(runner, player);
+        string replicatedTokenHash = playerManager != null
+            ? playerManager.GetDurableConnectionTokenHash()
+            : string.Empty;
+        return PlayerManager.IsValidDurableConnectionTokenHash(replicatedTokenHash)
+            ? replicatedTokenHash
+            : string.Empty;
+    }
+
+    private void PrepareLobbyKingSelectionForJoinedPlayer(NetworkRunner runner, PlayerRef player)
+    {
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
+        _lobbyKingSelections.PrepareJoinedPlayer(player.PlayerId, tokenHash);
+    }
+
+    private void PrepareLobbyDemonSelectionForJoinedPlayer(NetworkRunner runner, PlayerRef player)
+    {
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
+        _lobbyDemonSelections.PrepareJoinedPlayer(player.PlayerId, tokenHash);
+    }
+
+    private void PrepareLobbyMapThemeForJoinedPlayer(NetworkRunner runner, PlayerRef player)
+    {
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
+        _lobbyMapThemes.PrepareJoinedPlayer(player.PlayerId, tokenHash);
+    }
+
+    /// <summary>
+    /// Mirrors an allow-listed replicated lobby choice into the scene-independent session cache.
+    /// The durable token hash is used when available so every peer can retain the mapping if it
+    /// later becomes host; PlayerRef remains only the fast path for the current runner.
+    /// </summary>
+    public bool RememberLobbyKingSelection(NetworkPlayer networkPlayer)
+    {
+        if (networkPlayer == null
+            || networkPlayer.Object == null
+            || !networkPlayer.Object.IsValid
+            || networkPlayer.Runner == null
+            || networkPlayer.Runner != _runner)
+        {
+            return false;
+        }
+
+        PlayerRef player = networkPlayer.Object.InputAuthority;
+        int selectionHash = networkPlayer.SelectedKingUnitKeyHash;
+        if (player == PlayerRef.None
+            || !IsActivePlayer(networkPlayer.Runner, player)
+            || !KingSelectionCatalog.IsAllowedHash(selectionHash))
+        {
+            return false;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(
+            networkPlayer.Runner,
+            player,
+            networkPlayer.Object);
+        _lobbyKingSelections.Remember(player.PlayerId, tokenHash, selectionHash);
+        return PlayerManager.IsValidDurableConnectionTokenHash(tokenHash);
+    }
+
+    public int ResolveInitialLobbyKingSelection(NetworkPlayer networkPlayer, int requestedSelectionHash)
+    {
+        int normalizedSelectionHash = KingSelectionCatalog.NormalizeOrDefaultHash(requestedSelectionHash);
+        if (networkPlayer == null
+            || networkPlayer.Object == null
+            || !networkPlayer.Object.IsValid
+            || networkPlayer.Runner == null
+            || networkPlayer.Runner != _runner
+            || !networkPlayer.Runner.IsServer)
+        {
+            return normalizedSelectionHash;
+        }
+
+        PlayerRef player = networkPlayer.Object.InputAuthority;
+        if (player == PlayerRef.None || !IsActivePlayer(networkPlayer.Runner, player))
+        {
+            return normalizedSelectionHash;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(
+            networkPlayer.Runner,
+            player,
+            networkPlayer.Object);
+        return _lobbyKingSelections.ResolveInitialSelection(
+            player.PlayerId,
+            tokenHash,
+            normalizedSelectionHash);
+    }
+
+    public bool TryGetLobbyKingSelectionForGameplay(
+        NetworkRunner runner,
+        PlayerRef player,
+        out int selectionHash)
+    {
+        selectionHash = 0;
+        if (runner == null
+            || runner != _runner
+            || !runner.IsServer
+            || player == PlayerRef.None)
+        {
+            return false;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
+        return _lobbyKingSelections.TryResolve(player.PlayerId, tokenHash, out selectionHash);
+    }
+
+    /// <summary>
+    /// Records an owner-submitted demon choice only in State Authority memory. The choice is
+    /// deliberately absent from NetworkPlayer replicated state while the lobby is active.
+    /// </summary>
+    public bool TrySetLobbyDemonSelection(
+        NetworkPlayer networkPlayer,
+        int requestedSelectionHash,
+        out int canonicalSelectionHash)
+    {
+        canonicalSelectionHash = DemonSelectionCatalog.NormalizeOrDefaultHash(requestedSelectionHash);
+        if (!DemonSelectionCatalog.IsAllowedHash(requestedSelectionHash)
+            || networkPlayer == null
+            || networkPlayer.Object == null
+            || !networkPlayer.Object.IsValid
+            || networkPlayer.Runner == null
+            || networkPlayer.Runner != _runner
+            || !networkPlayer.Runner.IsServer)
+        {
+            return false;
+        }
+
+        PlayerRef player = networkPlayer.Object.InputAuthority;
+        if (player == PlayerRef.None || !IsActivePlayer(networkPlayer.Runner, player))
+        {
+            return false;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(
+            networkPlayer.Runner,
+            player,
+            networkPlayer.Object);
+        return _lobbyDemonSelections.Remember(player.PlayerId, tokenHash, canonicalSelectionHash);
+    }
+
+    public int ResolveInitialLobbyDemonSelection(NetworkPlayer networkPlayer, int requestedSelectionHash)
+    {
+        int canonicalSelectionHash = DemonSelectionCatalog.NormalizeOrDefaultHash(requestedSelectionHash);
+        if (networkPlayer == null
+            || networkPlayer.Object == null
+            || !networkPlayer.Object.IsValid
+            || networkPlayer.Runner == null
+            || networkPlayer.Runner != _runner
+            || !networkPlayer.Runner.IsServer)
+        {
+            return canonicalSelectionHash;
+        }
+
+        PlayerRef player = networkPlayer.Object.InputAuthority;
+        if (player == PlayerRef.None || !IsActivePlayer(networkPlayer.Runner, player))
+        {
+            return canonicalSelectionHash;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(
+            networkPlayer.Runner,
+            player,
+            networkPlayer.Object);
+        return _lobbyDemonSelections.ResolveInitialSelection(
+            player.PlayerId,
+            tokenHash,
+            canonicalSelectionHash);
+    }
+
+    public bool TryGetLobbyDemonSelectionForGameplay(
+        NetworkRunner runner,
+        PlayerRef player,
+        out int selectionHash)
+    {
+        selectionHash = 0;
+        if (runner == null
+            || runner != _runner
+            || !runner.IsServer
+            || player == PlayerRef.None)
+        {
+            return false;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
+        return _lobbyDemonSelections.TryResolve(player.PlayerId, tokenHash, out selectionHash);
+    }
+
+    public bool RememberLobbyMapTheme(NetworkPlayer networkPlayer)
+    {
+        if (networkPlayer == null
+            || networkPlayer.Object == null
+            || !networkPlayer.Object.IsValid
+            || networkPlayer.Runner == null
+            || networkPlayer.Runner != _runner)
+        {
+            return false;
+        }
+
+        PlayerRef player = networkPlayer.Object.InputAuthority;
+        int themeId = networkPlayer.SelectedMapThemeId;
+        if (player == PlayerRef.None
+            || !IsActivePlayer(networkPlayer.Runner, player)
+            || !MapThemeCatalog.IsAllowed(themeId))
+        {
+            return false;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(
+            networkPlayer.Runner,
+            player,
+            networkPlayer.Object);
+        _lobbyMapThemes.Remember(player.PlayerId, tokenHash, themeId);
+        return PlayerManager.IsValidDurableConnectionTokenHash(tokenHash);
+    }
+
+    public int ResolveInitialLobbyMapTheme(NetworkPlayer networkPlayer, int requestedThemeId)
+    {
+        int normalizedThemeId = MapThemeCatalog.NormalizeOrDefault(requestedThemeId);
+        if (networkPlayer == null
+            || networkPlayer.Object == null
+            || !networkPlayer.Object.IsValid
+            || networkPlayer.Runner == null
+            || networkPlayer.Runner != _runner
+            || !networkPlayer.Runner.IsServer)
+        {
+            return normalizedThemeId;
+        }
+
+        PlayerRef player = networkPlayer.Object.InputAuthority;
+        if (player == PlayerRef.None || !IsActivePlayer(networkPlayer.Runner, player))
+        {
+            return normalizedThemeId;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(
+            networkPlayer.Runner,
+            player,
+            networkPlayer.Object);
+        return _lobbyMapThemes.ResolveInitialSelection(
+            player.PlayerId,
+            tokenHash,
+            normalizedThemeId);
+    }
+
+    public bool TryGetLobbyMapThemeForGameplay(
+        NetworkRunner runner,
+        PlayerRef player,
+        out int themeId)
+    {
+        themeId = MapThemeCatalog.DefaultId;
+        if (runner == null
+            || runner != _runner
+            || !runner.IsServer
+            || player == PlayerRef.None)
+        {
+            return false;
+        }
+
+        string tokenHash = ResolveLobbyKingConnectionTokenHash(runner, player);
+        return _lobbyMapThemes.TryResolve(player.PlayerId, tokenHash, out themeId);
+    }
+
+    public static bool ShouldCleanupDisconnectedLobbyObject(string sceneName, bool isMigrating)
+    {
+        return !isMigrating
+            && ResolveSceneName(sceneName, sceneName) == SceneDefine.JoinLobby;
+    }
+
+    public static bool ShouldUseGameplayReconnectCache(string sceneName)
+    {
+        return ResolveSceneName(sceneName, sceneName) == SceneDefine.Game;
+    }
+
     private void CachePlayerConnectionToken(NetworkRunner runner, PlayerRef player)
     {
         string token = TryGetConnectionTokenString(runner, player);
         if (!string.IsNullOrEmpty(token))
         {
             _connectionTokensByPlayer[player] = token;
+            return;
         }
+
+        // PlayerRef values are reusable across runners/sessions. Never let a missing
+        // token read on a fresh join fall back to another session's raw token.
+        _connectionTokensByPlayer.Remove(player);
+    }
+
+    private void PublishDurableConnectionTokenHash(
+        NetworkRunner runner,
+        PlayerRef player,
+        NetworkObject playerObject = null)
+    {
+        if (runner == null || !runner.IsServer)
+        {
+            return;
+        }
+
+        string token = GetCachedOrCurrentConnectionToken(runner, player);
+        string tokenHash = DurableConnectionTokenIdentity.BuildHash(token);
+        if (!PlayerManager.IsValidDurableConnectionTokenHash(tokenHash))
+        {
+            return;
+        }
+
+        PlayerManager playerManager = null;
+        if (playerObject != null && playerObject.IsValid)
+        {
+            playerObject.TryGetComponent(out playerManager);
+        }
+        playerManager ??= FindPlayerManagerForInputAuthority(runner, player);
+        playerManager?.TrySetDurableConnectionTokenHashFromAuthority(tokenHash);
     }
 
     private void CacheDisconnectedPlayerData(NetworkRunner runner, PlayerRef player, NetworkObject networkObject)
@@ -994,6 +1646,9 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             IsAI = playerManager.GetComponent<AIPlayerController>() != null
         };
 
+        playerManager.TrySetDurableConnectionTokenHashFromAuthority(
+            DurableConnectionTokenIdentity.BuildHash(token));
+
         HostMigrationHandler.Instance.CacheDisconnectedPlayer(token, data);
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         MPTestLogger.Log("disconnect_cache", "pass", null, null, new Dictionary<string, object>
@@ -1012,13 +1667,24 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             return false;
         }
 
+        string activeSceneName = SceneManager.GetActiveScene().name;
+        if (!ShouldUseGameplayReconnectCache(activeSceneName))
+        {
+            // Lobby PlayerManager instances do not yet have durable gameplay playerIds.
+            // Reconnect there is handled by a clean NetworkPlayer spawn plus token-backed
+            // king selection restoration, never by the gameplay reassociation cache.
+            return false;
+        }
+
         string token = GetCachedOrCurrentConnectionToken(runner, joinedPlayer);
         if (string.IsNullOrEmpty(token))
         {
             return false;
         }
 
-        if (!HostMigrationHandler.Instance.TryGetCachedPlayerData(token, out var cachedData))
+        bool hasRawCache = HostMigrationHandler.Instance.TryGetCachedPlayerData(token, out var cachedData);
+        string tokenHash = DurableConnectionTokenIdentity.BuildHash(token);
+        if (!hasRawCache && !PlayerManager.IsValidDurableConnectionTokenHash(tokenHash))
         {
             return false;
         }
@@ -1032,9 +1698,23 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
                 continue;
             }
 
-            if (candidate.playerId == cachedData.PlayerId)
+            bool matchesRawCache = hasRawCache && candidate.playerId == cachedData.PlayerId;
+            bool matchesMigratedHash = PlayerManager.IsValidDurableConnectionTokenHash(tokenHash)
+                && string.Equals(candidate.GetDurableConnectionTokenHash(), tokenHash, StringComparison.OrdinalIgnoreCase);
+            if (matchesRawCache || matchesMigratedHash)
             {
                 targetPlayer = candidate;
+                if (!hasRawCache)
+                {
+                    cachedData = new PlayerMigrationData
+                    {
+                        PlayerId = candidate.playerId,
+                        ConnectionToken = token,
+                        Health = candidate.GetHealth(),
+                        Gold = candidate.GetGold(),
+                        IsAI = candidate.GetComponent<AIPlayerController>() != null
+                    };
+                }
                 break;
             }
         }
@@ -1066,6 +1746,8 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
             return false;
         }
 
+        targetPlayer.TrySetDurableConnectionTokenHashFromAuthority(tokenHash);
+        CancelPendingDisconnectedAiTakeover(cachedData.PlayerId, token);
         ReleaseDisconnectedAiTakeover(targetPlayer, joinedPlayer);
         StartCoroutine(BroadcastReconnectStateSyncCoroutine(runner, targetPlayer.playerId));
 
@@ -1084,6 +1766,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         _spawnedCharacters[joinedPlayer] = targetPlayer.Object;
+        if (hasRawCache)
+        {
+            HostMigrationHandler.Instance.ForgetCachedPlayerData(token);
+        }
         // Debug.Log($"[NetworkManager] Reassociated reconnect player {joinedPlayer} -> playerId={cachedData.PlayerId}, token={token}");
         return true;
     }
@@ -1289,7 +1975,10 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
         }
 
         string sceneName = SceneManager.GetActiveScene().name;
-        return sceneName != SceneDefine.MatchingLobby && sceneName != SceneDefine.Title;
+        string resolvedSceneName = ResolveSceneName(sceneName, sceneName);
+        return resolvedSceneName != SceneDefine.MatchingLobby
+            && resolvedSceneName != SceneDefine.JoinLobby
+            && resolvedSceneName != SceneDefine.Title;
     }
 
     private void CancelPendingConnectionLossFallback()
@@ -1334,15 +2023,36 @@ public class NetworkManager : MonoBehaviour, INetworkRunnerCallbacks
     /// </summary>
     private byte[] GetConnectionToken()
     {
-        // 유저 고유 ID 생성 또는 기존 ID 사용
-        string uniqueId = PlayerPrefs.GetString("PlayerUUID", "");
+        return GetLocalConnectionTokenBytes();
+    }
+
+    internal static byte[] GetLocalConnectionTokenBytes()
+    {
+        string runtimeOverride = null;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestCommandLine.Options options = MPTestCommandLine.GetOptions();
+        if (options.Enabled)
+        {
+            runtimeOverride = options.ConnectionToken;
+        }
+#endif
+        return ResolveLocalConnectionTokenBytes(runtimeOverride);
+    }
+
+    private static byte[] ResolveLocalConnectionTokenBytes(string runtimeOverride)
+    {
+        // Multiplayer test peers are separate processes but share the same PlayerPrefs store.
+        // Their explicit command-line token must therefore remain process-local and take priority.
+        string uniqueId = string.IsNullOrWhiteSpace(runtimeOverride)
+            ? PlayerPrefs.GetString("PlayerUUID", "")
+            : runtimeOverride;
         if (string.IsNullOrEmpty(uniqueId))
         {
             uniqueId = Guid.NewGuid().ToString();
             PlayerPrefs.SetString("PlayerUUID", uniqueId);
             PlayerPrefs.Save();
         }
-        
+
         return Encoding.UTF8.GetBytes(uniqueId);
     }
 

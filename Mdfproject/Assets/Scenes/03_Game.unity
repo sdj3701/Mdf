@@ -488,7 +488,6 @@ MonoBehaviour:
   defenseRotation: {x: 45, y: 0, z: 0}
   attackOffset: {x: 3.5, y: 28, z: -9.7}
   attackRotation: {x: 65, y: 0, z: 0}
-  fieldZOffset: -14
 --- !u!4 &975510998
 Transform:
   m_ObjectHideFlags: 0
@@ -514,7 +513,6 @@ GameObject:
   m_Component:
   - component: {fileID: 1329380063}
   - component: {fileID: 1329380062}
-  - component: {fileID: 1329380064}
   m_Layer: 0
   m_Name: Addressable Manager
   m_TagString: Untagged
@@ -534,8 +532,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4899e616a48886d42b4696e3f88fd470, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  autoPreloadAllOnStart: 0
-  logPreloadProgress: 1
+  autoInitializeOnStart: 1
+  logInitializationProgress: 1
   playerManagerPrefabRef:
     m_AssetGUID: 1831533972272eb408da1971d3a1e504
     m_SubObjectName: 
@@ -571,26 +569,6 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 5
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1329380064
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1329380061}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e84a3b968d8b36d4cb89c6f17c466fc4, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  loadOnStart: 1
-  logProgress: 1
-  tileBaseList:
-  - Ground
-  - Wall
-  - BreakWall
-  - Start
-  - End
 --- !u!1 &1423344280
 GameObject:
   m_ObjectHideFlags: 0
@@ -621,20 +599,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 832fcdcd42ed7fb43b1602b954cc3f89, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  initialPools:
-  - prefab: {fileID: 3645011495362617231, guid: b4a0e6f54c522e440a5d01c7849a9981,
-      type: 3}
-    prewarmCount: 20
-    parentOverride: {fileID: 1423344283}
-  - prefab: {fileID: 3645011495362617231, guid: 8c44b94147ea3c0408ae6c0565bd5e5c,
-      type: 3}
-    prewarmCount: 20
-    parentOverride: {fileID: 1423344283}
+  initialPools: []
   defaultParent: {fileID: 1423344283}
-  prewarmOnStart: 1
-  prewarmBasicAttackProfilesOnStart: 1
-  basicAttackProfilePrewarmCount: 20
+  prewarmOnStart: 0
+  prewarmBasicAttackProfilesOnStart: 0
+  basicAttackProfilePrewarmCount: 1
+  basicAttackProfilePrewarmKeyBudget: 8
   basicAttackProfileParentOverride: {fileID: 0}
+  maxRetainedInstancesPerPrefab: 32
 --- !u!114 &1423344282
 MonoBehaviour:
   m_ObjectHideFlags: 0

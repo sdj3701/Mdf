@@ -11,6 +11,8 @@ namespace AI.BehaviorTree.Nodes.Actions
     /// </summary>
     public class AIAttackStrategy
     {
+        private const int ReservedPathPrefixCellCount = 3;
+
         #region 방향 정의
         public enum SpawnDirection
         {
@@ -27,19 +29,25 @@ namespace AI.BehaviorTree.Nodes.Actions
         private readonly AstarGrid _targetGrid;
         private readonly Transform _goalTransform;
         private readonly LayerMask _spawnAreaLayerMask;
+        private readonly HashSet<Vector2Int> _reservedSpawnCells;
 
         // 방향별 유효 스폰 지점 캐시
         private Dictionary<SpawnDirection, List<Vector3>> _validSpawnPositions;
         #endregion
 
         #region 생성자
-        public AIAttackStrategy(FieldManager targetField, PlayerManager attackerPlayer, LayerMask spawnAreaLayerMask)
+        public AIAttackStrategy(
+            FieldManager targetField,
+            PlayerManager attackerPlayer,
+            LayerMask spawnAreaLayerMask,
+            HashSet<Vector2Int> reservedSpawnCells = null)
         {
             _targetField = targetField;
             _attackerPlayer = attackerPlayer;
             _targetGrid = targetField?.playerManager?.astarGrid;
             _goalTransform = targetField?.playerManager?.goalTransform;
             _spawnAreaLayerMask = spawnAreaLayerMask;
+            _reservedSpawnCells = reservedSpawnCells;
         }
         #endregion
 
@@ -61,39 +69,41 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             if (_validSpawnPositions == null || _validSpawnPositions.Values.All(v => v.Count == 0))
             {
-                // 폴백: 기본 스폰 포인트에 전부 소환
-                Debug.LogWarning("[AIAttackStrategy] 유효한 스폰 지점을 찾지 못했습니다. 기본 위치에 소환합니다.");
-                Vector3 fallbackPos = GetFallbackSpawnPos();
-                var fallbackPhase = new AISpawnPhase();
-                foreach (var entry in pool)
-                {
-                    if (entry == null || entry.IsEmpty) continue;
-                    fallbackPhase.Orders.Add(new AISpawnOrder(entry, fallbackPos, entry.RemainingCount));
-                }
-                plan.Phases.Add(fallbackPhase);
+                // Exact-cell spawning must not silently fall back to an occupied or blocked cell.
+                // The policy observes and retries after a legal outer cell becomes available.
                 return plan;
             }
 
             // 2. 몬스터 분류
             ClassifyMonsterPool(pool, out var destroyers, out var tanks, out var normalGround, out var flying);
 
-            // 3. 최적 스폰 지점 계산
-            Vector3 groundSpawnPos = EvaluateGroundSpawnPosition();
-            Vector3 flyingSpawnPos = EvaluateFlyingSpawnPosition();
-            Vector3 destroyerSpawnPos = EvaluateDestroyerSpawnPosition();
+            bool hasDestroyers = destroyers.Count > 0;
+            bool hasGroundMonsters = tanks.Count > 0 || normalGround.Count > 0;
+            bool hasFlyingMonsters = flying.Count > 0;
+
+            // 3. 실제 풀에 존재하는 종류만 평가합니다. 결과 선택 규칙은 유지하면서
+            // 존재하지 않는 종류의 전체 필드 경로 계산은 생략합니다.
+            SpawnSelection groundSpawn = hasGroundMonsters
+                ? EvaluateGroundSpawnPosition()
+                : default;
+            SpawnSelection flyingSpawn = hasFlyingMonsters
+                ? EvaluateFlyingSpawnPosition()
+                : default;
+            SpawnSelection destroyerSpawn = hasDestroyers
+                ? EvaluateDestroyerSpawnPosition()
+                : default;
 
             // 4. 전략 흐름에 따라 소환 계획 생성
-            bool hasDestroyers = destroyers.Count > 0;
 
             if (hasDestroyers)
             {
                 BuildPlanWithDestroyers(plan, destroyers, tanks, normalGround, flying,
-                    groundSpawnPos, flyingSpawnPos, destroyerSpawnPos);
+                    groundSpawn, flyingSpawn, destroyerSpawn);
             }
             else
             {
                 BuildPlanWithoutDestroyers(plan, tanks, normalGround, flying,
-                    groundSpawnPos, flyingSpawnPos);
+                    groundSpawn, flyingSpawn);
             }
 
             // Debug.Log($"[AIAttackStrategy] 소환 계획 생성 완료: {plan.Phases.Count} 페이즈, Destroyer={hasDestroyers}");
@@ -124,7 +134,21 @@ namespace AI.BehaviorTree.Nodes.Actions
             var fieldPositions = _targetField.GetOuterSpawnWorldPositionsByDirection(_spawnAreaLayerMask);
             foreach (var pair in fieldPositions)
             {
-                _validSpawnPositions[ConvertDirection(pair.Key)].AddRange(pair.Value);
+                List<Vector3> candidates = _validSpawnPositions[ConvertDirection(pair.Key)];
+                foreach (Vector3 position in pair.Value)
+                {
+                    if (BattleCommandValidator.TryResolveExactBattleSpawnPosition(
+                            _targetField,
+                            position,
+                            out _,
+                            out Vector3 exactPosition,
+                            out _) &&
+                        (_reservedSpawnCells == null ||
+                         !_reservedSpawnCells.Contains(_targetField.WorldToNavigationCell(exactPosition))))
+                    {
+                        candidates.Add(exactPosition);
+                    }
+                }
             }
         }
 
@@ -150,9 +174,9 @@ namespace AI.BehaviorTree.Nodes.Actions
         /// 모든 유효 스폰 포인트에서 골 지점까지 A* 경로 길이를 비교하여 가장 짧은 경로의 스폰 지점을 반환합니다.
         /// 성능 최적화: 각 방향에서 골에 가장 가까운 후보를 먼저 선별한 뒤 A* 비교합니다.
         /// </summary>
-        private Vector3 EvaluateGroundSpawnPosition()
+        private SpawnSelection EvaluateGroundSpawnPosition()
         {
-            Vector3 bestSpawnPos = GetFallbackSpawnPos();
+            SpawnSelection bestSpawn = default;
             int shortestPath = int.MaxValue;
 
             foreach (var kvp in _validSpawnPositions)
@@ -164,17 +188,18 @@ namespace AI.BehaviorTree.Nodes.Actions
 
                 foreach (var candidate in candidates)
                 {
-                    int pathLength = CalculatePathLength(candidate, false);
-                    if (pathLength > 0 && pathLength < shortestPath)
+                    if (!TryGetPath(candidate, false, out List<AstarNode> path)) continue;
+                    int pathLength = path.Count;
+                    if (pathLength < shortestPath)
                     {
                         shortestPath = pathLength;
-                        bestSpawnPos = candidate;
+                        bestSpawn = CreatePathSpawnSelection(candidate, path);
                     }
                 }
             }
 
-            Debug.Log($"[AIAttackStrategy] 지상 몬스터 최적 스폰 지점: {bestSpawnPos}, 경로 길이: {shortestPath}");
-            return bestSpawnPos;
+            LogVerbose($"[AIAttackStrategy] 지상 몬스터 최적 스폰 지점: {bestSpawn.Position}, 경로 길이: {shortestPath}");
+            return bestSpawn;
         }
 
         /// <summary>
@@ -202,7 +227,7 @@ namespace AI.BehaviorTree.Nodes.Actions
         /// <summary>
         /// 상대 원거리 유닛(벽 위 유닛)이 가장 적게 밀집된 방향에서 스폰 지점을 반환합니다.
         /// </summary>
-        private Vector3 EvaluateFlyingSpawnPosition()
+        private SpawnSelection EvaluateFlyingSpawnPosition()
         {
             // 방향별 원거리 유닛 수 카운트
             var rangedUnitCounts = new Dictionary<SpawnDirection, int>
@@ -251,10 +276,10 @@ namespace AI.BehaviorTree.Nodes.Actions
             var candidates = _validSpawnPositions.ContainsKey(bestDir) ? _validSpawnPositions[bestDir] : null;
             if (candidates != null && candidates.Count > 0)
             {
-                return candidates[candidates.Count / 2];
+                return CreateExactSpawnSelection(candidates[candidates.Count / 2]);
             }
 
-            return GetFallbackSpawnPos();
+            return default;
         }
 
         /// <summary>
@@ -282,9 +307,9 @@ namespace AI.BehaviorTree.Nodes.Actions
         /// 수비 유닛이 적은 방향의 스폰 지점을 반환합니다.
         /// 모든 방향의 유효 스폰 포인트에서 골에 가장 가까운 후보를 비교합니다.
         /// </summary>
-        private Vector3 EvaluateDestroyerSpawnPosition()
+        private SpawnSelection EvaluateDestroyerSpawnPosition()
         {
-            Vector3 bestSpawnPos = GetFallbackSpawnPos();
+            SpawnSelection bestSpawn = default;
             float bestScore = float.MinValue;
 
             foreach (var kvp in _validSpawnPositions)
@@ -296,12 +321,12 @@ namespace AI.BehaviorTree.Nodes.Actions
 
                 foreach (var candidate in candidates)
                 {
-                    // Destroyer 경로: ignoreBreakableWalls=true
-                    int pathLength = CalculatePathLength(candidate, true);
-                    if (pathLength <= 0) continue;
+                    // Destroyer 경로는 길이와 진입점에 같은 결과를 재사용합니다.
+                    if (!TryGetPath(candidate, true, out List<AstarNode> path)) continue;
+                    int pathLength = path.Count;
 
                     // 경로의 그리드 진입점 주변 수비 유닛 수 계산 (감점)
-                    Vector3 entryPoint = GetPathEntryPoint(candidate, true);
+                    Vector3 entryPoint = GetPathEntryPoint(candidate, path);
                     int nearbyUnitCount = CountNearbyDefenders(entryPoint, 3);
 
                     // 점수 = 짧은 경로(높을수록 좋음) - 수비 유닛(많을수록 나쁨)
@@ -310,13 +335,13 @@ namespace AI.BehaviorTree.Nodes.Actions
                     if (score > bestScore)
                     {
                         bestScore = score;
-                        bestSpawnPos = candidate;
+                        bestSpawn = CreatePathSpawnSelection(candidate, path);
                     }
                 }
             }
 
-            Debug.Log($"[AIAttackStrategy] Destroyer 최적 스폰 지점: {bestSpawnPos}, 스코어: {bestScore:F1}");
-            return bestSpawnPos;
+            LogVerbose($"[AIAttackStrategy] Destroyer 최적 스폰 지점: {bestSpawn.Position}, 스코어: {bestScore:F1}");
+            return bestSpawn;
         }
 
         /// <summary>
@@ -347,19 +372,10 @@ namespace AI.BehaviorTree.Nodes.Actions
         /// 그리드 내부에 최초 진입하는 셀의 월드 좌표를 반환합니다.
         /// 아우터 좌표의 WorldToGrid 클램핑 문제를 회피합니다.
         /// </summary>
-        private Vector3 GetPathEntryPoint(Vector3 spawnWorldPos, bool ignoreBreakableWalls)
+        private Vector3 GetPathEntryPoint(Vector3 spawnWorldPos, List<AstarNode> path)
         {
-            if (_targetGrid == null || _goalTransform == null)
+            if (_targetGrid == null || _goalTransform == null || path == null || path.Count == 0)
                 return spawnWorldPos;
-
-            Vector2Int startPos = _targetField.WorldToNavigationCell(spawnWorldPos);
-            Vector2Int endPos = _targetField.WorldToNavigationCell(_goalTransform.position);
-
-            if (!_targetGrid.FindPath(startPos, endPos, ignoreWalls: false, ignoreBreakableWalls: ignoreBreakableWalls))
-                return spawnWorldPos;
-
-            var path = _targetGrid.FinalPath;
-            if (path == null || path.Count == 0) return spawnWorldPos;
 
             // 경로에서 내부 그리드에 해당하는 첫 번째 노드를 찾음
             foreach (var node in path)
@@ -451,20 +467,24 @@ namespace AI.BehaviorTree.Nodes.Actions
             List<MonsterPoolEntry> tanks,
             List<MonsterPoolEntry> normalGround,
             List<MonsterPoolEntry> flying,
-            Vector3 groundSpawnPos,
-            Vector3 flyingSpawnPos,
-            Vector3 destroyerSpawnPos)
+            SpawnSelection groundSpawn,
+            SpawnSelection flyingSpawn,
+            SpawnSelection destroyerSpawn)
         {
             // Phase 0: 벽 파괴 스폰 지점에 탱커 1마리 선소환 (적 주의 분산)
             int phase0TankReserved = 0; // Phase 0에서 예약한 탱커 수
             var phase0 = new AISpawnPhase();
-            if (tanks.Count > 0)
+            if (groundSpawn.IsValid && tanks.Count > 0)
             {
                 var firstTank = tanks[0];
                 phase0TankReserved = Mathf.Min(1, firstTank.RemainingCount);
                 if (phase0TankReserved > 0)
                 {
-                    phase0.Orders.Add(new AISpawnOrder(firstTank, groundSpawnPos, phase0TankReserved));
+                    phase0.Orders.Add(new AISpawnOrder(
+                        firstTank,
+                        groundSpawn.Position,
+                        phase0TankReserved,
+                        groundSpawn.ReservedNavigationCells));
                 }
             }
             if (phase0.Orders.Count > 0)
@@ -474,10 +494,17 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             // Phase 1: Destroyer 몬스터 소환 (벽 파괴)
             var phase1 = new AISpawnPhase { DelayBeforePhase = 0.5f };
-            foreach (var entry in destroyers)
+            if (destroyerSpawn.IsValid)
             {
-                if (entry.IsEmpty) continue;
-                phase1.Orders.Add(new AISpawnOrder(entry, destroyerSpawnPos, entry.RemainingCount));
+                foreach (var entry in destroyers)
+                {
+                    if (entry.IsEmpty) continue;
+                    phase1.Orders.Add(new AISpawnOrder(
+                        entry,
+                        destroyerSpawn.Position,
+                        entry.RemainingCount,
+                        destroyerSpawn.ReservedNavigationCells));
+                }
             }
             if (phase1.Orders.Count > 0)
             {
@@ -487,17 +514,24 @@ namespace AI.BehaviorTree.Nodes.Actions
             // Phase 2: 기본전략 - 나머지 탱커 소환
             // ★ Phase 0에서 예약한 수량을 차감
             var phase2 = new AISpawnPhase { DelayBeforePhase = 0.5f };
-            for (int i = 0; i < tanks.Count; i++)
+            if (groundSpawn.IsValid)
             {
-                var entry = tanks[i];
-                if (entry.IsEmpty) continue;
-                int totalAvailable = entry.RemainingCount;
-                // 첫 번째 탱커에서는 Phase 0에서 예약한 수만큼 차감
-                int reserved = (i == 0) ? phase0TankReserved : 0;
-                int remaining = totalAvailable - reserved;
-                if (remaining > 0)
+                for (int i = 0; i < tanks.Count; i++)
                 {
-                    phase2.Orders.Add(new AISpawnOrder(entry, groundSpawnPos, remaining));
+                    var entry = tanks[i];
+                    if (entry.IsEmpty) continue;
+                    int totalAvailable = entry.RemainingCount;
+                    // 첫 번째 탱커에서는 Phase 0에서 예약한 수만큼 차감
+                    int reserved = (i == 0) ? phase0TankReserved : 0;
+                    int remaining = totalAvailable - reserved;
+                    if (remaining > 0)
+                    {
+                        phase2.Orders.Add(new AISpawnOrder(
+                            entry,
+                            groundSpawn.Position,
+                            remaining,
+                            groundSpawn.ReservedNavigationCells));
+                    }
                 }
             }
             if (phase2.Orders.Count > 0)
@@ -507,10 +541,17 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             // Phase 3: 어그로 대기 후 나머지 지상 몬스터
             var phase3 = new AISpawnPhase { DelayBeforePhase = Random.Range(1.5f, 2.0f) };
-            foreach (var entry in normalGround)
+            if (groundSpawn.IsValid)
             {
-                if (entry.IsEmpty) continue;
-                phase3.Orders.Add(new AISpawnOrder(entry, groundSpawnPos, entry.RemainingCount));
+                foreach (var entry in normalGround)
+                {
+                    if (entry.IsEmpty) continue;
+                    phase3.Orders.Add(new AISpawnOrder(
+                        entry,
+                        groundSpawn.Position,
+                        entry.RemainingCount,
+                        groundSpawn.ReservedNavigationCells));
+                }
             }
             if (phase3.Orders.Count > 0)
             {
@@ -519,10 +560,17 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             // Phase 4: 공중 게릴라
             var phase4 = new AISpawnPhase { DelayBeforePhase = Random.Range(0.5f, 1.0f) };
-            foreach (var entry in flying)
+            if (flyingSpawn.IsValid)
             {
-                if (entry.IsEmpty) continue;
-                phase4.Orders.Add(new AISpawnOrder(entry, flyingSpawnPos, entry.RemainingCount));
+                foreach (var entry in flying)
+                {
+                    if (entry.IsEmpty) continue;
+                    phase4.Orders.Add(new AISpawnOrder(
+                        entry,
+                        flyingSpawn.Position,
+                        entry.RemainingCount,
+                        flyingSpawn.ReservedNavigationCells));
+                }
             }
             if (phase4.Orders.Count > 0)
             {
@@ -541,15 +589,22 @@ namespace AI.BehaviorTree.Nodes.Actions
             List<MonsterPoolEntry> tanks,
             List<MonsterPoolEntry> normalGround,
             List<MonsterPoolEntry> flying,
-            Vector3 groundSpawnPos,
-            Vector3 flyingSpawnPos)
+            SpawnSelection groundSpawn,
+            SpawnSelection flyingSpawn)
         {
             // Phase 0: 탱커 선봉 소환
             var phase0 = new AISpawnPhase();
-            foreach (var entry in tanks)
+            if (groundSpawn.IsValid)
             {
-                if (entry.IsEmpty) continue;
-                phase0.Orders.Add(new AISpawnOrder(entry, groundSpawnPos, entry.RemainingCount));
+                foreach (var entry in tanks)
+                {
+                    if (entry.IsEmpty) continue;
+                    phase0.Orders.Add(new AISpawnOrder(
+                        entry,
+                        groundSpawn.Position,
+                        entry.RemainingCount,
+                        groundSpawn.ReservedNavigationCells));
+                }
             }
             if (phase0.Orders.Count > 0)
             {
@@ -558,10 +613,17 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             // Phase 1: 어그로 대기 후 나머지 지상
             var phase1 = new AISpawnPhase { DelayBeforePhase = Random.Range(1.5f, 2.0f) };
-            foreach (var entry in normalGround)
+            if (groundSpawn.IsValid)
             {
-                if (entry.IsEmpty) continue;
-                phase1.Orders.Add(new AISpawnOrder(entry, groundSpawnPos, entry.RemainingCount));
+                foreach (var entry in normalGround)
+                {
+                    if (entry.IsEmpty) continue;
+                    phase1.Orders.Add(new AISpawnOrder(
+                        entry,
+                        groundSpawn.Position,
+                        entry.RemainingCount,
+                        groundSpawn.ReservedNavigationCells));
+                }
             }
             if (phase1.Orders.Count > 0)
             {
@@ -570,10 +632,17 @@ namespace AI.BehaviorTree.Nodes.Actions
 
             // Phase 2: 공중 게릴라
             var phase2 = new AISpawnPhase { DelayBeforePhase = Random.Range(0.5f, 1.5f) };
-            foreach (var entry in flying)
+            if (flyingSpawn.IsValid)
             {
-                if (entry.IsEmpty) continue;
-                phase2.Orders.Add(new AISpawnOrder(entry, flyingSpawnPos, entry.RemainingCount));
+                foreach (var entry in flying)
+                {
+                    if (entry.IsEmpty) continue;
+                    phase2.Orders.Add(new AISpawnOrder(
+                        entry,
+                        flyingSpawn.Position,
+                        entry.RemainingCount,
+                        flyingSpawn.ReservedNavigationCells));
+                }
             }
             if (phase2.Orders.Count > 0)
             {
@@ -583,22 +652,87 @@ namespace AI.BehaviorTree.Nodes.Actions
         #endregion
 
         #region 유틸리티
-        /// <summary>
-        /// 특정 위치에서 골 지점까지의 A* 경로 길이를 계산합니다.
-        /// </summary>
-        private int CalculatePathLength(Vector3 spawnWorldPos, bool ignoreBreakableWalls)
+        private bool TryGetPath(
+            Vector3 spawnWorldPos,
+            bool ignoreBreakableWalls,
+            out List<AstarNode> path)
         {
-            if (_targetGrid == null || _goalTransform == null) return -1;
+            path = null;
+            if (_targetGrid == null || _goalTransform == null)
+            {
+                return false;
+            }
 
             Vector2Int startPos = _targetField.WorldToNavigationCell(spawnWorldPos);
             Vector2Int endPos = _targetField.WorldToNavigationCell(_goalTransform.position);
-
-            if (_targetGrid.FindPath(startPos, endPos, ignoreWalls: false, ignoreBreakableWalls: ignoreBreakableWalls))
+            if (!_targetGrid.FindPath(
+                    startPos,
+                    endPos,
+                    ignoreWalls: false,
+                    ignoreBreakableWalls: ignoreBreakableWalls))
             {
-                return _targetGrid.FinalPath?.Count ?? -1;
+                return false;
             }
 
-            return -1;
+            path = _targetGrid.FinalPath;
+            return path != null && path.Count > 0;
+        }
+
+        private SpawnSelection CreatePathSpawnSelection(
+            Vector3 spawnWorldPosition,
+            IReadOnlyList<AstarNode> path)
+        {
+            Vector2Int startCell = _targetField.WorldToNavigationCell(spawnWorldPosition);
+            return new SpawnSelection(
+                spawnWorldPosition,
+                CapturePathReservationCells(startCell, path));
+        }
+
+        private SpawnSelection CreateExactSpawnSelection(Vector3 spawnWorldPosition)
+        {
+            return new SpawnSelection(
+                spawnWorldPosition,
+                new[] { _targetField.WorldToNavigationCell(spawnWorldPosition) });
+        }
+
+        private static Vector2Int[] CapturePathReservationCells(
+            Vector2Int startCell,
+            IReadOnlyList<AstarNode> path)
+        {
+            var cells = new List<Vector2Int>(ReservedPathPrefixCellCount) { startCell };
+            if (path == null)
+            {
+                return cells.ToArray();
+            }
+
+            for (int pathIndex = 0;
+                 pathIndex < path.Count && cells.Count < ReservedPathPrefixCellCount;
+                 pathIndex++)
+            {
+                AstarNode node = path[pathIndex];
+                if (node == null)
+                {
+                    continue;
+                }
+
+                Vector2Int cell = new Vector2Int(node.x, node.y);
+                bool alreadyCaptured = false;
+                for (int cellIndex = 0; cellIndex < cells.Count; cellIndex++)
+                {
+                    if (cells[cellIndex] == cell)
+                    {
+                        alreadyCaptured = true;
+                        break;
+                    }
+                }
+
+                if (!alreadyCaptured)
+                {
+                    cells.Add(cell);
+                }
+            }
+
+            return cells.ToArray();
         }
 
         /// <summary>
@@ -630,6 +764,26 @@ namespace AI.BehaviorTree.Nodes.Actions
             }
 
             return GetFallbackSpawnPos();
+        }
+
+        [System.Diagnostics.Conditional("MDF_VERBOSE_AI_LOGS")]
+        private static void LogVerbose(string message)
+        {
+            Debug.Log(message);
+        }
+
+        private readonly struct SpawnSelection
+        {
+            public readonly Vector3 Position;
+            public readonly Vector2Int[] ReservedNavigationCells;
+
+            public bool IsValid => ReservedNavigationCells != null && ReservedNavigationCells.Length > 0;
+
+            public SpawnSelection(Vector3 position, Vector2Int[] reservedNavigationCells)
+            {
+                Position = position;
+                ReservedNavigationCells = reservedNavigationCells;
+            }
         }
         #endregion
     }
@@ -669,11 +823,19 @@ namespace AI.BehaviorTree.Nodes.Actions
         /// <summary>소환할 수량</summary>
         public int Count;
 
-        public AISpawnOrder(MonsterPoolEntry poolEntry, Vector3 spawnPosition, int count)
+        /// <summary>지상/Destroyer의 경로 prefix 또는 공중 몬스터의 정확한 origin 셀</summary>
+        public IReadOnlyList<Vector2Int> ReservedNavigationCells;
+
+        public AISpawnOrder(
+            MonsterPoolEntry poolEntry,
+            Vector3 spawnPosition,
+            int count,
+            IReadOnlyList<Vector2Int> reservedNavigationCells)
         {
             PoolEntry = poolEntry;
             SpawnPosition = spawnPosition;
             Count = count;
+            ReservedNavigationCells = reservedNavigationCells;
         }
     }
     #endregion

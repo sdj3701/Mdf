@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: security
 Created: 2026-05-05
-Last used: 2026-05-05
-Last verified: 2026-05-05
-Use count: 1
+Last used: 2026-07-14
+Last verified: 2026-07-14
+Use count: 8
 Review after: 2026-08-03
 Triggers: automation server, HttpListener, --mpTest, --mpAutomationToken
 Applies to: `MPTestAutomationServer`, Development Build harness control
-Verified by: see Verification section below; migrated from old Status: verified-local
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260714-110454-network-budget-pending-stress/result.json; artifacts/mp/20260714-124857-production-negative-automation/production-negative-automation.json
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -31,3 +31,7 @@ Verification:
 
 Pitfalls:
 - Do not log token values. Log only `AutomationTokenHash`/`ConnectionTokenHash`.
+
+Lifecycle notes:
+- 2026-07-14: verified artifact `artifacts/mp/20260714-110454-network-budget-pending-stress/result.json`
+- 2026-07-14: verified artifact `artifacts/mp/20260714-124857-production-negative-automation/production-negative-automation.json`

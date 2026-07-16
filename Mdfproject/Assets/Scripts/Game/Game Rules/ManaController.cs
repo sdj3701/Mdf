@@ -135,6 +135,30 @@ public class ManaController : NetworkBehaviour, IMana
         return false;
     }
 
+    public bool TryRestoreMigrationState(float currentMana, float maxMana)
+    {
+        if (!HasManaAuthorityOrOffline())
+        {
+            return false;
+        }
+
+        float normalizedMax = Mathf.Max(0f, maxMana);
+        float normalizedCurrent = Mathf.Clamp(currentMana, 0f, normalizedMax);
+        _localMaxMana = normalizedMax;
+        _localCurrentMana = normalizedCurrent;
+        _hasLocalInitialized = true;
+
+        if (CanWriteNetworkedMana())
+        {
+            _maxMana = normalizedMax;
+            _currentMana = normalizedCurrent;
+        }
+
+        _lastBroadcastMana = normalizedCurrent;
+        OnManaChanged?.Invoke(normalizedCurrent, normalizedMax);
+        return true;
+    }
+
     private bool CanReadNetworkedMana()
     {
         return Object != null

@@ -3,12 +3,17 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using Cysharp.Threading.Tasks;
+using MDF.Runtime.Assets;
+using MDF.Runtime.UI;
 
 /// <summary>
 /// 공격 시퀀스에서 개별 몬스터 슬롯을 표시하는 UI 컴포넌트.
 /// </summary>
 public class MonsterSlotUI : MonoBehaviour
 {
+    private AddressableAssetLease<Sprite> _iconLease;
+    private int _iconLoadVersion;
+    private AttackMonsterCardView _presentationView;
     #region UI 요소
     [Header("UI 참조")]
     [SerializeField] private Image monsterIconImage;
@@ -27,7 +32,6 @@ public class MonsterSlotUI : MonoBehaviour
     private AttackSequenceUIController _controller;
     private int _slotIndex;
     private bool _isSelected;
-    private int _bindVersion;
     #endregion
 
     #region 초기화
@@ -51,8 +55,10 @@ public class MonsterSlotUI : MonoBehaviour
     /// </summary>
     public async UniTask UpdateSlot(MonsterPoolEntry entry)
     {
+        int iconLoadVersion = ++_iconLoadVersion;
+        _iconLease?.Dispose();
+        _iconLease = null;
         _poolEntry = entry;
-        int bindVersion = ++_bindVersion;
 
         if (entry == null || entry.MonsterData == null)
         {
@@ -64,7 +70,7 @@ public class MonsterSlotUI : MonoBehaviour
         UpdateCount();
 
         // 아이콘 로드
-        await LoadMonsterIcon(entry.MonsterData, bindVersion);
+        await LoadMonsterIcon(entry.MonsterData, iconLoadVersion);
 
         // 비어있으면 어둡게 처리
         UpdateVisualState();
@@ -76,12 +82,6 @@ public class MonsterSlotUI : MonoBehaviour
     public void UpdateCount()
     {
         if (_poolEntry == null) return;
-        
-        if (countText != null)
-        {
-            countText.text = $"{_poolEntry.RemainingCount}/{_poolEntry.MaxCount}";
-        }
-
         UpdateVisualState();
     }
 
@@ -96,73 +96,64 @@ public class MonsterSlotUI : MonoBehaviour
 
     private void SetEmpty()
     {
-        _bindVersion++;
-        if (monsterIconImage != null)
-        {
-            monsterIconImage.sprite = null;
-            monsterIconImage.color = emptyColor;
-        }
-        if (countText != null)
-        {
-            countText.text = "";
-        }
-        if (slotBackgroundImage != null)
-        {
-            slotBackgroundImage.color = emptyColor;
-        }
-        if (slotButton != null)
-        {
-            slotButton.interactable = false;
-        }
+        EnsurePresentationView().ApplyEmpty();
     }
 
     private void UpdateVisualState()
     {
         if (_poolEntry == null) return;
 
-        bool isEmpty = _poolEntry.IsEmpty;
-
-        // 배경 색상
-        if (slotBackgroundImage != null)
-        {
-            if (isEmpty)
-            {
-                slotBackgroundImage.color = emptyColor;
-            }
-            else if (_isSelected)
-            {
-                slotBackgroundImage.color = selectedColor;
-            }
-            else
-            {
-                slotBackgroundImage.color = normalColor;
-            }
-        }
-
-        // 아이콘 투명도
-        if (monsterIconImage != null)
-        {
-            Color iconColor = monsterIconImage.color;
-            iconColor.a = isEmpty ? 0.3f : 1f;
-            monsterIconImage.color = iconColor;
-        }
-
-        // 버튼 활성화
-        if (slotButton != null)
-        {
-            slotButton.interactable = !isEmpty;
-        }
-
-        // 텍스트 투명도
-        if (countText != null)
-        {
-            Color countColor = countText.color;
-            countColor.a = isEmpty ? 0.3f : 1f;
-            countText.color = countColor;
-        }
+        AttackMonsterCardState cardState = ResolveCardState();
+        EnsurePresentationView().Apply(cardState.PolicyState, _isSelected);
     }
 
-    private async UniTask LoadMonsterIcon(MonsterData monsterData, int bindVersion)
+    private AttackMonsterCardView EnsurePresentationView()
+    {
+        if (_presentationView == null)
+        {
+            _presentationView = GetComponent<AttackMonsterCardView>();
+            if (_presentationView == null)
+            {
+                _presentationView = gameObject.AddComponent<AttackMonsterCardView>();
+            }
+        }
+
+        _presentationView.Configure(
+            monsterIconImage,
+            countText,
+            slotBackgroundImage,
+            slotButton,
+            normalColor,
+            selectedColor,
+            emptyColor);
+        return _presentationView;
+    }
+
+    private bool CanAffordCurrentEntry()
+    {
+        return ResolveCardState().CanInteract;
+    }
+
+    private AttackMonsterCardState ResolveCardState()
+    {
+        int availableBlackMagic = 0;
+        PlayerManager localPlayer = GameManagers.Instance?.localPlayer;
+        if (localPlayer != null)
+        {
+            try
+            {
+                availableBlackMagic = localPlayer.AppliedBlackMagicCurrent;
+            }
+            catch (System.InvalidOperationException)
+            {
+                availableBlackMagic = 0;
+            }
+        }
+
+        return AttackMonsterCardPresentation.Resolve(_poolEntry, availableBlackMagic);
+    }
+
+    private async UniTask LoadMonsterIcon(MonsterData monsterData, int iconLoadVersion)
     {
         if (monsterIconImage == null) return;
         
@@ -172,10 +163,18 @@ public class MonsterSlotUI : MonoBehaviour
             return;
         }
 
-        Sprite icon = await UISpriteCache.LoadAsync(monsterData.monsterIcon);
-        if (icon != null && monsterIconImage != null && bindVersion == _bindVersion)
+        AddressableAssetLease<Sprite> loadedLease =
+            await AssetLoader.AcquireAssetAsync<Sprite>(monsterData.monsterIcon);
+        if (iconLoadVersion != _iconLoadVersion || monsterIconImage == null)
         {
-            monsterIconImage.sprite = icon;
+            loadedLease?.Dispose();
+            return;
+        }
+
+        _iconLease = loadedLease;
+        if (_iconLease?.Asset != null)
+        {
+            monsterIconImage.sprite = _iconLease.Asset;
             monsterIconImage.color = Color.white;
         }
     }
@@ -184,8 +183,15 @@ public class MonsterSlotUI : MonoBehaviour
     #region 이벤트
     private void OnSlotClicked()
     {
-        if (_poolEntry == null || _poolEntry.IsEmpty) return;
+        if (_poolEntry == null || _poolEntry.IsEmpty || !CanAffordCurrentEntry()) return;
         _controller?.OnMonsterSlotSelected(_slotIndex, _poolEntry);
+    }
+
+    private void OnDestroy()
+    {
+        _iconLoadVersion++;
+        _iconLease?.Dispose();
+        _iconLease = null;
     }
     #endregion
 

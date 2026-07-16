@@ -10,7 +10,10 @@ public sealed class BattleSpawnMonsterCommand
     private PlayerManager _validatedDefender;
     private FieldManager _validatedDefenderField;
     private MonsterPoolEntry _validatedPoolEntry;
+    private Vector2Int _validatedSpawnNavigationCell;
+    private Vector3 _validatedSpawnWorldPosition;
     private int _validatedCount;
+    private PlayerManager.BattleSpawnResourceReservation _resourceReservation;
     private bool _spawnRejectedLogged;
 
     public int AttackerPlayerId { get; }
@@ -20,6 +23,7 @@ public sealed class BattleSpawnMonsterCommand
     public int Count { get; }
     public string SourceReason { get; }
     public int ObservedAttackMonsterPoolRevision { get; }
+    public int ObservedBlackMagicRevision { get; }
     public CommandExecutionScope Scope { get; private set; }
 
     public BattleSpawnMonsterCommand(
@@ -29,7 +33,8 @@ public sealed class BattleSpawnMonsterCommand
         Vector3 spawnWorldPosition,
         int count = 1,
         string sourceReason = null,
-        int observedAttackMonsterPoolRevision = -1)
+        int observedAttackMonsterPoolRevision = -1,
+        int observedBlackMagicRevision = -1)
     {
         AttackerPlayerId = attackerPlayerId;
         DefenderPlayerId = defenderPlayerId;
@@ -38,6 +43,7 @@ public sealed class BattleSpawnMonsterCommand
         Count = count;
         SourceReason = sourceReason;
         ObservedAttackMonsterPoolRevision = observedAttackMonsterPoolRevision;
+        ObservedBlackMagicRevision = observedBlackMagicRevision;
     }
 
     public async UniTask<BattleCommandResult> ExecuteAsync(
@@ -71,6 +77,9 @@ public sealed class BattleSpawnMonsterCommand
         _validatedDefender = null;
         _validatedDefenderField = null;
         _validatedPoolEntry = null;
+        _validatedSpawnNavigationCell = default;
+        _validatedSpawnWorldPosition = default;
+        _resourceReservation = default;
 
         var gm = GameManagers.Instance;
         if (!BattleCommandValidator.ResolveActorPlayer(
@@ -130,10 +139,33 @@ public sealed class BattleSpawnMonsterCommand
                     DefenderPlayerId,
                     scope);
             }
+
+            if (ObservedBlackMagicRevision < 0)
+            {
+                return Reject("black_magic_revision_required", null, DefenderPlayerId, scope);
+            }
+
+            if (ObservedBlackMagicRevision != _validatedAttacker.BlackMagicRevision)
+            {
+                return Reject(
+                    "black_magic_revision_mismatch",
+                    $"observed={ObservedBlackMagicRevision},authority={_validatedAttacker.BlackMagicRevision}",
+                    DefenderPlayerId,
+                    scope);
+            }
         }
         else if (!BattleCommandValidator.IsServerAiOrTestAuthority(_validatedAttacker, scope))
         {
             return Reject("server_ai_or_test_authority_required", null, DefenderPlayerId, scope);
+        }
+
+        if (!_validatedAttacker.IsBattleSpawnCadenceReady(out float cadenceRemainingSeconds))
+        {
+            return Reject(
+                "battle_spawn_cooldown",
+                $"remaining={cadenceRemainingSeconds:F3}",
+                DefenderPlayerId,
+                scope);
         }
 
         _validatedDefenderField = _validatedDefender.fieldManager;
@@ -142,14 +174,14 @@ public sealed class BattleSpawnMonsterCommand
             return Reject("defender_field_missing", null, DefenderPlayerId, scope);
         }
 
-        if (!BattleCommandValidator.IsFiniteTargetPosition(SpawnWorldPosition))
+        if (!BattleCommandValidator.TryResolveExactBattleSpawnPosition(
+                _validatedDefenderField,
+                SpawnWorldPosition,
+                out _validatedSpawnNavigationCell,
+                out _validatedSpawnWorldPosition,
+                out string spawnPositionReason))
         {
-            return Reject("spawn_position_not_finite", null, DefenderPlayerId, scope);
-        }
-
-        if (!BattleCommandValidator.IsInsideBattleSpawnZone(_validatedDefenderField, SpawnWorldPosition))
-        {
-            return Reject("spawn_position_outside_battle_spawn_zone", null, DefenderPlayerId, scope);
+            return Reject(spawnPositionReason, null, DefenderPlayerId, scope);
         }
 
         if (!TryResolvePoolSlot(_validatedAttacker, out _validatedPoolEntry, out string poolReason))
@@ -167,6 +199,24 @@ public sealed class BattleSpawnMonsterCommand
         if (availableCount < _validatedCount)
         {
             return Reject("pool_slot_insufficient_count", $"available={availableCount},requested={_validatedCount}", DefenderPlayerId, scope);
+        }
+
+        if (!_validatedAttacker.CanAffordAttackMonster(_validatedPoolEntry))
+        {
+            return Reject(
+                "black_magic_insufficient",
+                $"current={_validatedAttacker.BlackMagicCurrent},cost={Mathf.Max(0, _validatedPoolEntry.MonsterData.blackMagicCost)}",
+                DefenderPlayerId,
+                scope);
+        }
+
+        if (!BattleCommandValidator.TryValidateBattleSpawnPath(
+                _validatedDefenderField,
+                _validatedSpawnWorldPosition,
+                _validatedPoolEntry.MonsterData,
+                out string spawnPathReason))
+        {
+            return Reject(spawnPathReason, null, DefenderPlayerId, scope);
         }
 
         int sequence = BattleCommandTelemetry.RecordAccepted(Type);
@@ -197,6 +247,12 @@ public sealed class BattleSpawnMonsterCommand
             return Reject("attacker_monster_spawner_missing", null, DefenderPlayerId, Scope);
         }
 
+        int battleGeneration = _validatedAttacker.monsterSpawner.CaptureBattleGeneration();
+        if (battleGeneration < 0)
+        {
+            return Reject("battle_generation_unavailable", null, DefenderPlayerId, Scope);
+        }
+
         int spawnedCount = 0;
         for (int i = 0; i < _validatedCount; i++)
         {
@@ -210,37 +266,117 @@ public sealed class BattleSpawnMonsterCommand
             int originPlayerId = ResolveOriginPlayerId(_validatedPoolEntry);
             MonsterData monsterData = _validatedPoolEntry.MonsterData;
 
-            await _validatedAttacker.monsterSpawner.PrewarmMonsterDataAsync(
-                monsterData,
-                isBoss,
-                1,
-                "BattleSpawnMonsterCommand");
-
-            if (!_validatedAttacker.TryConsumeMonsterPoolSlot(PoolSlotIndex))
+            int expectedBlackMagicRevision = ObservedBlackMagicRevision >= 0
+                ? ObservedBlackMagicRevision
+                : _validatedAttacker.BlackMagicRevision;
+            int expectedPoolRevision = ObservedAttackMonsterPoolRevision >= 0
+                ? ObservedAttackMonsterPoolRevision
+                : _validatedAttacker.AttackMonsterPoolRevision;
+            if (!_validatedAttacker.TryReserveBattleSpawnResource(
+                    PoolSlotIndex,
+                    expectedPoolRevision,
+                    expectedBlackMagicRevision,
+                    out _resourceReservation,
+                    out string reservationReason))
             {
-                return Reject("pool_slot_consume_failed_before_spawn", null, DefenderPlayerId, Scope);
+                return Reject(reservationReason ?? "battle_spawn_resource_reserve_failed", null, DefenderPlayerId, Scope);
             }
 
-            var monster = await _validatedAttacker.monsterSpawner.SpawnMonsterAtPositionAsync(
+            bool spawnCommitted = false;
+            try
+            {
+
+            try
+            {
+                await _validatedAttacker.monsterSpawner.PrewarmMonsterDataAsync(
+                    monsterData,
+                    isBoss,
+                    1,
+                    "BattleSpawnMonsterCommand",
+                    _validatedAttacker.monsterSpawner.GetBattleCancellationToken(battleGeneration));
+            }
+            catch (System.OperationCanceledException)
+            {
+                return Reject("battle_changed_during_spawn_prewarm", null, DefenderPlayerId, Scope);
+            }
+
+            if (!_validatedAttacker.monsterSpawner.IsBattleGenerationCurrent(battleGeneration))
+            {
+                return Reject("battle_changed_during_spawn_prewarm", null, DefenderPlayerId, Scope);
+            }
+
+            if (!RevalidateAfterAwait(out string revalidationReason))
+            {
+                return Reject(revalidationReason, null, DefenderPlayerId, Scope);
+            }
+
+            var monster = await _validatedAttacker.monsterSpawner.SpawnMonsterAtExactPositionAsync(
                 monsterData,
-                SpawnWorldPosition,
+                _validatedSpawnWorldPosition,
                 _validatedDefenderField,
                 isBoss,
                 bossUniqueId,
-                originPlayerId);
+                originPlayerId,
+                battleGeneration);
+
+            if (!_validatedAttacker.monsterSpawner.IsBattleGenerationCurrent(battleGeneration))
+            {
+                _validatedAttacker.monsterSpawner.CleanupCanceledBattleSpawn(monster);
+                return Reject("battle_changed_during_monster_spawn", null, DefenderPlayerId, Scope);
+            }
 
             if (monster == null)
             {
-                _validatedAttacker.TryRefundMonsterPoolSlot(PoolSlotIndex);
+                if (!BattleCommandValidator.TryResolveExactBattleSpawnPosition(
+                        _validatedDefenderField,
+                        SpawnWorldPosition,
+                        out Vector2Int failedSpawnCell,
+                        out Vector3 failedSpawnPosition,
+                        out string exactSpawnFailureReason))
+                {
+                    return Reject(exactSpawnFailureReason, null, DefenderPlayerId, Scope);
+                }
+
+                if (failedSpawnCell != _validatedSpawnNavigationCell ||
+                    (failedSpawnPosition - _validatedSpawnWorldPosition).sqrMagnitude > 0.0001f)
+                {
+                    return Reject("spawn_cell_changed_during_spawn", null, DefenderPlayerId, Scope);
+                }
+
+                if (!BattleCommandValidator.TryValidateBattleSpawnPath(
+                        _validatedDefenderField,
+                        _validatedSpawnWorldPosition,
+                        monsterData,
+                        out exactSpawnFailureReason))
+                {
+                    return Reject(exactSpawnFailureReason, null, DefenderPlayerId, Scope);
+                }
+
                 return Reject("battle_spawn_runner_spawn_failed", null, DefenderPlayerId, Scope);
             }
 
-            if (isBoss)
+            if (!_validatedAttacker.CommitBattleSpawnReservation(_resourceReservation))
             {
-                _validatedAttacker.ConsumeOwnedBoss(monsterData);
+                _validatedAttacker.monsterSpawner.CleanupCanceledBattleSpawn(monster);
+                return Reject("battle_spawn_reservation_changed_before_commit", null, DefenderPlayerId, Scope);
             }
 
+            spawnCommitted = true;
+
             spawnedCount++;
+            }
+            catch (System.Exception exception)
+            {
+                Debug.LogException(exception);
+                return Reject("battle_spawn_exception", null, DefenderPlayerId, Scope);
+            }
+            finally
+            {
+                if (!spawnCommitted)
+                {
+                    _validatedAttacker.TryRefundBattleSpawnReservation(_resourceReservation);
+                }
+            }
         }
 
         if (spawnedCount <= 0)
@@ -249,6 +385,74 @@ public sealed class BattleSpawnMonsterCommand
         }
 
         return Executed(spawnedCount, "battle_spawn_executed");
+    }
+
+    private bool RevalidateAfterAwait(out string reason)
+    {
+        reason = null;
+        GameManagers gm = GameManagers.Instance;
+        if (gm == null || gm.Object == null || !gm.Object.HasStateAuthority ||
+            gm.IsSequenceTransitioning ||
+            (gm.currentState != GameManagers.GameState.Battle1 && gm.currentState != GameManagers.GameState.Battle2))
+        {
+            reason = "battle_authority_or_phase_changed_during_await";
+            return false;
+        }
+
+        if (gm.GetPlayer(AttackerPlayerId) != _validatedAttacker ||
+            gm.GetPlayer(DefenderPlayerId) != _validatedDefender ||
+            !BattleCommandValidator.IsCurrentBattleAttacker(_validatedAttacker) ||
+            !BattleCommandValidator.IsCurrentBattleDefender(_validatedDefender))
+        {
+            reason = "battle_participants_changed_during_await";
+            return false;
+        }
+
+        if (_validatedAttacker.AttackMonsterPool == null ||
+            PoolSlotIndex < 0 ||
+            PoolSlotIndex >= _validatedAttacker.AttackMonsterPool.Count)
+        {
+            reason = "battle_pool_slot_changed_during_await";
+            return false;
+        }
+
+        MonsterPoolEntry currentEntry = _validatedAttacker.AttackMonsterPool[PoolSlotIndex];
+        if (!ReferenceEquals(currentEntry, _validatedPoolEntry) ||
+            currentEntry == null ||
+            currentEntry.MonsterData != _validatedPoolEntry.MonsterData ||
+            !_validatedAttacker.IsBattleSpawnReservationCurrent(_resourceReservation))
+        {
+            reason = "battle_pool_reservation_changed_during_await";
+            return false;
+        }
+
+        if (!BattleCommandValidator.TryResolveExactBattleSpawnPosition(
+                _validatedDefenderField,
+                SpawnWorldPosition,
+                out Vector2Int currentSpawnCell,
+                out Vector3 currentSpawnWorldPosition,
+                out reason))
+        {
+            return false;
+        }
+
+        if (currentSpawnCell != _validatedSpawnNavigationCell ||
+            (currentSpawnWorldPosition - _validatedSpawnWorldPosition).sqrMagnitude > 0.0001f)
+        {
+            reason = "spawn_cell_changed_during_await";
+            return false;
+        }
+
+        if (!BattleCommandValidator.TryValidateBattleSpawnPath(
+                _validatedDefenderField,
+                _validatedSpawnWorldPosition,
+                _validatedPoolEntry.MonsterData,
+                out reason))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private bool TryResolvePoolSlot(PlayerManager attacker, out MonsterPoolEntry entry, out string reason)
@@ -319,6 +523,23 @@ public sealed class BattleSpawnMonsterCommand
     private BattleCommandResult Executed(int spawnedCount, string message)
     {
         int sequence = BattleCommandTelemetry.RecordSpawnMonsterExecuted();
+
+        // A battle spawn can happen immediately before the current host disappears. Fusion's
+        // periodic host-migration snapshot may still predate that NetworkObject even though a
+        // client has already observed it. After the spawn commit, request a coalesced snapshot
+        // push so the resume token and MDF's durable combat snapshots converge on the same set.
+        GameManagers gameManagers = GameManagers.Instance;
+        if (gameManagers != null &&
+            gameManagers.Runner != null &&
+            gameManagers.Runner.IsRunning &&
+            gameManagers.Object != null &&
+            gameManagers.Object.HasStateAuthority)
+        {
+            HostMigrationHandler.Instance?.TryPushHostMigrationSnapshot(
+                gameManagers.Runner,
+                $"BattleSpawnMonster:Committed:P{AttackerPlayerId}:seq={sequence}");
+        }
+
         var result = BattleCommandResult.Executed(
             Type,
             AttackerPlayerId,

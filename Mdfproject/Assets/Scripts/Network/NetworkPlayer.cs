@@ -1,6 +1,9 @@
 // Assets/Scripts/Network/NetworkPlayer.cs
 using UnityEngine;
 using Fusion;
+using Cysharp.Threading.Tasks;
+using System.Collections.Generic;
+using System.Threading;
 
 /// <summary>
 /// 네트워크 플레이어 오브젝트 (Fusion 2.0 ChangeDetector 방식 적용, PlayerPrefs 사용)
@@ -9,8 +12,28 @@ public class NetworkPlayer : NetworkBehaviour
 {
     [Networked] public NetworkString<_16> Nickname { get; set; }
     [Networked] public NetworkBool IsReady { get; set; }
+    [Networked] public int SelectedKingUnitKeyHash { get; set; }
+    [Networked] public int SelectedMapThemeId { get; set; }
+    [Networked] public int MatchContentLoadRevision { get; set; }
+    [Networked] public int MatchContentLoadStateValue { get; set; }
 
     private ChangeDetector _changeDetector;
+    private int _lastCachedKingSelectionHash;
+    private bool _cachedKingSelectionWithDurableIdentity;
+    private int _lastCachedMapThemeId;
+    private bool _cachedMapThemeWithDurableIdentity;
+    private int _localSelectedDemonKeyHash;
+    private float _nextLobbyDemonSyncTime;
+    private int _localMatchContentLoadRevision = -1;
+    private CancellationTokenSource _localMatchContentLoadCancellation;
+
+    public LobbyMatchLoadingState MatchContentLoadState =>
+        (LobbyMatchLoadingState)MatchContentLoadStateValue;
+
+    /// <summary>
+    /// Owner-only lobby presentation state. This value is intentionally not Networked.
+    /// </summary>
+    public int LocalSelectedDemonKeyHash => HasInputAuthority ? _localSelectedDemonKeyHash : 0;
 
     public override void Spawned()
     {
@@ -23,10 +46,22 @@ public class NetworkPlayer : NetworkBehaviour
             // FusionLobbyManager UI 대신 PlayerPrefs에서 닉네임을 가져옵니다.
             // "PlayerNickname" 키로 저장된 값이 없으면 "DefaultName"을 사용합니다.
             string nickname = PlayerPrefs.GetString(PlayerPrefsDefine.NicknameKey, NetworkDefine.DefaultNickname);
+            int selectedKingHash = KingSelectionCatalog.NormalizeOrDefaultHash(
+                PlayerPrefs.GetInt(KingSelectionCatalog.PlayerPrefsKey, KingSelectionCatalog.DefaultKeyHash));
+            int selectedMapThemeId = MapThemeCatalog.NormalizeOrDefault(
+                PlayerPrefs.GetInt(MapThemeCatalog.PlayerPrefsKey, MapThemeCatalog.DefaultId));
+            int selectedDemonHash = DemonSelectionCatalog.NormalizeOrDefaultHash(
+                PlayerPrefs.GetInt(DemonSelectionCatalog.PlayerPrefsKey, DemonSelectionCatalog.DefaultKeyHash));
+            _localSelectedDemonKeyHash = selectedDemonHash;
 
             // 서버에 닉네임 설정을 요청하는 RPC를 호출합니다.
-            RPC_SetInitialData(nickname);
+            RPC_SetInitialData(nickname, selectedKingHash, selectedMapThemeId, selectedDemonHash);
         }
+
+        TryRememberKingSelectionForSession();
+        TryRememberMapThemeForSession();
+        TryStartLocalMatchContentLoad();
+        TrySyncOwnerPrivateDemonSelection();
     }
 
     public override void Render()
@@ -38,6 +73,10 @@ public class NetworkPlayer : NetworkBehaviour
             {
                 case nameof(Nickname):
                 case nameof(IsReady):
+                case nameof(SelectedKingUnitKeyHash):
+                case nameof(SelectedMapThemeId):
+                case nameof(MatchContentLoadRevision):
+                case nameof(MatchContentLoadStateValue):
                     if (JoinLobbyUI.Instance != null)
                     {
                         JoinLobbyUI.Instance.UpdatePlayerList();
@@ -45,18 +84,480 @@ public class NetworkPlayer : NetworkBehaviour
                     break;
             }
         }
+
+        // A remote peer can receive the selection before the replicated durable token
+        // fingerprint. Retry only until both values have been cached for host migration.
+        TryRememberKingSelectionForSession();
+        TryRememberMapThemeForSession();
+        TryStartLocalMatchContentLoad();
+        TrySyncOwnerPrivateDemonSelection();
+    }
+
+    public override void Despawned(NetworkRunner runner, bool hasState)
+    {
+        CancelLocalMatchContentLoad();
+        base.Despawned(runner, hasState);
+    }
+
+    private void OnDestroy()
+    {
+        CancelLocalMatchContentLoad();
     }
 
     [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
-    private void RPC_SetInitialData(string nickname)
+    private void RPC_SetInitialData(
+        string nickname,
+        int requestedKingHash,
+        int requestedMapThemeId,
+        int requestedDemonHash)
     {
         this.Nickname = nickname;
         this.IsReady = false;
+        this.SelectedKingUnitKeyHash = NetworkManager.Instance != null
+            ? NetworkManager.Instance.ResolveInitialLobbyKingSelection(this, requestedKingHash)
+            : KingSelectionCatalog.NormalizeOrDefaultHash(requestedKingHash);
+        this.SelectedMapThemeId = NetworkManager.Instance != null
+            ? NetworkManager.Instance.ResolveInitialLobbyMapTheme(this, requestedMapThemeId)
+            : MapThemeCatalog.NormalizeOrDefault(requestedMapThemeId);
+        int selectedDemonHash = NetworkManager.Instance != null
+            ? NetworkManager.Instance.ResolveInitialLobbyDemonSelection(this, requestedDemonHash)
+            : DemonSelectionCatalog.NormalizeOrDefaultHash(requestedDemonHash);
+        TryRememberKingSelectionForSession();
+        TryRememberMapThemeForSession();
+        RPC_ConfirmDemonSelection(selectedDemonHash);
     }
 
     [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
     public void RPC_ToggleReady()
     {
+        if (!KingSelectionCatalog.IsAllowedHash(SelectedKingUnitKeyHash))
+        {
+            IsReady = false;
+            Debug.LogWarning(
+                $"[NetworkPlayer] Ready rejected because the king selection is invalid. " +
+                $"king={SelectedKingUnitKeyHash}");
+            return;
+        }
+
+        if (NetworkManager.Instance == null
+            || Runner == null
+            || Object == null
+            || !Object.IsValid
+            || !NetworkManager.Instance.TryGetLobbyDemonSelectionForGameplay(
+                Runner,
+                Object.InputAuthority,
+                out int selectedDemonHash)
+            || !DemonSelectionCatalog.IsAllowedHash(selectedDemonHash))
+        {
+            IsReady = false;
+            Debug.LogWarning("[NetworkPlayer] Ready rejected because the private demon selection is missing or invalid.");
+            return;
+        }
+
         IsReady = !IsReady;
+    }
+
+    public bool RequestKingSelection(int requestedKingHash)
+    {
+        if (!HasInputAuthority || !KingSelectionCatalog.IsAllowedHash(requestedKingHash))
+        {
+            return false;
+        }
+
+        int canonicalHash = KingSelectionCatalog.NormalizeOrDefaultHash(requestedKingHash);
+        PlayerPrefs.SetInt(KingSelectionCatalog.PlayerPrefsKey, canonicalHash);
+        PlayerPrefs.Save();
+        RPC_SetKingSelection(canonicalHash);
+        return true;
+    }
+
+    public bool RequestMapThemeSelection(int requestedMapThemeId)
+    {
+        if (!HasInputAuthority || !MapThemeCatalog.IsAllowed(requestedMapThemeId))
+        {
+            return false;
+        }
+
+        int canonicalThemeId = MapThemeCatalog.NormalizeOrDefault(requestedMapThemeId);
+        PlayerPrefs.SetInt(MapThemeCatalog.PlayerPrefsKey, canonicalThemeId);
+        PlayerPrefs.Save();
+        RPC_SetMapThemeSelection(canonicalThemeId);
+        return true;
+    }
+
+    public bool RequestDemonSelection(int requestedDemonHash)
+    {
+        if (!HasInputAuthority || !DemonSelectionCatalog.IsAllowedHash(requestedDemonHash))
+        {
+            return false;
+        }
+
+        int canonicalHash = DemonSelectionCatalog.NormalizeOrDefaultHash(requestedDemonHash);
+        _localSelectedDemonKeyHash = canonicalHash;
+        _nextLobbyDemonSyncTime = Time.unscaledTime + 2f;
+        PlayerPrefs.SetInt(DemonSelectionCatalog.PlayerPrefsKey, canonicalHash);
+        PlayerPrefs.Save();
+        RPC_SetDemonSelection(canonicalHash);
+        JoinLobbyUI.Instance?.UpdatePlayerList();
+        return true;
+    }
+
+    public bool BeginMatchContentLoadingAuthority(int revision)
+    {
+        if (!HasStateAuthority || revision <= 0)
+        {
+            return false;
+        }
+
+        MatchContentLoadRevision = revision;
+        MatchContentLoadStateValue = (int)LobbyMatchLoadingState.Warming;
+        RPC_BeginMatchContentLoading(revision);
+        TryStartLocalMatchContentLoad();
+        return true;
+    }
+
+    public void ResetMatchContentLoadingAuthority(int revision)
+    {
+        if (!HasStateAuthority || MatchContentLoadRevision != revision)
+        {
+            return;
+        }
+
+        MatchContentLoadStateValue = (int)LobbyMatchLoadingState.Idle;
+    }
+
+    public bool IsMatchContentReadyFor(int revision)
+    {
+        return LobbyMatchLoadPolicy.IsReady(
+            revision,
+            MatchContentLoadRevision,
+            MatchContentLoadState);
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.All)]
+    private void RPC_BeginMatchContentLoading(int revision)
+    {
+        if (revision != MatchContentLoadRevision
+            || MatchContentLoadState != LobbyMatchLoadingState.Warming)
+        {
+            return;
+        }
+
+        TryStartLocalMatchContentLoad();
+        JoinLobbyUI.Instance?.UpdatePlayerList();
+    }
+
+    private void TryStartLocalMatchContentLoad()
+    {
+        int revision = MatchContentLoadRevision;
+        if (HasInputAuthority && MatchContentLoadState != LobbyMatchLoadingState.Warming)
+        {
+            CancelLocalMatchContentLoad();
+            return;
+        }
+
+        if (!HasInputAuthority
+            || revision <= 0
+            || MatchContentLoadState != LobbyMatchLoadingState.Warming
+            || _localMatchContentLoadRevision == revision)
+        {
+            return;
+        }
+
+        _localMatchContentLoadRevision = revision;
+        CancelLocalMatchContentLoad();
+        _localMatchContentLoadCancellation = new CancellationTokenSource();
+        PrewarmLocalMatchContentAsync(revision, _localMatchContentLoadCancellation).Forget();
+    }
+
+    private async UniTaskVoid PrewarmLocalMatchContentAsync(
+        int revision,
+        CancellationTokenSource attemptCancellation)
+    {
+        bool succeeded = false;
+        string failure = string.Empty;
+        try
+        {
+            if (LoadManager.Instance == null)
+            {
+                throw new System.InvalidOperationException("LoadManager is unavailable.");
+            }
+
+            await LoadManager.Instance.PrewarmMatchContentAsync(
+                Runner,
+                attemptCancellation.Token);
+            succeeded = true;
+        }
+        catch (System.OperationCanceledException)
+        {
+            return;
+        }
+        catch (System.Exception exception)
+        {
+            failure = exception.Message;
+        }
+        finally
+        {
+            if (ReferenceEquals(_localMatchContentLoadCancellation, attemptCancellation))
+            {
+                _localMatchContentLoadCancellation = null;
+            }
+
+            attemptCancellation.Dispose();
+        }
+
+        if (this == null
+            || Object == null
+            || !Object.IsValid
+            || !HasInputAuthority
+            || Runner == null
+            || !Runner.IsRunning
+            || MatchContentLoadRevision != revision
+            || MatchContentLoadState != LobbyMatchLoadingState.Warming)
+        {
+            return;
+        }
+
+        if (!succeeded)
+        {
+            Debug.LogError(
+                $"[MatchPrewarm] Local peer failed. revision={revision}, reason={failure}");
+        }
+
+        MPTestLogger.Log(
+            "match_prewarm_peer",
+            succeeded ? "pass" : "fail",
+            succeeded ? null : "local_match_content_failed",
+            succeeded ? "local match content ready" : failure,
+            new Dictionary<string, object>
+            {
+                { "revision", revision },
+                { "playerRef", Object.InputAuthority }
+            });
+
+        if (HasStateAuthority)
+        {
+            // Host-mode local RPCs report PlayerRef.None as RpcInfo.Source. Commit through the
+            // same authority validator with the object's real InputAuthority instead of waiting
+            // forever for an RPC source that Fusion intentionally omits locally.
+            TryRecordMatchContentLoadingAuthority(
+                revision,
+                succeeded,
+                Object.InputAuthority);
+        }
+        else
+        {
+            RPC_ReportMatchContentLoading(revision, succeeded);
+        }
+    }
+
+    private void CancelLocalMatchContentLoad()
+    {
+        if (_localMatchContentLoadCancellation == null)
+        {
+            return;
+        }
+
+        _localMatchContentLoadCancellation.Cancel();
+        _localMatchContentLoadCancellation = null;
+    }
+
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    private void RPC_ReportMatchContentLoading(
+        int revision,
+        NetworkBool succeeded,
+        RpcInfo info = default)
+    {
+        TryRecordMatchContentLoadingAuthority(revision, succeeded, info.Source);
+    }
+
+    private bool TryRecordMatchContentLoadingAuthority(
+        int revision,
+        bool succeeded,
+        PlayerRef source)
+    {
+        bool objectValid = Object != null && Object.IsValid;
+        int ownerAuthorityId = objectValid ? Object.InputAuthority.PlayerId : -1;
+        if (!LobbyMatchLoadPolicy.CanRecordAcknowledgement(
+                HasStateAuthority,
+                objectValid,
+                ownerAuthorityId,
+                source.PlayerId,
+                revision,
+                MatchContentLoadRevision,
+                MatchContentLoadState))
+        {
+            Debug.LogWarning(
+                $"[MatchPrewarm] Rejected stale or unauthorized ACK. source={source}, revision={revision}");
+            return false;
+        }
+
+        MatchContentLoadStateValue = succeeded
+            ? (int)LobbyMatchLoadingState.Ready
+            : (int)LobbyMatchLoadingState.Failed;
+        Debug.Log(
+            $"[MatchPrewarm] Authority ACK recorded. player={Object.InputAuthority}, " +
+            $"revision={revision}, success={(bool)succeeded}");
+        MPTestLogger.Log(
+            "match_prewarm_ack",
+            succeeded ? "pass" : "fail",
+            succeeded ? null : "peer_match_content_failed",
+            "authority recorded peer match content acknowledgement",
+            new Dictionary<string, object>
+            {
+                { "revision", revision },
+                { "playerRef", Object.InputAuthority },
+                { "success", succeeded }
+            });
+        return true;
+    }
+
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    private void RPC_SetKingSelection(int requestedKingHash)
+    {
+        if (!KingSelectionCatalog.IsAllowedHash(requestedKingHash))
+        {
+            IsReady = false;
+            Debug.LogWarning($"[NetworkPlayer] King selection rejected by the server allow-list: {requestedKingHash}");
+            return;
+        }
+
+        int canonicalHash = KingSelectionCatalog.NormalizeOrDefaultHash(requestedKingHash);
+        if (SelectedKingUnitKeyHash == canonicalHash)
+        {
+            return;
+        }
+
+        SelectedKingUnitKeyHash = canonicalHash;
+        IsReady = false;
+        TryRememberKingSelectionForSession();
+    }
+
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    private void RPC_SetMapThemeSelection(int requestedMapThemeId)
+    {
+        if (!MapThemeCatalog.IsAllowed(requestedMapThemeId))
+        {
+            IsReady = false;
+            Debug.LogWarning($"[NetworkPlayer] Map theme rejected by the server allow-list: {requestedMapThemeId}");
+            return;
+        }
+
+        int canonicalThemeId = MapThemeCatalog.NormalizeOrDefault(requestedMapThemeId);
+        if (SelectedMapThemeId == canonicalThemeId)
+        {
+            return;
+        }
+
+        SelectedMapThemeId = canonicalThemeId;
+        IsReady = false;
+        TryRememberMapThemeForSession();
+    }
+
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    private void RPC_SetDemonSelection(int requestedDemonHash)
+    {
+        if (!DemonSelectionCatalog.IsAllowedHash(requestedDemonHash)
+            || NetworkManager.Instance == null
+            || Runner == null
+            || Object == null
+            || !Object.IsValid)
+        {
+            IsReady = false;
+            return;
+        }
+
+        int canonicalHash = DemonSelectionCatalog.NormalizeOrDefaultHash(requestedDemonHash);
+        bool changed = !NetworkManager.Instance.TryGetLobbyDemonSelectionForGameplay(
+                Runner,
+                Object.InputAuthority,
+                out int previousHash)
+            || previousHash != canonicalHash;
+        if (!NetworkManager.Instance.TrySetLobbyDemonSelection(this, canonicalHash, out canonicalHash))
+        {
+            IsReady = false;
+            return;
+        }
+
+        if (changed)
+        {
+            IsReady = false;
+        }
+
+        RPC_ConfirmDemonSelection(canonicalHash);
+    }
+
+    [Rpc(RpcSources.StateAuthority, RpcTargets.InputAuthority)]
+    private void RPC_ConfirmDemonSelection(int canonicalDemonHash)
+    {
+        if (!HasInputAuthority || !DemonSelectionCatalog.IsAllowedHash(canonicalDemonHash))
+        {
+            return;
+        }
+
+        _localSelectedDemonKeyHash = DemonSelectionCatalog.NormalizeOrDefaultHash(canonicalDemonHash);
+        JoinLobbyUI.Instance?.UpdatePlayerList();
+    }
+
+    private void TrySyncOwnerPrivateDemonSelection()
+    {
+        if (!HasInputAuthority
+            || Runner == null
+            || !Runner.IsRunning
+            || Time.unscaledTime < _nextLobbyDemonSyncTime)
+        {
+            return;
+        }
+
+        if (!DemonSelectionCatalog.IsAllowedHash(_localSelectedDemonKeyHash))
+        {
+            _localSelectedDemonKeyHash = DemonSelectionCatalog.NormalizeOrDefaultHash(
+                PlayerPrefs.GetInt(DemonSelectionCatalog.PlayerPrefsKey, DemonSelectionCatalog.DefaultKeyHash));
+        }
+
+        // Periodic owner resubmission repairs the authority-only cache after lobby host migration
+        // without ever exposing the choice to other clients.
+        _nextLobbyDemonSyncTime = Time.unscaledTime + 2f;
+        RPC_SetDemonSelection(_localSelectedDemonKeyHash);
+    }
+
+    private void TryRememberKingSelectionForSession()
+    {
+        int selectionHash = SelectedKingUnitKeyHash;
+        if (_lastCachedKingSelectionHash != selectionHash)
+        {
+            _lastCachedKingSelectionHash = selectionHash;
+            _cachedKingSelectionWithDurableIdentity = false;
+        }
+
+        if (_cachedKingSelectionWithDurableIdentity
+            || !KingSelectionCatalog.IsAllowedHash(selectionHash)
+            || NetworkManager.Instance == null)
+        {
+            return;
+        }
+
+        _cachedKingSelectionWithDurableIdentity =
+            NetworkManager.Instance.RememberLobbyKingSelection(this);
+    }
+
+    private void TryRememberMapThemeForSession()
+    {
+        int themeId = SelectedMapThemeId;
+        if (_lastCachedMapThemeId != themeId)
+        {
+            _lastCachedMapThemeId = themeId;
+            _cachedMapThemeWithDurableIdentity = false;
+        }
+
+        if (_cachedMapThemeWithDurableIdentity
+            || !MapThemeCatalog.IsAllowed(themeId)
+            || NetworkManager.Instance == null)
+        {
+            return;
+        }
+
+        _cachedMapThemeWithDurableIdentity =
+            NetworkManager.Instance.RememberLobbyMapTheme(this);
     }
 }

@@ -10,8 +10,8 @@ public partial class CombatScheduler : NetworkBehaviour
     [SerializeField] private int hitBufferSize = 256;
     [SerializeField] private float defaultProjectileSpeed = 20f;
 
-    private const int PendingFireCapacity = 64;
-    private const int PendingHitCapacity = 96;
+    private const int PendingFireCapacity = CombatSchedulerCapacityConfig.PendingFireCapacity;
+    private const int PendingHitCapacity = CombatSchedulerCapacityConfig.PendingHitCapacity;
     private const int ProjectileEventBufferCapacity = 0;
     private const int FixedPointScale = 1000;
 
@@ -30,6 +30,8 @@ public partial class CombatScheduler : NetworkBehaviour
     {
         public NetworkObject Attacker;
         public NetworkObject Target;
+        public NetworkId AttackerId;
+        public NetworkId TargetId;
         public Vector3 FirePosition;
         public float Damage;
         public DamageType DamageType;
@@ -109,6 +111,7 @@ public partial class CombatScheduler : NetworkBehaviour
         public bool AllowFullCatchUp;
         public Vector3 FirePositionOverride;
         public Vector3 TargetPositionOverride;
+        public ProjectileVfxConfig VfxConfigOverride;
     }
 
     public override void Spawned()
@@ -122,8 +125,7 @@ public partial class CombatScheduler : NetworkBehaviour
             return;
         }
 
-        InitializeHitBuckets();
-        RebuildPendingBucketsFromNetworkSnapshots();
+        RebuildLocalSchedulerStateFromNetworkEntries();
         RebuildZonePayloadsFromNetworkEntries();
         RebuildStatBuffCachesFromNetworkEntries();
         RebuildStatusCachesFromNetworkEntries();
@@ -148,7 +150,7 @@ public partial class CombatScheduler : NetworkBehaviour
         if (newState != GameManagers.GameState.Battle1 &&
             newState != GameManagers.GameState.Battle2)
         {
-            ClearAllScheduledZones($"stateChanged:{newState}");
+            CloseAllScheduledZonesForPhaseTransition($"stateChanged:{newState}");
         }
     }
 
@@ -165,8 +167,7 @@ public partial class CombatScheduler : NetworkBehaviour
 
         bool changed = Instance != scheduler;
         Instance = scheduler;
-        scheduler.InitializeHitBuckets();
-        scheduler.RebuildPendingBucketsFromNetworkSnapshots();
+        scheduler.RebuildLocalSchedulerStateFromNetworkEntries();
         scheduler.RebuildZonePayloadsFromNetworkEntries();
         scheduler.RebuildStatBuffCachesFromNetworkEntries();
         scheduler.RebuildStatusCachesFromNetworkEntries();
@@ -201,29 +202,80 @@ public partial class CombatScheduler : NetworkBehaviour
             return;
         }
 #endif
+        if (HostMigrationHandler.Instance != null && HostMigrationHandler.Instance.IsMigrating)
+        {
+            // Materialized source debts live in Networked state. Do not consume or reconcile
+            // them until player/field objects (including their distributed zone tokens) finish
+            // rebinding on the promoted authority.
+            return;
+        }
 
+        if (!PrepareLocalSchedulerStateForAuthorityTick())
+        {
+            return;
+        }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        long performanceStart = MPTestPerformanceRecorder.StartTimestamp();
+#endif
         ProcessDueStatBuffs();
         ProcessDueStatusEffects();
         ProcessDueZones();
         ProcessDueBasicAttackVfx();
-        RebuildPendingBucketsFromNetworkSnapshots();
         ProcessDueFires();
         ProcessDueHits();
-        RefreshNetworkBudgetPeaks();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        MPTestPerformanceRecorder.RecordDuration("combat_scheduler_tick", performanceStart);
+#endif
     }
 
-    public void ScheduleHit(NetworkObject attacker, NetworkObject target, Vector3 firePos, float damage,
+    public bool HasPendingFireCapacity(int requiredSlots = 1)
+    {
+        return requiredSlots <= 0 ||
+               EnsureLocalSchedulerState() &&
+               PendingFireCapacity - _pendingFireSlotIndex.ActiveCount >= requiredSlots;
+    }
+
+    public bool HasPendingHitCapacity(int requiredSlots = 1)
+    {
+        return requiredSlots <= 0 ||
+               EnsureLocalSchedulerState() &&
+               PendingHitCapacity - _pendingHitSlotIndex.ActiveCount >= requiredSlots;
+    }
+
+    public bool CanScheduleImmediateHitBatch(IReadOnlyList<NetworkObject> targets)
+    {
+        if (Object == null || !Object.HasStateAuthority || Runner == null ||
+            _fireBuckets == null || _hitBuckets == null || targets == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < targets.Count; i++)
+        {
+            NetworkObject target = targets[i];
+            if (target == null || !target.IsValid || target.Runner != Runner)
+            {
+                return false;
+            }
+        }
+
+        return HasPendingHitCapacity(targets.Count);
+    }
+
+    public bool ScheduleHit(NetworkObject attacker, NetworkObject target, Vector3 firePos, float damage,
         DamageType damageType, bool isRanged, bool emitVfx, float projectileSpeedOverride = 0f, float splashRadius = 0f,
         LayerMask enemyLayerMask = default, float fireDelaySeconds = 0f)
     {
-        if (!Object.HasStateAuthority || Runner == null || target == null || _fireBuckets == null || _hitBuckets == null)
+        if (!Object.HasStateAuthority || Runner == null || target == null || !target.IsValid ||
+            target.Runner != Runner || _fireBuckets == null || _hitBuckets == null)
         {
-            return;
+            return false;
         }
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         if (MPTestCommandLine.IsGameFlowFrozen)
         {
-            return;
+            return false;
         }
 #endif
 
@@ -231,7 +283,7 @@ public partial class CombatScheduler : NetworkBehaviour
         int fireTick = Runner.Tick + fireDelayTicks;
         if (fireDelayTicks > 0)
         {
-            EnqueuePendingFire(new PendingFire
+            return EnqueuePendingFire(new PendingFire
             {
                 Attacker = attacker,
                 Target = target,
@@ -245,11 +297,53 @@ public partial class CombatScheduler : NetworkBehaviour
                 SplashRadius = splashRadius,
                 EnemyLayerMask = enemyLayerMask
             });
-            return;
         }
 
-        ScheduleResolvedHit(attacker, target, firePos, damage, damageType, isRanged, emitVfx,
+        return ScheduleResolvedHit(attacker, target, firePos, damage, damageType, isRanged, emitVfx,
             projectileSpeedOverride, splashRadius, enemyLayerMask, fireTick);
+    }
+
+    /// <summary>
+    /// Enqueues one authority-owned direct hit at an already-resolved simulation tick. This is used
+    /// by presentation-only attackers such as the King, whose visual fire point is not a component
+    /// on the PlayerManager NetworkObject and therefore cannot be reconstructed by ScheduleHit.
+    /// </summary>
+    public bool TryScheduleDirectHitAtTick(
+        NetworkObject target,
+        Vector3 capturedImpactPosition,
+        float damage,
+        DamageType damageType,
+        int hitTick)
+    {
+        if (Object == null
+            || !Object.HasStateAuthority
+            || Runner == null
+            || target == null
+            || !target.IsValid
+            || target.Runner != Runner
+            || damage <= 0f
+            || _hitBuckets == null)
+        {
+            return false;
+        }
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return false;
+        }
+#endif
+
+        var pendingHit = new PendingHit
+        {
+            TargetId = target.Id,
+            ImpactPosition = capturedImpactPosition,
+            Damage = damage,
+            DamageType = damageType,
+            HitTick = Mathf.Max(Runner.Tick + 1, hitTick),
+            SplashRadius = 0f,
+            EnemyLayerMask = default
+        };
+        return EnqueuePendingHit(pendingHit);
     }
 
     public void ScheduleBasicAttackVfx(NetworkObject attacker, NetworkObject target, float delaySeconds = 0f)
@@ -286,6 +380,16 @@ public partial class CombatScheduler : NetworkBehaviour
 
     private void ProcessDueFires()
     {
+        if (_pendingFireNextTickDirty)
+        {
+            RecalculateNextPendingFireTick();
+        }
+
+        if (Runner.Tick < _nextPendingFireTick)
+        {
+            return;
+        }
+
         int bucketIndex = Runner.Tick % _fireBuckets.Length;
         var bucket = _fireBuckets[bucketIndex];
         for (int i = bucket.Count - 1; i >= 0; i--)
@@ -296,11 +400,20 @@ public partial class CombatScheduler : NetworkBehaviour
                 continue;
             }
 
+            if (fire.Target == null && fire.TargetId.Raw != 0)
+            {
+                fire.Target = ResolveNetworkObject(fire.TargetId);
+            }
+            if (fire.Attacker == null && fire.AttackerId.Raw != 0)
+            {
+                fire.Attacker = ResolveNetworkObject(fire.AttackerId);
+            }
+
+            bool retryForHitCapacity = false;
             if (IsPendingFireValid(fire))
             {
-                int fireTick = Mathf.Max(fire.FireTick, Runner.Tick);
                 Vector3 firePosition = ResolveCurrentFirePosition(fire.Attacker, fire.FirePosition);
-                ScheduleResolvedHit(
+                retryForHitCapacity = !ScheduleResolvedHit(
                     fire.Attacker,
                     fire.Target,
                     firePosition,
@@ -311,12 +424,25 @@ public partial class CombatScheduler : NetworkBehaviour
                     fire.ProjectileSpeedOverride,
                     fire.SplashRadius,
                     fire.EnemyLayerMask,
-                    fireTick);
+                    fire.FireTick);
+            }
+
+            bucket.RemoveAt(i);
+            if (retryForHitCapacity)
+            {
+                // Keep the replicated fire snapshot (and its original intended fire tick) intact.
+                // Only the local processing bucket moves forward one tick. A promoted host rebuilds
+                // the same overdue fire from the snapshot and continues the retry without loss.
+                int retryBucketIndex = PositiveModulo(Runner.Tick + 1, _fireBuckets.Length);
+                InsertPendingFireInStableOrder(_fireBuckets[retryBucketIndex], fire);
+                RecordCapacityRecovery(CapacityRecoveryKind.PendingHitBackpressure);
+                continue;
             }
 
             ClearPendingFireSnapshot(fire.SnapshotSequence);
-            bucket.RemoveAt(i);
         }
+
+        RecalculateNextPendingFireTick();
     }
 
     private void ProcessDueBasicAttackVfx()
@@ -342,6 +468,16 @@ public partial class CombatScheduler : NetworkBehaviour
 
     private void ProcessDueHits()
     {
+        if (_pendingHitNextTickDirty)
+        {
+            RecalculateNextPendingHitTick();
+        }
+
+        if (Runner.Tick < _nextPendingHitTick)
+        {
+            return;
+        }
+
         int bucketIndex = Runner.Tick % _hitBuckets.Length;
         var bucket = _hitBuckets[bucketIndex];
         for (int i = bucket.Count - 1; i >= 0; i--)
@@ -356,15 +492,51 @@ public partial class CombatScheduler : NetworkBehaviour
             ClearPendingHitSnapshot(hit.SnapshotSequence);
             bucket.RemoveAt(i);
         }
+
+        RecalculateNextPendingHitTick();
     }
 
-    private void ScheduleResolvedHit(NetworkObject attacker, NetworkObject target, Vector3 firePos, float damage,
+    private void RecalculateNextPendingFireTick()
+    {
+        int next = NoScheduledWorkTick;
+        for (int i = 0; i < _pendingFireSlotIndex.ActiveCount; i++)
+        {
+            int slot = _pendingFireSlotIndex.GetActiveSlot(i);
+            PendingFireSnapshot snapshot = PendingFireSnapshots[slot];
+            if (snapshot.Sequence > 0)
+            {
+                next = System.Math.Min(next, snapshot.FireTick);
+            }
+        }
+
+        _nextPendingFireTick = next;
+        _pendingFireNextTickDirty = false;
+    }
+
+    private void RecalculateNextPendingHitTick()
+    {
+        int next = NoScheduledWorkTick;
+        for (int i = 0; i < _pendingHitSlotIndex.ActiveCount; i++)
+        {
+            int slot = _pendingHitSlotIndex.GetActiveSlot(i);
+            PendingHitSnapshot snapshot = PendingHitSnapshots[slot];
+            if (snapshot.Sequence > 0)
+            {
+                next = System.Math.Min(next, snapshot.HitTick);
+            }
+        }
+
+        _nextPendingHitTick = next;
+        _pendingHitNextTickDirty = false;
+    }
+
+    private bool ScheduleResolvedHit(NetworkObject attacker, NetworkObject target, Vector3 firePos, float damage,
         DamageType damageType, bool isRanged, bool emitVfx, float projectileSpeedOverride, float splashRadius,
         LayerMask enemyLayerMask, int fireTick)
     {
-        if (Runner == null || target == null || _hitBuckets == null)
+        if (Runner == null || target == null || !target.IsValid || target.Runner != Runner || _hitBuckets == null)
         {
-            return;
+            return false;
         }
 
         int hitTick = fireTick;
@@ -400,13 +572,15 @@ public partial class CombatScheduler : NetworkBehaviour
 
         if (!EnqueuePendingHit(pendingHit))
         {
-            return;
+            return false;
         }
 
         if (emitVfx)
         {
             PublishProjectileVfxEvent(attacker, target, fireTick, hitTick);
         }
+
+        return true;
     }
 
     private void ApplyHit(PendingHit hit)
@@ -439,21 +613,60 @@ public partial class CombatScheduler : NetworkBehaviour
     private void InitializeHitBuckets()
     {
         int size = Mathf.Max(1, hitBufferSize);
-        _fireBuckets = new List<PendingFire>[size];
-        _hitBuckets = new List<PendingHit>[size];
-        _basicAttackVfxBuckets = new List<PendingBasicAttackVfx>[size];
+        bool allocate = _fireBuckets == null ||
+                        _hitBuckets == null ||
+                        _basicAttackVfxBuckets == null ||
+                        _fireBuckets.Length != size ||
+                        _hitBuckets.Length != size ||
+                        _basicAttackVfxBuckets.Length != size;
+        if (allocate)
+        {
+            _fireBuckets = new List<PendingFire>[size];
+            _hitBuckets = new List<PendingHit>[size];
+            _basicAttackVfxBuckets = new List<PendingBasicAttackVfx>[size];
+        }
         _localPendingFireSequences.Clear();
         _localPendingHitSequences.Clear();
         for (int i = 0; i < size; i++)
         {
-            _fireBuckets[i] = new List<PendingFire>();
-            _hitBuckets[i] = new List<PendingHit>();
-            _basicAttackVfxBuckets[i] = new List<PendingBasicAttackVfx>();
+            if (_fireBuckets[i] == null)
+            {
+                _fireBuckets[i] = new List<PendingFire>();
+            }
+            else
+            {
+                _fireBuckets[i].Clear();
+            }
+
+            if (_hitBuckets[i] == null)
+            {
+                _hitBuckets[i] = new List<PendingHit>();
+            }
+            else
+            {
+                _hitBuckets[i].Clear();
+            }
+
+            if (_basicAttackVfxBuckets[i] == null)
+            {
+                _basicAttackVfxBuckets[i] = new List<PendingBasicAttackVfx>();
+            }
+            else
+            {
+                _basicAttackVfxBuckets[i].Clear();
+            }
         }
     }
 
     private bool EnqueuePendingFire(PendingFire fire)
     {
+        if (!EnsureLocalSchedulerState())
+        {
+            return false;
+        }
+
+        fire.AttackerId = GetNetworkId(fire.Attacker);
+        fire.TargetId = GetNetworkId(fire.Target);
         fire.SnapshotSequence = WritePendingFireSnapshot(fire);
         if (fire.SnapshotSequence <= 0)
         {
@@ -467,8 +680,12 @@ public partial class CombatScheduler : NetworkBehaviour
 
     private void AddPendingFireToBucket(PendingFire fire)
     {
-        int bucketIndex = fire.FireTick % _fireBuckets.Length;
-        _fireBuckets[bucketIndex].Add(fire);
+        // A promoted host can inherit an overdue fire that was waiting for hit capacity.
+        // Process it on the current tick instead of waiting for the timing wheel to wrap,
+        // while preserving FireTick in the replicated snapshot for deterministic ordering.
+        int processingTick = Runner != null ? Mathf.Max(fire.FireTick, Runner.Tick) : fire.FireTick;
+        int bucketIndex = PositiveModulo(processingTick, _fireBuckets.Length);
+        InsertPendingFireInStableOrder(_fireBuckets[bucketIndex], fire);
         if (fire.SnapshotSequence > 0)
         {
             _localPendingFireSequences.Add(fire.SnapshotSequence);
@@ -477,6 +694,11 @@ public partial class CombatScheduler : NetworkBehaviour
 
     private bool EnqueuePendingHit(PendingHit hit)
     {
+        if (!EnsureLocalSchedulerState())
+        {
+            return false;
+        }
+
         hit.SnapshotSequence = WritePendingHitSnapshot(hit);
         if (hit.SnapshotSequence <= 0)
         {
@@ -490,8 +712,9 @@ public partial class CombatScheduler : NetworkBehaviour
 
     private void AddPendingHitToBucket(PendingHit hit)
     {
-        int bucketIndex = hit.HitTick % _hitBuckets.Length;
-        _hitBuckets[bucketIndex].Add(hit);
+        int processingTick = Runner != null ? Mathf.Max(hit.HitTick, Runner.Tick) : hit.HitTick;
+        int bucketIndex = PositiveModulo(processingTick, _hitBuckets.Length);
+        InsertPendingHitInStableOrder(_hitBuckets[bucketIndex], hit);
         if (hit.SnapshotSequence > 0)
         {
             _localPendingHitSequences.Add(hit.SnapshotSequence);
@@ -522,42 +745,51 @@ public partial class CombatScheduler : NetworkBehaviour
             return;
         }
 
-        int nowTick = Runner.Tick;
+        _pendingFireSlotIndex.BeginRebuild();
+        _pendingHitSlotIndex.BeginRebuild();
+        _pendingFireSlotBySequence.Clear();
+        _pendingHitSlotBySequence.Clear();
+        _nextPendingFireTick = NoScheduledWorkTick;
+        _nextPendingHitTick = NoScheduledWorkTick;
+        _pendingFireNextTickDirty = false;
+        _pendingHitNextTickDirty = false;
+
         for (int i = 0; i < PendingFireCapacity; i++)
         {
             PendingFireSnapshot snapshot = PendingFireSnapshots[i];
-            if (snapshot.Sequence <= 0 || _localPendingFireSequences.Contains(snapshot.Sequence))
+            if (snapshot.Sequence <= 0)
             {
+                _pendingFireSlotIndex.AddFreeFromOrderedRebuild(i);
                 continue;
             }
 
-            NetworkObject target = ResolveNetworkObject(snapshot.TargetId);
-            if (target == null)
-            {
-                if (Object != null && Object.HasStateAuthority && snapshot.FireTick <= nowTick)
-                {
-                    ClearPendingFireSnapshot(snapshot.Sequence);
-                }
-
-                continue;
-            }
-
-            PendingFire fire = ReadPendingFireSnapshot(snapshot, nowTick);
+            PendingFire fire = ReadPendingFireSnapshot(snapshot);
             fire.Attacker = ResolveNetworkObject(snapshot.AttackerId);
-            fire.Target = target;
+            fire.Target = ResolveNetworkObject(snapshot.TargetId);
+            _pendingFireSlotIndex.AddActiveFromOrderedRebuild(i);
+            _pendingFireSlotBySequence[snapshot.Sequence] = i;
+            _nextPendingFireTick = System.Math.Min(_nextPendingFireTick, fire.FireTick);
             AddPendingFireToBucket(fire);
         }
 
         for (int i = 0; i < PendingHitCapacity; i++)
         {
             PendingHitSnapshot snapshot = PendingHitSnapshots[i];
-            if (snapshot.Sequence <= 0 || _localPendingHitSequences.Contains(snapshot.Sequence))
+            if (snapshot.Sequence <= 0)
             {
+                _pendingHitSlotIndex.AddFreeFromOrderedRebuild(i);
                 continue;
             }
 
-            AddPendingHitToBucket(ReadPendingHitSnapshot(snapshot, nowTick));
+            PendingHit hit = ReadPendingHitSnapshot(snapshot);
+            _pendingHitSlotIndex.AddActiveFromOrderedRebuild(i);
+            _pendingHitSlotBySequence[snapshot.Sequence] = i;
+            _nextPendingHitTick = System.Math.Min(_nextPendingHitTick, hit.HitTick);
+            AddPendingHitToBucket(hit);
         }
+
+        _currentPendingFireActive = _pendingFireSlotIndex.ActiveCount;
+        _currentPendingHitActive = _pendingHitSlotIndex.ActiveCount;
     }
 
     private static bool IsPendingFireValid(PendingFire fire)
@@ -657,8 +889,7 @@ public partial class CombatScheduler : NetworkBehaviour
         int index = FindEmptyPendingFireSnapshotSlot();
         if (index < 0)
         {
-            RecordNetworkBudgetDrop(NetworkBudgetDropKind.PendingFire);
-            Debug.LogWarning($"[CombatScheduler] Pending fire capacity exceeded. capacity={PendingFireCapacity}, sequence={nextSeq}");
+            RecordCapacityRecovery(CapacityRecoveryKind.PendingFireBackpressure);
             return 0;
         }
 
@@ -667,8 +898,8 @@ public partial class CombatScheduler : NetworkBehaviour
         {
             Sequence = nextSeq,
             FireTick = fire.FireTick,
-            AttackerId = GetNetworkId(fire.Attacker),
-            TargetId = GetNetworkId(fire.Target),
+            AttackerId = fire.AttackerId,
+            TargetId = fire.TargetId,
             FirePositionX = PackFloat(fire.FirePosition.x),
             FirePositionY = PackFloat(fire.FirePosition.y),
             FirePositionZ = PackFloat(fire.FirePosition.z),
@@ -679,6 +910,12 @@ public partial class CombatScheduler : NetworkBehaviour
             EnemyLayerMask = fire.EnemyLayerMask.value
         });
 
+        _pendingFireSlotIndex.CommitRentedSlot(index);
+        _pendingFireSlotBySequence[nextSeq] = index;
+        _currentPendingFireActive = _pendingFireSlotIndex.ActiveCount;
+        _nextPendingFireTick = System.Math.Min(_nextPendingFireTick, fire.FireTick);
+        _maxPendingFireActive = System.Math.Max(_maxPendingFireActive, _currentPendingFireActive);
+
         return nextSeq;
     }
 
@@ -688,8 +925,7 @@ public partial class CombatScheduler : NetworkBehaviour
         int index = FindEmptyPendingHitSnapshotSlot();
         if (index < 0)
         {
-            RecordNetworkBudgetDrop(NetworkBudgetDropKind.PendingHit);
-            Debug.LogWarning($"[CombatScheduler] Pending hit capacity exceeded. capacity={PendingHitCapacity}, sequence={nextSeq}");
+            RecordCapacityRecovery(CapacityRecoveryKind.PendingHitBackpressure);
             return 0;
         }
 
@@ -708,7 +944,53 @@ public partial class CombatScheduler : NetworkBehaviour
             EnemyLayerMask = hit.EnemyLayerMask.value
         });
 
+        _pendingHitSlotIndex.CommitRentedSlot(index);
+        _pendingHitSlotBySequence[nextSeq] = index;
+        _currentPendingHitActive = _pendingHitSlotIndex.ActiveCount;
+        _nextPendingHitTick = System.Math.Min(_nextPendingHitTick, hit.HitTick);
+        _maxPendingHitActive = System.Math.Max(_maxPendingHitActive, _currentPendingHitActive);
+
         return nextSeq;
+    }
+
+    private static int PositiveModulo(int value, int modulus)
+    {
+        int result = value % modulus;
+        return result < 0 ? result + modulus : result;
+    }
+
+    private static void InsertPendingFireInStableOrder(List<PendingFire> bucket, PendingFire fire)
+    {
+        // ProcessDueFires walks the bucket backwards. Store latest/highest-sequence first so
+        // the reverse walk always admits earliest due tick, then lowest sequence, first.
+        int insertAt = 0;
+        while (insertAt < bucket.Count &&
+               !CombatSchedulerCapacityConfig.IsEarlier(
+                   bucket[insertAt].FireTick,
+                   bucket[insertAt].SnapshotSequence,
+                   fire.FireTick,
+                   fire.SnapshotSequence))
+        {
+            insertAt++;
+        }
+
+        bucket.Insert(insertAt, fire);
+    }
+
+    private static void InsertPendingHitInStableOrder(List<PendingHit> bucket, PendingHit hit)
+    {
+        int insertAt = 0;
+        while (insertAt < bucket.Count &&
+               !CombatSchedulerCapacityConfig.IsEarlier(
+                   bucket[insertAt].HitTick,
+                   bucket[insertAt].SnapshotSequence,
+                   hit.HitTick,
+                   hit.SnapshotSequence))
+        {
+            insertAt++;
+        }
+
+        bucket.Insert(insertAt, hit);
     }
 
     private void ClearPendingFireSnapshot(int sequence)
@@ -721,9 +1003,22 @@ public partial class CombatScheduler : NetworkBehaviour
         int index = FindPendingFireSnapshotSlot(sequence);
         if (index >= 0)
         {
-            PendingFireSnapshots.Set(index, default);
+            PendingFireSnapshot snapshot = PendingFireSnapshots[index];
+            if (snapshot.Sequence == sequence)
+            {
+                PendingFireSnapshots.Set(index, default);
+                if (_pendingFireSlotIndex.ReleaseActiveSlot(index))
+                {
+                    _currentPendingFireActive = _pendingFireSlotIndex.ActiveCount;
+                    if (snapshot.FireTick <= _nextPendingFireTick)
+                    {
+                        _pendingFireNextTickDirty = true;
+                    }
+                }
+            }
         }
 
+        _pendingFireSlotBySequence.Remove(sequence);
         _localPendingFireSequences.Remove(sequence);
     }
 
@@ -737,44 +1032,60 @@ public partial class CombatScheduler : NetworkBehaviour
         int index = FindPendingHitSnapshotSlot(sequence);
         if (index >= 0)
         {
-            PendingHitSnapshots.Set(index, default);
+            PendingHitSnapshot snapshot = PendingHitSnapshots[index];
+            if (snapshot.Sequence == sequence)
+            {
+                PendingHitSnapshots.Set(index, default);
+                if (_pendingHitSlotIndex.ReleaseActiveSlot(index))
+                {
+                    _currentPendingHitActive = _pendingHitSlotIndex.ActiveCount;
+                    if (snapshot.HitTick <= _nextPendingHitTick)
+                    {
+                        _pendingHitNextTickDirty = true;
+                    }
+                }
+            }
         }
 
+        _pendingHitSlotBySequence.Remove(sequence);
         _localPendingHitSequences.Remove(sequence);
     }
 
     private int FindEmptyPendingFireSnapshotSlot()
     {
-        for (int i = 0; i < PendingFireCapacity; i++)
+        if (!EnsureLocalSchedulerState())
         {
-            if (PendingFireSnapshots[i].Sequence <= 0)
-            {
-                return i;
-            }
+            return -1;
         }
 
-        return -1;
+        return _pendingFireSlotIndex.TryRentLowest(out int slot) ? slot : -1;
     }
 
     private int FindEmptyPendingHitSnapshotSlot()
     {
-        for (int i = 0; i < PendingHitCapacity; i++)
+        if (!EnsureLocalSchedulerState())
         {
-            if (PendingHitSnapshots[i].Sequence <= 0)
-            {
-                return i;
-            }
+            return -1;
         }
 
-        return -1;
+        return _pendingHitSlotIndex.TryRentLowest(out int slot) ? slot : -1;
     }
 
     private int FindPendingFireSnapshotSlot(int sequence)
     {
+        if (_pendingFireSlotBySequence.TryGetValue(sequence, out int indexedSlot) &&
+            indexedSlot >= 0 &&
+            indexedSlot < PendingFireCapacity &&
+            PendingFireSnapshots[indexedSlot].Sequence == sequence)
+        {
+            return indexedSlot;
+        }
+
         for (int i = 0; i < PendingFireCapacity; i++)
         {
             if (PendingFireSnapshots[i].Sequence == sequence)
             {
+                _pendingFireSlotBySequence[sequence] = i;
                 return i;
             }
         }
@@ -784,10 +1095,19 @@ public partial class CombatScheduler : NetworkBehaviour
 
     private int FindPendingHitSnapshotSlot(int sequence)
     {
+        if (_pendingHitSlotBySequence.TryGetValue(sequence, out int indexedSlot) &&
+            indexedSlot >= 0 &&
+            indexedSlot < PendingHitCapacity &&
+            PendingHitSnapshots[indexedSlot].Sequence == sequence)
+        {
+            return indexedSlot;
+        }
+
         for (int i = 0; i < PendingHitCapacity; i++)
         {
             if (PendingHitSnapshots[i].Sequence == sequence)
             {
+                _pendingHitSlotBySequence[sequence] = i;
                 return i;
             }
         }
@@ -795,24 +1115,26 @@ public partial class CombatScheduler : NetworkBehaviour
         return -1;
     }
 
-    private PendingFire ReadPendingFireSnapshot(PendingFireSnapshot snapshot, int nowTick)
+    private PendingFire ReadPendingFireSnapshot(PendingFireSnapshot snapshot)
     {
         return new PendingFire
         {
+            AttackerId = snapshot.AttackerId,
+            TargetId = snapshot.TargetId,
             FirePosition = UnpackVector(snapshot.FirePositionX, snapshot.FirePositionY, snapshot.FirePositionZ),
             Damage = UnpackFloat(snapshot.Damage),
             DamageType = (DamageType)snapshot.DamageType,
             IsRanged = snapshot.IsRanged != 0,
             EmitVfx = snapshot.EmitVfx != 0,
             ProjectileSpeedOverride = UnpackFloat(snapshot.ProjectileSpeedOverride),
-            FireTick = Mathf.Max(snapshot.FireTick, nowTick),
+            FireTick = snapshot.FireTick,
             SplashRadius = UnpackFloat(snapshot.SplashRadius),
             EnemyLayerMask = new LayerMask { value = snapshot.EnemyLayerMask },
             SnapshotSequence = snapshot.Sequence
         };
     }
 
-    private PendingHit ReadPendingHitSnapshot(PendingHitSnapshot snapshot, int nowTick)
+    private PendingHit ReadPendingHitSnapshot(PendingHitSnapshot snapshot)
     {
         return new PendingHit
         {
@@ -820,7 +1142,7 @@ public partial class CombatScheduler : NetworkBehaviour
             ImpactPosition = UnpackVector(snapshot.ImpactPositionX, snapshot.ImpactPositionY, snapshot.ImpactPositionZ),
             Damage = UnpackFloat(snapshot.Damage),
             DamageType = (DamageType)snapshot.DamageType,
-            HitTick = Mathf.Max(snapshot.HitTick, nowTick),
+            HitTick = snapshot.HitTick,
             SplashRadius = UnpackFloat(snapshot.SplashRadius),
             EnemyLayerMask = new LayerMask { value = snapshot.EnemyLayerMask },
             SnapshotSequence = snapshot.Sequence

@@ -4,13 +4,13 @@ Status: active
 Pinned: true
 Category: host-migration, security
 Created: 2026-05-05
-Last used: 2026-05-31
-Last verified: 2026-05-31
-Use count: 20
+Last used: 2026-07-14
+Last verified: 2026-07-14
+Use count: 34
 Review after: 2026-08-03
 Triggers: Phase 16, Host Migration durable E2E, wallHash/gold/shop/player identity drift
 Applies to: `HostMigrationHandler`, `PlayerManager`, `FieldManager`, `run_host_migration_e2e.py`
-Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260530-175140-matrix/20260530-175147-progressed-host-migration-after-battle; artifacts/mp/20260530-185259-matrix/20260530-185304-progressed-host-migration-after-battle; artifacts/mp/20260530-185847-matrix/20260530-185854-progressed-host-migration-after-battle; artifacts/mp/20260530-203814-matrix/20260530-203831-status-effect-host-migration; artifacts/mp/20260530-212402-matrix/20260530-212408-stat-buff-host-migration; artifacts/mp/20260530-220028-matrix/20260530-220041-status-effect-host-migration; artifacts/mp/20260530-220233-matrix/20260530-220238-stat-buff-host-migration; artifacts/mp/20260530-220427-matrix/20260530-220433-zone-host-migration; artifacts/mp/20260531-015519-matrix/20260531-015524-status-effect-host-migration/result.json; artifacts/mp/20260531-053458-matrix/20260531-053503-network-budget-pending-stress/post-battle-host-migration-result.json; artifacts/mp/20260531-061544-matrix/20260531-061549-progressed-host-migration-after-battle/post-battle-host-migration-result.json; artifacts/mp/20260531-063526-matrix/20260531-063541-network-budget-pending-stress/post-battle-host-migration-result.json; artifacts/mp/20260531-064933-matrix/20260531-064942-network-budget-pending-stress/post-battle-host-migration-result.json
+Verified by: see Verification section below; migrated from old Status: verified-local; artifacts/mp/20260530-175140-matrix/20260530-175147-progressed-host-migration-after-battle; artifacts/mp/20260530-185259-matrix/20260530-185304-progressed-host-migration-after-battle; artifacts/mp/20260530-185847-matrix/20260530-185854-progressed-host-migration-after-battle; artifacts/mp/20260530-203814-matrix/20260530-203831-status-effect-host-migration; artifacts/mp/20260530-212402-matrix/20260530-212408-stat-buff-host-migration; artifacts/mp/20260530-220028-matrix/20260530-220041-status-effect-host-migration; artifacts/mp/20260530-220233-matrix/20260530-220238-stat-buff-host-migration; artifacts/mp/20260530-220427-matrix/20260530-220433-zone-host-migration; artifacts/mp/20260531-015519-matrix/20260531-015524-status-effect-host-migration/result.json; artifacts/mp/20260531-053458-matrix/20260531-053503-network-budget-pending-stress/post-battle-host-migration-result.json; artifacts/mp/20260531-061544-matrix/20260531-061549-progressed-host-migration-after-battle/post-battle-host-migration-result.json; artifacts/mp/20260531-063526-matrix/20260531-063541-network-budget-pending-stress/post-battle-host-migration-result.json; artifacts/mp/20260531-064933-matrix/20260531-064942-network-budget-pending-stress/post-battle-host-migration-result.json; artifacts/mp/20260712-112933-progressed-host-migration-e2e; artifacts/mp/20260712-115418-progressed-host-migration-e2e; artifacts/mp/20260714-110454-network-budget-pending-stress/result.json; artifacts/mp/20260714-123331-matrix/20260714-123337-status-effect-host-migration
 Replacement: none
 Archive policy: never auto-archive pinned/protected recipe; review only by explicit human direction
 
@@ -45,3 +45,7 @@ Lifecycle notes:
 - 2026-05-31: verified artifact `artifacts/mp/20260531-061544-matrix/20260531-061549-progressed-host-migration-after-battle/post-battle-host-migration-result.json`
 - 2026-05-31: verified artifact `artifacts/mp/20260531-063526-matrix/20260531-063541-network-budget-pending-stress/post-battle-host-migration-result.json`
 - 2026-05-31: verified artifact `artifacts/mp/20260531-064933-matrix/20260531-064942-network-budget-pending-stress/post-battle-host-migration-result.json`
+- 2026-07-12: verified artifact `artifacts/mp/20260712-112933-progressed-host-migration-e2e`
+- 2026-07-12: verified artifact `artifacts/mp/20260712-115418-progressed-host-migration-e2e`
+- 2026-07-14: verified artifact `artifacts/mp/20260714-110454-network-budget-pending-stress/result.json`
+- 2026-07-14: verified artifact `artifacts/mp/20260714-123331-matrix/20260714-123337-status-effect-host-migration`

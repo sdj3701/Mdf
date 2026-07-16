@@ -12,8 +12,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 12b791e63b46fab4aa386d75dd5b687d, type: 3}
   m_Name: MonData_Boss_Dragon
   m_EditorClassIdentifier: 
+  contentId: monster.boss.dragon
   monsterName: Dragon
   monsterType: 1
+  monsterRank: 2
+  blackMagicCost: 0
   monsterIcon: Spr_Port_BossMonsterSymbol
   monsterPrefab: Boss_Dragon
   attackDamage: 120

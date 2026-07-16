@@ -7,6 +7,7 @@ using System.Net;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Cysharp.Threading.Tasks;
 using Fusion;
 using GameCore.Enums;
 using Newtonsoft.Json;
@@ -20,7 +21,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
     private CancellationTokenSource _cancellation;
     private MPTestCommandLine.Options _options;
     private string _automationToken;
-    private bool _stopping;
+    private int _stopping;
     private bool _acceptingCommands = true;
     private bool _quitRequested;
 
@@ -63,6 +64,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
 
         _options = options;
         _automationToken = options.AutomationToken;
+        _stopping = 0;
         _acceptingCommands = true;
         _quitRequested = false;
         _cancellation = new CancellationTokenSource();
@@ -82,17 +84,17 @@ public sealed class MPTestAutomationServer : MonoBehaviour
 
     public void StopServer()
     {
-        if (_stopping)
+        if (Interlocked.Exchange(ref _stopping, 1) != 0)
         {
             return;
         }
 
-        _stopping = true;
+        CancellationTokenSource cancellation = Interlocked.Exchange(ref _cancellation, null);
+        HttpListener listener = Interlocked.Exchange(ref _listener, null);
         try
         {
-            _cancellation?.Cancel();
-            _listener?.Stop();
-            _listener?.Close();
+            cancellation?.Cancel();
+            listener?.Abort();
         }
         catch (Exception ex)
         {
@@ -100,9 +102,23 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         }
         finally
         {
-            _listener = null;
-            _cancellation = null;
+            try
+            {
+                listener?.Close();
+            }
+            catch (Exception ex)
+            {
+                MPTestLogger.Fail("automation_server", "close_error", ex.GetType().Name);
+            }
+
+            cancellation?.Dispose();
         }
+    }
+
+    public void BeginShutdown()
+    {
+        _quitRequested = true;
+        _acceptingCommands = false;
     }
 
     private void OnDestroy()
@@ -112,12 +128,18 @@ public sealed class MPTestAutomationServer : MonoBehaviour
 
     private async Task ListenLoop(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested && _listener != null && _listener.IsListening)
+        while (!cancellationToken.IsCancellationRequested)
         {
+            HttpListener listener = _listener;
+            if (listener == null || !listener.IsListening)
+            {
+                return;
+            }
+
             HttpListenerContext context = null;
             try
             {
-                context = await _listener.GetContextAsync();
+                context = await listener.GetContextAsync();
                 _ = Task.Run(() => HandleContext(context), cancellationToken);
             }
             catch (ObjectDisposedException)
@@ -208,8 +230,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         {
             return await RequireMethod(request, "POST", () => MainThread(() =>
             {
-                _quitRequested = true;
-                _acceptingCommands = false;
+                BeginShutdown();
                 bool scheduled = MPTestGracefulQuit.RequestQuit(
                     _options,
                     "automation_quit",
@@ -241,6 +262,22 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         {
             JObject body = await ReadBody(request);
             return await RequireMethod(request, "POST", () => MainThread(() => LoadGame(body)));
+        }
+
+        if (path == "/lobby/startGame")
+        {
+            return await RequireMethod(request, "POST", () => MainThread(StartLobbyGame));
+        }
+
+        if (path == "/lobby/ready")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => SetLocalLobbyReady(body)));
+        }
+
+        if (path == "/lobby/status")
+        {
+            return await RequireMethod(request, "GET", () => MainThread(LobbyStatus));
         }
 
         if (path == "/assertState")
@@ -283,6 +320,15 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return await RequireMethod(request, "POST", () => MainThread(() => SetFreezeGameFlow(body)));
         }
 
+        if (path == "/test/pushHostMigrationSnapshot")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(
+                request,
+                "POST",
+                () => MainThread(() => PushHostMigrationSnapshotForTestAsync(body)));
+        }
+
         if (path == "/test/hideTransientUi")
         {
             return await RequireMethod(request, "POST", () => MainThread(HideTransientUiForTest));
@@ -312,6 +358,32 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return await RequireMethod(request, "POST", () => MainThread(() => InjectPendingCombatLoadForTest(body)));
         }
 
+        if (path == "/test/combatCapacityRecovery")
+        {
+            return await RequireMethod(
+                request,
+                "POST",
+                () => MainThread(RunCombatCapacityRecoveryProbeForTest));
+        }
+
+        if (path == "/test/performanceStress")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => ExecutePerformanceStress(body)));
+        }
+
+        if (path == "/test/projectileExpiryStress")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => ExecuteProjectileExpiryStress(body)));
+        }
+
+        if (path == "/test/destroyWallUnderLoad")
+        {
+            JObject body = await ReadBody(request);
+            return await RequireMethod(request, "POST", () => MainThread(() => DestroyWallUnderLoad(body)));
+        }
+
         if (path == "/screenshot")
         {
             return await RequireMethod(request, "GET", () => MainThread(() => CaptureScreenshot(request)));
@@ -323,6 +395,11 @@ public sealed class MPTestAutomationServer : MonoBehaviour
     private Task<AutomationResponse> MainThread(Func<AutomationResponse> action)
     {
         return MPTestMainThreadDispatcher.Run(action);
+    }
+
+    private Task<AutomationResponse> MainThread(Func<Task<AutomationResponse>> action)
+    {
+        return MPTestMainThreadDispatcher.RunAsync(action);
     }
 
     private async Task<AutomationResponse> RequireMethod(HttpListenerRequest request, string method, Func<Task<AutomationResponse>> action)
@@ -407,6 +484,134 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         return AutomationResponse.Ok("scene load requested", new { scene });
     }
 
+    private AutomationResponse StartLobbyGame()
+    {
+        JoinLobbyUI lobby = JoinLobbyUI.Instance != null
+            ? JoinLobbyUI.Instance
+            : UnityEngine.Object.FindObjectOfType<JoinLobbyUI>();
+        if (lobby == null)
+        {
+            return AutomationResponse.Fail(
+                "join_lobby_ui_missing",
+                "JoinLobbyUI is not available; the peer must be in the join lobby scene.");
+        }
+
+        bool accepted = lobby.RequestMatchStart();
+        MPTestLogger.Log(
+            "automation_lobby_start_game",
+            accepted ? "accepted" : "rejected",
+            null,
+            accepted ? "production match loading gate requested" : "match loading gate is already active");
+        if (!accepted)
+        {
+            return AutomationResponse.Fail(
+                "lobby_start_not_accepted",
+                "The production lobby start gate did not accept this request.",
+                new
+                {
+                    inProgress = lobby.IsMatchStartInProgress,
+                    revision = lobby.ActiveMatchLoadRevision
+                });
+        }
+
+        return AutomationResponse.Ok(
+            "lobby match loading gate requested",
+            new
+            {
+                inProgress = lobby.IsMatchStartInProgress,
+                revision = lobby.ActiveMatchLoadRevision,
+                scene = SceneManager.GetActiveScene().name
+            });
+    }
+
+    private AutomationResponse SetLocalLobbyReady(JObject body)
+    {
+        bool desiredReady = GetBool(body, "ready", true);
+        NetworkRunner runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner == null || !runner.IsRunning || SceneManager.GetActiveScene().name != SceneDefine.JoinLobby)
+        {
+            return AutomationResponse.Fail(
+                "join_lobby_runner_unavailable",
+                "Lobby ready can only be requested by a running peer in JoinLobby.");
+        }
+
+        List<NetworkPlayer> localPlayers = FindObjectsOfType<NetworkPlayer>()
+            .Where(player => player != null
+                             && player.Runner == runner
+                             && player.Object != null
+                             && player.Object.IsValid
+                             && player.HasInputAuthority)
+            .ToList();
+        if (localPlayers.Count != 1)
+        {
+            return AutomationResponse.Fail(
+                "local_lobby_player_unavailable",
+                "Exactly one input-authority NetworkPlayer is required.",
+                new { count = localPlayers.Count });
+        }
+
+        NetworkPlayer localPlayer = localPlayers[0];
+        if ((bool)localPlayer.IsReady != desiredReady)
+        {
+            localPlayer.RPC_ToggleReady();
+        }
+
+        MPTestLogger.Log(
+            "automation_lobby_ready",
+            "requested",
+            null,
+            "ready change requested through the production input-authority RPC",
+            new Dictionary<string, object>
+            {
+                { "desiredReady", desiredReady },
+                { "playerRef", localPlayer.Object.InputAuthority }
+            });
+        return AutomationResponse.Ok(
+            "lobby ready requested",
+            new
+            {
+                desiredReady,
+                currentReady = (bool)localPlayer.IsReady,
+                playerRef = localPlayer.Object.InputAuthority.ToString()
+            });
+    }
+
+    private AutomationResponse LobbyStatus()
+    {
+        NetworkRunner runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner == null || !runner.IsRunning)
+        {
+            return AutomationResponse.Fail("lobby_runner_unavailable", "The lobby runner is unavailable.");
+        }
+
+        var activeAuthorities = new HashSet<PlayerRef>(runner.ActivePlayers);
+        List<NetworkPlayer> players = FindObjectsOfType<NetworkPlayer>()
+            .Where(player => player != null
+                             && player.Runner == runner
+                             && player.Object != null
+                             && player.Object.IsValid
+                             && activeAuthorities.Contains(player.Object.InputAuthority))
+            .GroupBy(player => player.Object.InputAuthority)
+            .Select(group => group.First())
+            .OrderBy(player => player.Object.InputAuthority.PlayerId)
+            .ToList();
+        int readyPlayers = players.Count(player => player.IsReady);
+        return AutomationResponse.Ok(
+            "lobby status",
+            new
+            {
+                scene = SceneManager.GetActiveScene().name,
+                activePlayers = activeAuthorities.Count,
+                rosterPlayers = players.Count,
+                readyPlayers,
+                allReady = activeAuthorities.Count > 0
+                           && players.Count == activeAuthorities.Count
+                           && readyPlayers == players.Count,
+                matchLoadRevision = players.Select(player => player.MatchContentLoadRevision).DefaultIfEmpty(0).Max(),
+                matchLoadStates = players.Select(player => player.MatchContentLoadState.ToString()).ToArray()
+            });
+    }
+
     private AutomationResponse AssertState(JObject body)
     {
         int expectedPlayers = GetInt(body, "expectedPlayers", GetInt(body, "expected_players", -1));
@@ -449,9 +654,660 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return ExecuteRemoveWallCommand(body, commandName);
         }
 
-        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop, move_unit, place_wall, and remove_wall are currently supported by the runtime command harness.", new
+        if (string.Equals(commandName, "upgrade_wall", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "UpgradeWall", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteUpgradeWallCommand(body, commandName);
+        }
+
+        if (string.Equals(commandName, "grant_permanent_walls", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteGrantPermanentWallsCommand(body, commandName);
+        }
+
+        if (string.Equals(commandName, "select_king", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "SelectKing", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteSelectKingCommand(body, commandName);
+        }
+
+        if (string.Equals(commandName, "select_demon", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "SelectDemon", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteSelectDemonCommand(body, commandName);
+        }
+
+        if (string.Equals(commandName, "select_map_theme", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "SelectMapTheme", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteSelectMapThemeCommand(body, commandName);
+        }
+
+        if (string.Equals(commandName, "activate_king_skill", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "ActivateKingSkill", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteActivateKingSkillCommand(body, commandName);
+        }
+
+        if (string.Equals(commandName, "activate_demon_skill", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "ActivateDemonSkill", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteActivateDemonSkillCommand(body, commandName);
+        }
+
+        if (string.Equals(commandName, "view_player_field", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(commandName, "ViewPlayerField", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecuteViewPlayerFieldCommand(body, commandName);
+        }
+
+        if (string.Equals(commandName, "prepare_visual_capture", StringComparison.OrdinalIgnoreCase))
+        {
+            return ExecutePrepareVisualCaptureCommand(commandName);
+        }
+
+        return AutomationResponse.Fail("unsupported_command", "Only reroll_shop, move_unit, place_wall, upgrade_wall, remove_wall, grant_permanent_walls, select_king, select_demon, select_map_theme, activate_king_skill, activate_demon_skill, view_player_field, and prepare_visual_capture are currently supported by the runtime command harness.", new
         {
             command = commandName
+        });
+    }
+
+    private AutomationResponse ExecuteSelectKingCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        string requestedKey = GetString(
+            body,
+            "kingKey",
+            GetString(body, "king_key", GetString(body, "unitKey", GetString(body, "unit_key", null))));
+        if (playerId < 0)
+        {
+            return AutomationResponse.Fail(
+                "invalid_player_id",
+                "playerId must be >= 0.",
+                new { command = commandName, playerId, kingKey = requestedKey });
+        }
+
+        KingSelectionCatalog.Entry selectedEntry = KingSelectionCatalog.Entries
+            .FirstOrDefault(entry => string.Equals(
+                entry.KingUnitKey,
+                requestedKey,
+                StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(selectedEntry.KingUnitKey))
+        {
+            return AutomationResponse.Fail(
+                "invalid_king_key",
+                "kingKey must be an allow-listed canonical UnitData_King_* key.",
+                new { command = commandName, playerId, kingKey = requestedKey });
+        }
+
+        NetworkRunner runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner == null || !runner.IsRunning)
+        {
+            return AutomationResponse.Fail(
+                "lobby_runner_unavailable",
+                "The lobby NetworkRunner is unavailable.",
+                new { command = commandName, playerId, kingKey = selectedEntry.KingUnitKey });
+        }
+
+        if (SceneManager.GetActiveScene().name != SceneDefine.JoinLobby)
+        {
+            return AutomationResponse.Fail(
+                "select_king_requires_join_lobby",
+                "select_king is only available in the ready lobby.",
+                new { command = commandName, playerId, kingKey = selectedEntry.KingUnitKey });
+        }
+
+        List<PlayerRef> activePlayers = runner.ActivePlayers
+            .OrderBy(playerRef => playerRef.PlayerId)
+            .ToList();
+        if (playerId >= activePlayers.Count)
+        {
+            return AutomationResponse.Fail(
+                "lobby_player_unavailable",
+                "The requested gameplay player slot is not active in the lobby.",
+                new { command = commandName, playerId, activePlayers = activePlayers.Count });
+        }
+
+        PlayerRef targetAuthority = activePlayers[playerId];
+        List<NetworkPlayer> ownedPlayers = FindObjectsOfType<NetworkPlayer>()
+            .Where(candidate => candidate != null
+                && candidate.Runner == runner
+                && candidate.Object != null
+                && candidate.Object.IsValid
+                && candidate.Object.InputAuthority == targetAuthority
+                && candidate.HasInputAuthority)
+            .ToList();
+        if (ownedPlayers.Count != 1)
+        {
+            return AutomationResponse.Fail(
+                "select_king_requires_owning_peer",
+                "Issue select_king to the peer that owns input authority for the requested player.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    playerRef = targetAuthority.ToString(),
+                    kingKey = selectedEntry.KingUnitKey,
+                    ownedPlayerObjects = ownedPlayers.Count
+                });
+        }
+
+        NetworkPlayer networkPlayer = ownedPlayers[0];
+
+        if (!networkPlayer.RequestKingSelection(selectedEntry.KeyHash))
+        {
+            return AutomationResponse.Fail(
+                "select_king_request_rejected",
+                "The owned NetworkPlayer rejected the king selection request.",
+                new { command = commandName, playerId, kingKey = selectedEntry.KingUnitKey });
+        }
+
+        MPTestLogger.Log("automation_command", "complete", "select_king", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "playerRef", targetAuthority.ToString() },
+            { "kingKey", selectedEntry.KingUnitKey },
+            { "kingKeyHash", selectedEntry.KeyHash }
+        });
+        return AutomationResponse.Ok("king selection requested through owning input authority", new
+        {
+            command = "select_king",
+            playerId,
+            playerRef = targetAuthority.ToString(),
+            kingKey = selectedEntry.KingUnitKey,
+            kingKeyHash = selectedEntry.KeyHash
+        });
+    }
+
+    private AutomationResponse ExecuteSelectDemonCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        string requestedKey = GetString(
+            body,
+            "demonKey",
+            GetString(body, "demon_key", GetString(body, "contentId", GetString(body, "content_id", null))));
+        if (playerId < 0)
+        {
+            return AutomationResponse.Fail(
+                "invalid_player_id",
+                "playerId must be >= 0.",
+                new { command = commandName, playerId, demonKey = requestedKey });
+        }
+
+        DemonSelectionCatalog.Entry selectedEntry = DemonSelectionCatalog.Entries
+            .FirstOrDefault(entry => string.Equals(
+                entry.ContentId,
+                requestedKey,
+                StringComparison.OrdinalIgnoreCase));
+        if (string.IsNullOrEmpty(selectedEntry.ContentId))
+        {
+            return AutomationResponse.Fail(
+                "invalid_demon_key",
+                "demonKey must be an allow-listed demon content id.",
+                new { command = commandName, playerId, demonKey = requestedKey });
+        }
+
+        NetworkRunner runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner == null || !runner.IsRunning || SceneManager.GetActiveScene().name != SceneDefine.JoinLobby)
+        {
+            return AutomationResponse.Fail(
+                "select_demon_requires_join_lobby",
+                "select_demon is only available in the ready lobby.",
+                new { command = commandName, playerId, demonKey = selectedEntry.ContentId });
+        }
+
+        List<PlayerRef> activePlayers = runner.ActivePlayers.OrderBy(playerRef => playerRef.PlayerId).ToList();
+        if (playerId >= activePlayers.Count)
+        {
+            return AutomationResponse.Fail(
+                "lobby_player_unavailable",
+                "The requested gameplay player slot is not active in the lobby.",
+                new { command = commandName, playerId, activePlayers = activePlayers.Count });
+        }
+
+        PlayerRef targetAuthority = activePlayers[playerId];
+        List<NetworkPlayer> ownedPlayers = FindObjectsOfType<NetworkPlayer>()
+            .Where(candidate => candidate != null
+                && candidate.Runner == runner
+                && candidate.Object != null
+                && candidate.Object.IsValid
+                && candidate.Object.InputAuthority == targetAuthority
+                && candidate.HasInputAuthority)
+            .ToList();
+        if (ownedPlayers.Count != 1)
+        {
+            return AutomationResponse.Fail(
+                "select_demon_requires_owning_peer",
+                "Issue select_demon to the peer that owns input authority for the requested player.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    playerRef = targetAuthority.ToString(),
+                    ownedPlayerObjects = ownedPlayers.Count
+                });
+        }
+
+        NetworkPlayer networkPlayer = ownedPlayers[0];
+
+        if (!networkPlayer.RequestDemonSelection(selectedEntry.KeyHash))
+        {
+            return AutomationResponse.Fail(
+                "select_demon_request_rejected",
+                "The owned NetworkPlayer rejected the demon selection request.",
+                new { command = commandName, playerId, demonKey = selectedEntry.ContentId });
+        }
+
+        MPTestLogger.Log("automation_command", "complete", "select_demon", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "playerRef", targetAuthority.ToString() },
+            { "demonKey", selectedEntry.ContentId },
+            { "demonKeyHash", selectedEntry.KeyHash }
+        });
+        return AutomationResponse.Ok("private demon selection requested through owning input authority", new
+        {
+            command = "select_demon",
+            playerId,
+            playerRef = targetAuthority.ToString(),
+            demonKey = selectedEntry.ContentId,
+            demonKeyHash = selectedEntry.KeyHash
+        });
+    }
+
+    private AutomationResponse ExecuteSelectMapThemeCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        int requestedThemeId = GetInt(body, "mapThemeId", GetInt(body, "map_theme_id", 0));
+        string requestedTheme = GetString(
+            body,
+            "mapTheme",
+            GetString(body, "map_theme", GetString(body, "theme", null)));
+        if (playerId < 0)
+        {
+            return AutomationResponse.Fail(
+                "invalid_player_id",
+                "playerId must be >= 0.",
+                new { command = commandName, playerId, mapTheme = requestedTheme, mapThemeId = requestedThemeId });
+        }
+
+        MapThemeCatalog.Entry selectedEntry = MapThemeCatalog.Entries
+            .FirstOrDefault(entry => requestedThemeId == (int)entry.Id
+                || string.Equals(entry.ContentId, requestedTheme, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(entry.Id.ToString(), requestedTheme, StringComparison.OrdinalIgnoreCase));
+        if ((int)selectedEntry.Id <= 0)
+        {
+            return AutomationResponse.Fail(
+                "invalid_map_theme",
+                "mapTheme must be classic, arena, or an allow-listed map.theme.* content id.",
+                new { command = commandName, playerId, mapTheme = requestedTheme, mapThemeId = requestedThemeId });
+        }
+
+        NetworkRunner runner = NetworkManager.Instance != null ? NetworkManager.Instance._runner : null;
+        if (runner == null || !runner.IsRunning)
+        {
+            return AutomationResponse.Fail(
+                "lobby_runner_unavailable",
+                "The lobby NetworkRunner is unavailable.",
+                new { command = commandName, playerId, mapTheme = selectedEntry.ContentId, mapThemeId = (int)selectedEntry.Id });
+        }
+
+        if (SceneManager.GetActiveScene().name != SceneDefine.JoinLobby)
+        {
+            return AutomationResponse.Fail(
+                "select_map_theme_requires_join_lobby",
+                "select_map_theme is only available in the ready lobby.",
+                new { command = commandName, playerId, mapTheme = selectedEntry.ContentId, mapThemeId = (int)selectedEntry.Id });
+        }
+
+        List<PlayerRef> activePlayers = runner.ActivePlayers
+            .OrderBy(playerRef => playerRef.PlayerId)
+            .ToList();
+        if (playerId >= activePlayers.Count)
+        {
+            return AutomationResponse.Fail(
+                "lobby_player_unavailable",
+                "The requested gameplay player slot is not active in the lobby.",
+                new { command = commandName, playerId, activePlayers = activePlayers.Count });
+        }
+
+        PlayerRef targetAuthority = activePlayers[playerId];
+        List<NetworkPlayer> ownedPlayers = FindObjectsOfType<NetworkPlayer>()
+            .Where(candidate => candidate != null
+                && candidate.Runner == runner
+                && candidate.Object != null
+                && candidate.Object.IsValid
+                && candidate.Object.InputAuthority == targetAuthority
+                && candidate.HasInputAuthority)
+            .ToList();
+        if (ownedPlayers.Count != 1)
+        {
+            return AutomationResponse.Fail(
+                "select_map_theme_requires_owning_peer",
+                "Issue select_map_theme to the peer that owns input authority for the requested player.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    playerRef = targetAuthority.ToString(),
+                    mapTheme = selectedEntry.ContentId,
+                    mapThemeId = (int)selectedEntry.Id,
+                    ownedPlayerObjects = ownedPlayers.Count
+                });
+        }
+
+        NetworkPlayer networkPlayer = ownedPlayers[0];
+        if (!networkPlayer.RequestMapThemeSelection((int)selectedEntry.Id))
+        {
+            return AutomationResponse.Fail(
+                "select_map_theme_request_rejected",
+                "The owned NetworkPlayer rejected the map theme selection request.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    mapTheme = selectedEntry.ContentId,
+                    mapThemeId = (int)selectedEntry.Id
+                });
+        }
+
+        MPTestLogger.Log("automation_command", "complete", "select_map_theme", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "playerRef", targetAuthority.ToString() },
+            { "mapTheme", selectedEntry.ContentId },
+            { "mapThemeId", (int)selectedEntry.Id }
+        });
+        return AutomationResponse.Ok("map theme selection requested through owning input authority", new
+        {
+            command = "select_map_theme",
+            playerId,
+            playerRef = targetAuthority.ToString(),
+            mapTheme = selectedEntry.ContentId,
+            mapThemeId = (int)selectedEntry.Id
+        });
+    }
+
+    private AutomationResponse ExecuteActivateKingSkillCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        GameManagers gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null || !gameManagers.Runner.IsRunning)
+        {
+            return AutomationResponse.Fail("game_managers_unavailable", "GameManagers runner is not available.", new { command = commandName, playerId });
+        }
+
+        if (playerId < 0 && gameManagers.localPlayer != null)
+        {
+            playerId = gameManagers.localPlayer.playerId;
+        }
+
+        PlayerManager player = gameManagers.GetPlayer(playerId);
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return AutomationResponse.Fail("king_player_unavailable", "The requested gameplay player is unavailable.", new { command = commandName, playerId });
+        }
+
+        if (gameManagers.CommandProcessor == null)
+        {
+            return AutomationResponse.Fail("command_processor_missing", "GameManagers.CommandProcessor is not available.", new { command = commandName, playerId });
+        }
+
+        bool localInputAuthority = player.Object.HasInputAuthority;
+        bool stateAuthority = player.Object.HasStateAuthority;
+        if (!localInputAuthority && !stateAuthority)
+        {
+            return AutomationResponse.Fail(
+                "king_command_authority_missing",
+                "The peer must own input authority or state authority for the requested player.",
+                new { command = commandName, playerId, localInputAuthority, stateAuthority });
+        }
+
+        if (!player.CanUseKingSkill)
+        {
+            return AutomationResponse.Fail(
+                "king_skill_not_ready",
+                "The king skill is not available for this player in the current defense sequence.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    state = gameManagers.GetGameState().ToString(),
+                    player.IsActivelyFighting,
+                    player.IsAttackerInCurrentBattle,
+                    player.KingSkillUsedThisDefense,
+                    selectedKingHash = player.SelectedKingUnitKeyHash,
+                    kingDataReady = player.KingRuntimeDataReady
+                });
+        }
+
+        KingRuntimeMigrationState before = player.CaptureKingRuntimeMigrationState();
+        gameManagers.CommandProcessor.RequestCommandExecution(new ActivateKingSkillCommand(playerId));
+        MPTestLogger.Log("automation_command", "begin", "activate_king_skill", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "localInputAuthority", localInputAuthority },
+            { "stateAuthority", stateAuthority },
+            { "defenseSequenceId", before.DefenseSequenceId },
+            { "skillPresentationSequence", before.SkillPresentationSequence }
+        });
+
+        return AutomationResponse.Ok("king skill command queued", new
+        {
+            command = "activate_king_skill",
+            playerId,
+            localInputAuthority,
+            stateAuthority,
+            defenseSequenceId = before.DefenseSequenceId,
+            skillPresentationSequenceBefore = before.SkillPresentationSequence
+        });
+    }
+
+    private AutomationResponse ExecuteActivateDemonSkillCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        GameManagers gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null || !gameManagers.Runner.IsRunning)
+        {
+            return AutomationResponse.Fail(
+                "game_managers_unavailable",
+                "GameManagers runner is not available.",
+                new { command = commandName, playerId });
+        }
+
+        if (playerId < 0 && gameManagers.localPlayer != null)
+        {
+            playerId = gameManagers.localPlayer.playerId;
+        }
+
+        PlayerManager player = gameManagers.GetPlayer(playerId);
+        if (player == null || player.Object == null || !player.Object.IsValid)
+        {
+            return AutomationResponse.Fail(
+                "demon_player_unavailable",
+                "The requested gameplay player is unavailable.",
+                new { command = commandName, playerId });
+        }
+
+        if (gameManagers.CommandProcessor == null)
+        {
+            return AutomationResponse.Fail(
+                "command_processor_missing",
+                "GameManagers.CommandProcessor is not available.",
+                new { command = commandName, playerId });
+        }
+
+        bool localInputAuthority = player.Object.HasInputAuthority;
+        bool stateAuthority = player.Object.HasStateAuthority;
+        if (!localInputAuthority && !stateAuthority)
+        {
+            return AutomationResponse.Fail(
+                "demon_command_authority_missing",
+                "The peer must own input authority or state authority for the requested player.",
+                new { command = commandName, playerId, localInputAuthority, stateAuthority });
+        }
+
+        if (!player.CanUseDemonSkill)
+        {
+            return AutomationResponse.Fail(
+                "demon_skill_not_ready",
+                "The demon skill is not available for this player in the current attack sequence.",
+                new
+                {
+                    command = commandName,
+                    playerId,
+                    state = gameManagers.GetGameState().ToString(),
+                    player.IsActivelyFighting,
+                    player.IsAttackerInCurrentBattle,
+                    player.DemonSkillUsedThisAttack,
+                    selectedDemonHash = player.SelectedDemonKeyHash,
+                    demonDataReady = player.DemonRuntimeDataReady,
+                    hasTargets = player.HasLivingDemonSkillTargets()
+                });
+        }
+
+        DemonRuntimeMigrationState before = player.CaptureDemonRuntimeMigrationState();
+        gameManagers.CommandProcessor.RequestCommandExecution(new ActivateDemonSkillCommand(playerId));
+        MPTestLogger.Log("automation_command", "begin", "activate_demon_skill", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "localInputAuthority", localInputAuthority },
+            { "stateAuthority", stateAuthority },
+            { "attackSequenceId", before.AttackSequenceId },
+            { "skillPresentationSequence", before.SkillPresentationSequence }
+        });
+
+        return AutomationResponse.Ok("demon skill command queued", new
+        {
+            command = "activate_demon_skill",
+            playerId,
+            localInputAuthority,
+            stateAuthority,
+            attackSequenceId = before.AttackSequenceId,
+            skillPresentationSequenceBefore = before.SkillPresentationSequence
+        });
+    }
+
+    private AutomationResponse ExecuteViewPlayerFieldCommand(JObject body, string commandName)
+    {
+        if (!_options.Enabled)
+        {
+            return AutomationResponse.Fail("view_player_field_requires_mptest", "Field viewing probe requires --mpTest.");
+        }
+
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        if (playerId < 0)
+        {
+            return AutomationResponse.Fail("invalid_player_id", "playerId must be >= 0.", new { command = commandName, playerId });
+        }
+
+        var gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null || !gameManagers.Runner.IsRunning)
+        {
+            return AutomationResponse.Fail("game_managers_unavailable", "GameManagers runner is not available.", new { command = commandName, playerId });
+        }
+
+        var cameraManager = CameraManager.Instance;
+        if (cameraManager == null)
+        {
+            return AutomationResponse.Fail("camera_manager_unavailable", "CameraManager is not available.", new { command = commandName, playerId });
+        }
+
+        PlayerManager registryTarget = gameManagers.GetPlayer(playerId);
+        bool targetOnCurrentRunner = registryTarget != null &&
+                                     registryTarget.Object != null &&
+                                     registryTarget.Object.IsValid &&
+                                     registryTarget.Runner == gameManagers.Runner;
+        if (!targetOnCurrentRunner)
+        {
+            return AutomationResponse.Fail("view_target_not_on_current_runner", "Target player was not resolved from the current runner registry.", new
+            {
+                command = commandName,
+                playerId,
+                targetOnCurrentRunner
+            });
+        }
+
+        bool requestNavigation = GetBool(body, "requestNavigation", GetBool(body, "request_navigation", true));
+        if (requestNavigation)
+        {
+            cameraManager.MoveToPlayerField(playerId, isAttackMode: false).Forget();
+        }
+
+        PlayerManager currentViewingField = cameraManager.CurrentViewingField;
+        bool currentViewingMatchesRegistry = currentViewingField == registryTarget;
+        bool switched = cameraManager.CurrentViewingPlayerId == playerId && currentViewingMatchesRegistry;
+        var result = new
+        {
+            command = "view_player_field",
+            requestedPlayerId = playerId,
+            requestNavigation,
+            ownPlayerId = cameraManager.OwnPlayerId,
+            viewingPlayerId = cameraManager.CurrentViewingPlayerId,
+            currentViewingMatchesRegistry,
+            targetOnCurrentRunner,
+            transitioning = cameraManager.IsTransitioning,
+            attackMode = cameraManager.IsAttackMode,
+            switched
+        };
+
+        bool commandSucceeded = !requestNavigation || switched;
+        MPTestLogger.Log("automation_command", commandSucceeded ? "complete" : "fail", "view_player_field", commandSucceeded ? null : "view target did not switch", new Dictionary<string, object>
+        {
+            { "requestedPlayerId", playerId },
+            { "viewingPlayerId", cameraManager.CurrentViewingPlayerId },
+            { "ownPlayerId", cameraManager.OwnPlayerId },
+            { "requestNavigation", requestNavigation },
+            { "currentViewingMatchesRegistry", currentViewingMatchesRegistry },
+            { "targetOnCurrentRunner", targetOnCurrentRunner },
+            { "transitioning", cameraManager.IsTransitioning },
+            { "attackMode", cameraManager.IsAttackMode }
+        });
+
+        if (!requestNavigation)
+        {
+            return AutomationResponse.Ok("field view inspected", result);
+        }
+
+        return switched
+            ? AutomationResponse.Ok("field view resolved from durable playerId", result)
+            : AutomationResponse.Fail("view_player_field_not_switched", "CameraManager did not switch to the current registry target.", result);
+    }
+
+    private AutomationResponse ExecutePrepareVisualCaptureCommand(string commandName)
+    {
+        if (!_options.Enabled)
+        {
+            return AutomationResponse.Fail("prepare_visual_capture_requires_mptest", "Visual capture preparation requires --mpTest.");
+        }
+
+        bool shopControllerResolved = GamePrepareUIToolkitController.TrySetShopVisibilityFromLegacy(
+            false,
+            out bool shopVisible);
+        bool augmentControllerResolved = GamePrepareUIToolkitController.TryHideAugmentForVisualCapture(
+            out bool augmentVisible);
+        bool debugOverlayResolved = BuildDebugGUI.Instance != null;
+        if (debugOverlayResolved)
+        {
+            BuildDebugGUI.Instance.SetVisible(false);
+        }
+
+        MPTestLogger.Log("automation_command", "complete", commandName, null, new Dictionary<string, object>
+        {
+            { "shopControllerResolved", shopControllerResolved },
+            { "shopVisible", shopVisible },
+            { "augmentControllerResolved", augmentControllerResolved },
+            { "augmentVisible", augmentVisible },
+            { "debugOverlayResolved", debugOverlayResolved }
+        });
+        return AutomationResponse.Ok("visual capture UI prepared", new
+        {
+            command = commandName,
+            shopControllerResolved,
+            shopVisible,
+            augmentControllerResolved,
+            augmentVisible,
+            debugOverlayResolved
         });
     }
 
@@ -728,11 +1584,15 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return failure;
         }
 
+        string kindText = GetString(body, "wallKind", GetString(body, "wall_kind", "destructible"));
+        WallPlacementKind wallKind = string.Equals(kindText, "permanent", StringComparison.OrdinalIgnoreCase)
+            ? WallPlacementKind.Permanent
+            : WallPlacementKind.Destructible;
         bool hasExplicitPosition = TryGetVector3Int(body, "position", out Vector3Int position)
             || TryGetVector3Int(body, "target", out position)
             || TryGetVector3IntByPrefix(body, "position", out position);
         if (!hasExplicitPosition &&
-            !TryFindPlaceWallPosition(player, field, out position, out string findReason))
+            !TryFindPlaceWallPosition(player, field, wallKind, out position, out string findReason))
         {
             return AutomationResponse.Fail("place_wall_target_not_found", "No legal place_wall target was found.", new
             {
@@ -742,7 +1602,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             });
         }
 
-        if (!ValidatePlaceWallTarget(player, field, position, out string validationReason))
+        if (!ValidatePlaceWallTarget(player, field, position, wallKind, out string validationReason))
         {
             return AutomationResponse.Fail(validationReason, "place_wall target failed validation.", new
             {
@@ -753,12 +1613,15 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         }
 
         int wallCountBefore = player.GetWallCount();
-        gameManagers.CommandProcessor.RequestCommandExecution(new PlaceWallCommand(playerId, position));
+        int permanentWallCountBefore = player.GetPermanentWallPlacementCount();
+        gameManagers.CommandProcessor.RequestCommandExecution(new PlaceWallCommand(playerId, position, wallKind));
         MPTestLogger.Log("automation_command", "begin", "place_wall", null, new Dictionary<string, object>
         {
             { "playerId", playerId },
             { "position", position.ToString() },
-            { "wallCountBefore", wallCountBefore }
+            { "wallKind", wallKind.ToString() },
+            { "wallCountBefore", wallCountBefore },
+            { "permanentWallCountBefore", permanentWallCountBefore }
         });
 
         return AutomationResponse.Ok("command queued", new
@@ -766,7 +1629,30 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             command = "place_wall",
             playerId,
             position = new { position.x, position.y, position.z },
-            wallCountBefore
+            wallKind = wallKind.ToString(),
+            wallCountBefore,
+            permanentWallCountBefore
+        });
+    }
+
+    private AutomationResponse ExecuteGrantPermanentWallsCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        if (!TryGetPrepareCommandContext(commandName, playerId, out _, out var player, out _, out var failure))
+        {
+            return failure;
+        }
+
+        int amount = Mathf.Clamp(GetInt(body, "amount", 3), 1, 99);
+        int before = player.GetPermanentWallPlacementCount();
+        player.AddPermanentWallPlacementCount(amount);
+        return AutomationResponse.Ok("permanent wall stock granted", new
+        {
+            command = commandName,
+            playerId,
+            amount,
+            before,
+            after = player.GetPermanentWallPlacementCount()
         });
     }
 
@@ -817,6 +1703,78 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             playerId,
             position = new { position.x, position.y, position.z },
             wallCountBefore
+        });
+    }
+
+    private AutomationResponse ExecuteUpgradeWallCommand(JObject body, string commandName)
+    {
+        int playerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        if (!TryGetPrepareCommandContext(commandName, playerId, out var gameManagers, out var player, out var field, out var failure))
+        {
+            return failure;
+        }
+
+        bool hasExplicitPosition = TryGetVector3Int(body, "position", out Vector3Int position)
+            || TryGetVector3Int(body, "target", out position)
+            || TryGetVector3IntByPrefix(body, "position", out position);
+        if (!hasExplicitPosition && !TryFindUpgradeWallPosition(field, out position, out string findReason))
+        {
+            return AutomationResponse.Fail("upgrade_wall_target_not_found", "No upgradeable destructible wall was found.", new
+            {
+                command = commandName,
+                playerId,
+                reason = findReason
+            });
+        }
+
+        DestructibleWall wall = field.GetWallAt(position);
+        int expectedLevel = GetInt(
+            body,
+            "expectedLevel",
+            GetInt(body, "expected_level", wall != null ? wall.CurrentLevel : -1));
+        if (!UpgradeWallCommand.TryValidate(
+                gameManagers,
+                playerId,
+                position,
+                expectedLevel,
+                requireStateAuthority: true,
+                out _,
+                out wall,
+                out int cost,
+                out string validationReason))
+        {
+            return AutomationResponse.Fail(validationReason, "upgrade_wall target failed validation.", new
+            {
+                command = commandName,
+                playerId,
+                expectedLevel,
+                position = new { position.x, position.y, position.z }
+            });
+        }
+
+        int goldBefore = player.GetGold();
+        int investmentBefore = wall.InvestedUpgradeGold;
+        gameManagers.CommandProcessor.RequestCommandExecution(
+            new UpgradeWallCommand(playerId, position, expectedLevel));
+        MPTestLogger.Log("automation_command", "begin", "upgrade_wall", null, new Dictionary<string, object>
+        {
+            { "playerId", playerId },
+            { "position", position.ToString() },
+            { "expectedLevel", expectedLevel },
+            { "cost", cost },
+            { "goldBefore", goldBefore },
+            { "investmentBefore", investmentBefore }
+        });
+
+        return AutomationResponse.Ok("command queued", new
+        {
+            command = "upgrade_wall",
+            playerId,
+            position = new { position.x, position.y, position.z },
+            expectedLevel,
+            cost,
+            goldBefore,
+            investmentBefore
         });
     }
 
@@ -887,7 +1845,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         return true;
     }
 
-    private static bool TryFindPlaceWallPosition(PlayerManager player, FieldManager field, out Vector3Int position, out string reason)
+    private static bool TryFindPlaceWallPosition(PlayerManager player, FieldManager field, WallPlacementKind kind, out Vector3Int position, out string reason)
     {
         position = default;
         reason = null;
@@ -907,7 +1865,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
                     continue;
                 }
 
-                if (ValidatePlaceWallTarget(player, field, candidate, out _))
+                if (ValidatePlaceWallTarget(player, field, candidate, kind, out _))
                 {
                     position = candidate;
                     return true;
@@ -934,7 +1892,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             for (int x = 0; x < field.gridSize.x; x++)
             {
                 var candidate = new Vector3Int(x, y, 0);
-                if (field.GetWallAt(candidate) != null)
+                if (field.HasRemovableWallAt(candidate))
                 {
                     position = candidate;
                     return true;
@@ -942,11 +1900,39 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             }
         }
 
-        reason = "no_destructible_wall";
+        reason = "no_removable_wall";
         return false;
     }
 
-    private static bool ValidatePlaceWallTarget(PlayerManager player, FieldManager field, Vector3Int position, out string reason)
+    private static bool TryFindUpgradeWallPosition(FieldManager field, out Vector3Int position, out string reason)
+    {
+        position = default;
+        reason = null;
+        if (field == null)
+        {
+            reason = "field_not_ready";
+            return false;
+        }
+
+        for (int y = 0; y < field.gridSize.y; y++)
+        {
+            for (int x = 0; x < field.gridSize.x; x++)
+            {
+                var candidate = new Vector3Int(x, y, 0);
+                DestructibleWall wall = field.GetWallAt(candidate);
+                if (wall != null && wall.TryGetUpgradeQuote(wall.CurrentLevel, out _, out _, out _))
+                {
+                    position = candidate;
+                    return true;
+                }
+            }
+        }
+
+        reason = "no_upgradeable_destructible_wall";
+        return false;
+    }
+
+    private static bool ValidatePlaceWallTarget(PlayerManager player, FieldManager field, Vector3Int position, WallPlacementKind kind, out string reason)
     {
         if (field == null || player == null)
         {
@@ -966,13 +1952,18 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return false;
         }
 
-        if (player.GetWallCount() <= 0)
+        bool hasStock = kind == WallPlacementKind.Permanent
+            ? player.GetPermanentWallPlacementCount() > 0
+            : player.GetWallCount() > 0;
+        if (!hasStock)
         {
-            reason = "insufficient_wall_stock";
+            reason = kind == WallPlacementKind.Permanent
+                ? "insufficient_permanent_wall_stock"
+                : "insufficient_wall_stock";
             return false;
         }
 
-        if (player.goalTransform != null && position == field.WorldToGridInt(player.goalTransform.position))
+        if (field.IsGoalCell(position))
         {
             reason = "wall_goal_cell_blocked";
             return false;
@@ -996,7 +1987,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return false;
         }
 
-        if (field.GetWallAt(position) == null)
+        if (!field.HasRemovableWallAt(position))
         {
             reason = "remove_wall_missing";
             return false;
@@ -1077,6 +2068,12 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             return false;
         }
 
+        if (field.IsGoalCell(to))
+        {
+            reason = "unit_goal_cell_blocked";
+            return false;
+        }
+
         unit = field.GetUnitAt(from);
         if (unit == null)
         {
@@ -1147,9 +2144,87 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         });
     }
 
+    private async Task<AutomationResponse> PushHostMigrationSnapshotForTestAsync(JObject body)
+    {
+        if (!_options.Enabled || !MPTestCommandLine.IsEnabled)
+        {
+            return AutomationResponse.Fail(
+                "host_migration_snapshot_push_requires_mptest",
+                "Host Migration snapshot push requires --mpTest.");
+        }
+
+        GameManagers gameManagers = GameManagers.Instance;
+        NetworkRunner runner = gameManagers != null ? gameManagers.Runner : null;
+        if (runner == null || !runner.IsRunning || !runner.IsServer ||
+            gameManagers.Object == null || !gameManagers.Object.HasStateAuthority)
+        {
+            return AutomationResponse.Fail(
+                "host_migration_snapshot_push_requires_authority",
+                "Host Migration snapshot push requires a running State Authority host.");
+        }
+
+        HostMigrationHandler handler = HostMigrationHandler.Instance;
+        if (handler == null || handler.IsMigrating)
+        {
+            return AutomationResponse.Fail(
+                "host_migration_snapshot_handler_unavailable",
+                "HostMigrationHandler is unavailable or already migrating.");
+        }
+
+        string reason = GetString(body, "reason", "MPTest.FrozenBattleCheckpoint");
+        int previousCommittedGeneration = handler.HostMigrationSnapshotPushCommittedGeneration;
+        using (CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(
+                   _cancellation?.Token ?? CancellationToken.None))
+        {
+            timeout.CancelAfter(TimeSpan.FromSeconds(10));
+            try
+            {
+                bool committed = await handler.PushHostMigrationSnapshotAsync(
+                    runner,
+                    reason,
+                    timeout.Token);
+                if (!committed)
+                {
+                    return AutomationResponse.Fail(
+                        "host_migration_snapshot_push_not_committed",
+                        "Fusion rejected the Host Migration snapshot push.",
+                        new
+                        {
+                            reason,
+                            previousCommittedGeneration,
+                            committedGeneration = handler.HostMigrationSnapshotPushCommittedGeneration,
+                            committedTick = handler.HostMigrationSnapshotPushCommittedTick
+                        });
+                }
+
+                return AutomationResponse.Ok("host migration snapshot committed", new
+                {
+                    reason,
+                    committed = true,
+                    previousCommittedGeneration,
+                    committedGeneration = handler.HostMigrationSnapshotPushCommittedGeneration,
+                    committedTick = handler.HostMigrationSnapshotPushCommittedTick
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                return AutomationResponse.Fail(
+                    "host_migration_snapshot_push_timeout",
+                    "Timed out waiting for Fusion to commit the Host Migration snapshot.",
+                    new
+                    {
+                        reason,
+                        previousCommittedGeneration,
+                        committedGeneration = handler.HostMigrationSnapshotPushCommittedGeneration,
+                        committedTick = handler.HostMigrationSnapshotPushCommittedTick
+                    });
+            }
+        }
+    }
+
     private AutomationResponse HideTransientUiForTest()
     {
-        if (!_options.Enabled)
+        if (!_options.Enabled || !MPTestCommandLine.IsEnabled)
         {
             return AutomationResponse.Fail("hide_transient_ui_requires_mptest", "Transient UI hiding requires --mpTest.");
         }
@@ -1263,10 +2338,17 @@ public sealed class MPTestAutomationServer : MonoBehaviour
 
         int beforeTargetCount = scheduler.GetActiveStatusEffectCountFor(targetBuffManager);
         int beforeTotalCount = scheduler.ActiveStatusEffectCount;
-        targetBuffManager.ApplyStatusEffect(effectType, durationSeconds, gameObject, tickIntervalSeconds, damagePerTick, slowMultiplier, damageType);
+        bool accepted = targetBuffManager.ApplyStatusEffect(
+            effectType,
+            durationSeconds,
+            gameObject,
+            tickIntervalSeconds,
+            damagePerTick,
+            slowMultiplier,
+            damageType);
         int afterTargetCount = scheduler.GetActiveStatusEffectCountFor(targetBuffManager);
         int afterTotalCount = scheduler.ActiveStatusEffectCount;
-        if (afterTargetCount <= 0 || afterTotalCount <= 0)
+        if (!accepted || afterTargetCount <= 0 || afterTotalCount <= 0)
         {
             return AutomationResponse.Fail("status_effect_apply_failed", "Status effect did not appear in scheduler state.", new
             {
@@ -1368,7 +2450,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
 
         int beforeTargetCount = scheduler.GetActiveStatBuffCountFor(targetBuffManager);
         int beforeTotalCount = scheduler.ActiveStatBuffCount;
-        scheduler.ApplyStatBuff(
+        bool accepted = scheduler.ApplyStatBuff(
             targetBuffManager,
             statType,
             value,
@@ -1378,7 +2460,7 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             Animator.StringToHash("MPTestStatBuff"));
         int afterTargetCount = scheduler.GetActiveStatBuffCountFor(targetBuffManager);
         int afterTotalCount = scheduler.ActiveStatBuffCount;
-        if (afterTargetCount <= 0 || afterTotalCount <= 0)
+        if (!accepted || afterTargetCount <= 0 || afterTotalCount <= 0)
         {
             return AutomationResponse.Fail("stat_buff_apply_failed", "Stat buff did not appear in scheduler state.", new
             {
@@ -1475,9 +2557,9 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         }
 
         int beforeCount = scheduler.ActiveZoneCount;
-        scheduler.TryScheduleZone(zoneEffect, targetObject.gameObject, null, range, targetingStrategy, out _);
+        bool accepted = scheduler.TryScheduleZone(zoneEffect, targetObject.gameObject, null, range, targetingStrategy, out _);
         int afterCount = scheduler.ActiveZoneCount;
-        if (afterCount <= beforeCount)
+        if (!accepted || afterCount <= beforeCount)
         {
             return AutomationResponse.Fail("zone_apply_failed", "Zone did not appear in scheduler state.", new
             {
@@ -1580,7 +2662,16 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             { "currentPendingFireActive", after.CurrentPendingFireActive },
             { "currentPendingHitActive", after.CurrentPendingHitActive },
             { "maxPendingFireActive", after.MaxPendingFireActive },
-            { "maxPendingHitActive", after.MaxPendingHitActive }
+            { "maxPendingHitActive", after.MaxPendingHitActive },
+            { "pendingFireCapacityFallbacks", after.PendingFireCapacityFallbacks - before.PendingFireCapacityFallbacks },
+            { "pendingHitCapacityFallbacks", after.PendingHitCapacityFallbacks - before.PendingHitCapacityFallbacks },
+            { "statusCapacityBackpressures", after.StatusCapacityBackpressures - before.StatusCapacityBackpressures },
+            { "statBuffCapacityBackpressures", after.StatBuffCapacityBackpressures - before.StatBuffCapacityBackpressures },
+            { "zoneCapacityBackpressures", after.ZoneCapacityBackpressures - before.ZoneCapacityBackpressures },
+            { "zoneDueDebtPhaseCancellations", after.ZoneDueDebtPhaseCancellations - before.ZoneDueDebtPhaseCancellations },
+            { "zoneDebtTerminalFailures", after.ZoneDebtTerminalFailures - before.ZoneDebtTerminalFailures },
+            { "pendingFireCapacityDrops", after.PendingFireCapacityDrops - before.PendingFireCapacityDrops },
+            { "pendingHitCapacityDrops", after.PendingHitCapacityDrops - before.PendingHitCapacityDrops }
         });
 
         return AutomationResponse.Ok("pending combat load injected", new
@@ -1593,6 +2684,235 @@ public sealed class MPTestAutomationServer : MonoBehaviour
             before,
             after
         });
+    }
+
+    private AutomationResponse RunCombatCapacityRecoveryProbeForTest()
+    {
+        if (!_options.Enabled || !MPTestCommandLine.IsEnabled)
+        {
+            return AutomationResponse.Fail(
+                "combat_capacity_recovery_requires_mptest",
+                "Combat capacity recovery probe requires --mpTest.");
+        }
+
+        GameManagers gameManagers = GameManagers.Instance;
+        if (gameManagers == null || gameManagers.Runner == null ||
+            !gameManagers.Runner.IsRunning || !gameManagers.Runner.IsServer)
+        {
+            return AutomationResponse.Fail(
+                "combat_capacity_recovery_requires_server",
+                "Combat capacity recovery probe requires a running server/host peer.");
+        }
+
+        CombatScheduler scheduler = CombatScheduler.Instance;
+        if (scheduler == null || scheduler.Object == null || !scheduler.Object.HasStateAuthority)
+        {
+            return AutomationResponse.Fail(
+                "combat_capacity_recovery_scheduler_unavailable",
+                "CombatScheduler State Authority is not ready.");
+        }
+
+        CombatScheduler.NetworkBudgetReport before = scheduler.GetNetworkBudgetReport();
+        bool passed = scheduler.MPTestRunCapacityRecoveryProbe(out string reason);
+        CombatScheduler.NetworkBudgetReport after = scheduler.GetNetworkBudgetReport();
+        CombatScheduler.MPTestCapacityRecoveryProbeReport probe =
+            scheduler.LastMPTestCapacityRecoveryProbeReport;
+        if (!passed)
+        {
+            return AutomationResponse.Fail(
+                "combat_capacity_recovery_failed",
+                reason,
+                new { probe, before, after });
+        }
+
+        MPTestLogger.Log(
+            "automation_combat_capacity_recovery",
+            "passed",
+            null,
+            reason,
+            new Dictionary<string, object>
+            {
+                { "pendingHitFallbackDelta", after.PendingHitCapacityFallbacks - before.PendingHitCapacityFallbacks },
+                { "pendingHitDropDelta", after.PendingHitCapacityDrops - before.PendingHitCapacityDrops },
+                { "zoneTerminalFailureDelta", after.ZoneDebtTerminalFailures - before.ZoneDebtTerminalFailures },
+                { "pendingHitBaseline", before.CurrentPendingHitActive },
+                { "pendingHitAfter", after.CurrentPendingHitActive }
+            });
+        return AutomationResponse.Ok(
+            "combat capacity recovery passed",
+            new
+            {
+                reason,
+                unitExactlyOnce = probe.UnitCommitCount == 1,
+                unitCommitCount = probe.UnitCommitCount,
+                unitCooldownCommitCount = probe.UnitCooldownCommitCount,
+                unitManaCommitCount = probe.UnitManaCommitCount,
+                unitExpectedManaCommitCount = probe.UnitExpectedManaCommitCount,
+                monsterExactlyOnce = probe.MonsterCommitCount == 1,
+                monsterCommitCount = probe.MonsterCommitCount,
+                pendingHitBackpressureCount = probe.PendingHitBackpressureCount,
+                pendingHitDropCount = probe.PendingHitDropCount,
+                initialPendingHitCount = probe.InitialPendingHitCount,
+                finalPendingHitCount = probe.FinalPendingHitCount,
+                before,
+                after
+            });
+    }
+
+    private AutomationResponse ExecutePerformanceStress(JObject body)
+    {
+        if (!_options.Enabled || !MPTestCommandLine.IsEnabled)
+        {
+            return AutomationResponse.Fail("performance_stress_requires_mptest", "Performance stress requires --mpTest.");
+        }
+
+        var driver = GetComponent<MPTestPerformanceStressDriver>() ?? gameObject.AddComponent<MPTestPerformanceStressDriver>();
+        driver.Configure(_options);
+        string action = GetString(body, "action", "status");
+        if (string.Equals(action, "status", StringComparison.OrdinalIgnoreCase))
+        {
+            return AutomationResponse.Ok("performance stress status", driver.GetStatus());
+        }
+
+        if (string.Equals(action, "stop", StringComparison.OrdinalIgnoreCase))
+        {
+            driver.StopAndCleanup(GetString(body, "reason", "automation_stop"));
+            return AutomationResponse.Ok("performance stress stopped", driver.GetStatus());
+        }
+
+        if (!string.Equals(action, "start", StringComparison.OrdinalIgnoreCase))
+        {
+            return AutomationResponse.Fail("performance_stress_action_invalid", "action must be start, status, or stop.");
+        }
+
+        bool started = driver.TryStart(
+            GetInt(body, "monsterCount", GetInt(body, "monster_count", 60)),
+            GetFloat(body, "holdSeconds", GetFloat(body, "hold_seconds", 15f)),
+            GetInt(body, "attackerPlayerId", GetInt(body, "attacker_player_id", -1)),
+            GetInt(body, "targetPlayerId", GetInt(body, "target_player_id", -1)),
+            GetString(body, "monsterDataKey", GetString(body, "monster_data_key", null)),
+            out string reason);
+        return started
+            ? AutomationResponse.Ok("performance stress started", driver.GetStatus())
+            : AutomationResponse.Fail(reason, "Performance stress could not start.", driver.GetStatus());
+    }
+
+    private AutomationResponse ExecuteProjectileExpiryStress(JObject body)
+    {
+        if (!_options.Enabled || !MPTestCommandLine.IsEnabled)
+        {
+            return AutomationResponse.Fail(
+                "projectile_expiry_stress_requires_mptest",
+                "Projectile expiry stress requires --mpTest.");
+        }
+
+        var driver = GetComponent<MPTestProjectileExpiryStressDriver>() ??
+                     gameObject.AddComponent<MPTestProjectileExpiryStressDriver>();
+        driver.Configure(_options);
+        string action = GetString(body, "action", "status");
+        if (string.Equals(action, "status", StringComparison.OrdinalIgnoreCase))
+        {
+            return AutomationResponse.Ok("projectile expiry stress status", driver.GetStatus());
+        }
+
+        if (string.Equals(action, "stop", StringComparison.OrdinalIgnoreCase))
+        {
+            driver.Stop(GetString(body, "reason", "automation_stop"));
+            return AutomationResponse.Ok("projectile expiry stress stopped", driver.GetStatus());
+        }
+
+        if (!string.Equals(action, "start", StringComparison.OrdinalIgnoreCase))
+        {
+            return AutomationResponse.Fail(
+                "projectile_expiry_stress_action_invalid",
+                "action must be start, status, or stop.");
+        }
+
+        bool started = driver.TryStart(
+            GetInt(body, "projectileCount", GetInt(body, "projectile_count", 64)),
+            GetFloat(body, "lifetimeSeconds", GetFloat(body, "lifetime_seconds", 5f)),
+            out string reason);
+        return started
+            ? AutomationResponse.Ok("projectile expiry stress started", driver.GetStatus())
+            : AutomationResponse.Fail(reason, "Projectile expiry stress could not start.", driver.GetStatus());
+    }
+
+    private AutomationResponse DestroyWallUnderLoad(JObject body)
+    {
+        if (!_options.Enabled || !MPTestCommandLine.IsEnabled)
+        {
+            return AutomationResponse.Fail("wall_load_stress_requires_mptest", "Wall load stress requires --mpTest.");
+        }
+
+        if (MPTestCommandLine.IsGameFlowFrozen)
+        {
+            return AutomationResponse.Fail("wall_load_stress_flow_frozen", "Wall damage is disabled while flow is frozen.");
+        }
+
+        int requestedPlayerId = GetInt(body, "playerId", GetInt(body, "player_id", -1));
+        DestructibleWall wall = UnityEngine.Object.FindObjectsOfType<DestructibleWall>()
+            .Where(candidate => candidate != null &&
+                                candidate.isActiveAndEnabled &&
+                                candidate.CurrentHealth > 0f &&
+                                candidate.OwnerFieldManager != null &&
+                                (requestedPlayerId < 0 ||
+                                 candidate.OwnerFieldManager.playerManager != null &&
+                                 candidate.OwnerFieldManager.playerManager.playerId == requestedPlayerId) &&
+                                candidate.Object != null &&
+                                candidate.Object.IsValid &&
+                                candidate.Object.HasStateAuthority)
+            .OrderBy(candidate => candidate.OwnerFieldManager.playerManager != null
+                ? candidate.OwnerFieldManager.playerManager.playerId
+                : int.MaxValue)
+            .ThenBy(candidate => candidate.GridPosition.x)
+            .ThenBy(candidate => candidate.GridPosition.y)
+            .FirstOrDefault();
+        if (wall == null)
+        {
+            return AutomationResponse.Fail("wall_load_stress_target_unavailable", "No authoritative destructible wall is available.");
+        }
+
+        FieldManager field = wall.OwnerFieldManager;
+        Vector3Int cell = wall.GridPosition;
+        int revisionBefore = field.WallTopologyRevision;
+        float healthBefore = wall.CurrentHealth;
+        uint originalNetworkIdRaw = wall.Object.Id.Raw;
+        long performanceStart = MPTestPerformanceRecorder.StartTimestamp();
+        wall.TakeDamage(Mathf.Max(1000000f, wall.MaxHealth * 1000f), DamageType.Physical);
+        MPTestPerformanceRecorder.RecordDuration("wall_destruction_authority", performanceStart, 1);
+
+        // Network pooling can synchronously reuse the same MonoBehaviour for a newly placed wall.
+        // Validate removal by the captured network identity instead of reading the recycled instance.
+        DestructibleWall wallAtCellAfter = field.GetWallAt(cell);
+        uint replacementNetworkIdRaw = wallAtCellAfter != null && wallAtCellAfter.Object != null && wallAtCellAfter.Object.IsValid
+            ? wallAtCellAfter.Object.Id.Raw
+            : 0u;
+        bool destroyed = replacementNetworkIdRaw != originalNetworkIdRaw;
+        int revisionAfter = field.WallTopologyRevision;
+        MPTestPerformanceRecorder.FlushNow("wall_destroyed_under_monster_load");
+        return destroyed && revisionAfter > revisionBefore
+            ? AutomationResponse.Ok("wall destroyed under load", new
+            {
+                destroyed,
+                ownerPlayerId = field.playerManager != null ? field.playerManager.playerId : -1,
+                gridX = cell.x,
+                gridY = cell.y,
+                healthBefore,
+                originalNetworkIdRaw,
+                replacementNetworkIdRaw,
+                revisionBefore,
+                revisionAfter
+            })
+            : AutomationResponse.Fail("wall_load_stress_destroy_failed", "Wall destruction did not advance topology.", new
+            {
+                destroyed,
+                healthBefore,
+                originalNetworkIdRaw,
+                replacementNetworkIdRaw,
+                replacementHealth = wallAtCellAfter != null ? wallAtCellAfter.CurrentHealth : 0f,
+                revisionBefore,
+                revisionAfter
+            });
     }
 
     private static bool TryCreateZoneForTest(
@@ -1667,7 +2987,8 @@ public sealed class MPTestAutomationServer : MonoBehaviour
                          .Where(candidate => candidate != null && !candidate.IsDead && candidate.CurrentHealth > 0f)
                          .OrderBy(candidate => candidate.OwnerPlayerIdForRoster)
                          .ThenBy(candidate => candidate.Data != null ? candidate.Data.name : candidate.name)
-                         .ThenBy(candidate => candidate.starLevel))
+                         .ThenBy(candidate => candidate.starLevel)
+                         .ThenBy(GetNetworkObjectOrderKey))
             {
                 if (ownerPlayerId >= 0 && unit.OwnerPlayerIdForRoster != ownerPlayerId)
                 {
@@ -1690,7 +3011,8 @@ public sealed class MPTestAutomationServer : MonoBehaviour
         foreach (var monster in UnityEngine.Object.FindObjectsOfType<Monster>()
                      .Where(candidate => candidate != null && candidate.CurrentHealth > 0f)
                      .OrderBy(candidate => candidate.SnapshotOwnerPlayerId)
-                     .ThenBy(candidate => candidate.Data != null ? candidate.Data.name : candidate.name))
+                     .ThenBy(candidate => candidate.Data != null ? candidate.Data.name : candidate.name)
+                     .ThenBy(GetNetworkObjectOrderKey))
         {
             if (ownerPlayerId >= 0 && monster.SnapshotOwnerPlayerId != ownerPlayerId)
             {
@@ -1708,6 +3030,13 @@ public sealed class MPTestAutomationServer : MonoBehaviour
 
         reason = ownerPlayerId >= 0 ? "no_alive_monster_for_owner" : "no_alive_monster";
         return false;
+    }
+
+    private static uint GetNetworkObjectOrderKey(NetworkBehaviour candidate)
+    {
+        return candidate != null && candidate.Object != null && candidate.Object.IsValid
+            ? candidate.Object.Id.Raw
+            : uint.MaxValue;
     }
 
     private static bool TryResolveStatusTarget(GameObject target, out BuffManager buffManager, out NetworkObject networkObject)

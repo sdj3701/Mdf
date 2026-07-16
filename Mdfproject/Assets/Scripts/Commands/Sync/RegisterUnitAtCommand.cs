@@ -3,11 +3,12 @@
 using UnityEngine;
 using Fusion;
 using Cysharp.Threading.Tasks;
+using System.Threading;
 
 /// <summary>
 /// 서버에서 스폰된 유닛을 클라이언트 필드에 등록하는 커맨드
 /// </summary>
-public class RegisterUnitAtCommand : ICommand
+public class RegisterUnitAtCommand : ICommand, IAsyncCommand
 {
     public int PlayerId { get; set; }
     public uint UnitNetworkIdRaw { get; private set; }
@@ -26,7 +27,32 @@ public class RegisterUnitAtCommand : ICommand
         StarLevel = starLevel;
     }
 
-    public async void Execute()
+    public void Execute()
+    {
+        ExecuteAsync(CancellationToken.None).Forget();
+    }
+
+    public async UniTask<CommandExecutionResult> ExecuteAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await ExecuteCoreAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            return CommandExecutionResult.Completed();
+        }
+        catch (System.OperationCanceledException)
+        {
+            return CommandExecutionResult.Canceled();
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"[RegisterUnitAtCommand] Execution failed. player={PlayerId}, unit={UnitNetworkIdRaw}, error={ex}");
+            return CommandExecutionResult.Failed(ex.Message);
+        }
+    }
+
+    private async UniTask ExecuteCoreAsync(CancellationToken cancellationToken)
     {
         var gm = GameManagers.Instance;
         if (gm == null) return;
@@ -46,6 +72,7 @@ public class RegisterUnitAtCommand : ICommand
             
             do
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (gm.Runner != null)
                 {
                     // Runner.FindObject에서 NetworkId를 직접 사용하는 대신 모든 객체를 순회
@@ -61,7 +88,7 @@ public class RegisterUnitAtCommand : ICommand
                 }
                 if (!resolved)
                 {
-                    await UniTask.Yield();
+                    await UniTask.Yield(PlayerLoopTiming.Update, cancellationToken);
                     attempts++;
                 }
             } while (!resolved && attempts < 300);
@@ -78,6 +105,7 @@ public class RegisterUnitAtCommand : ICommand
                 Debug.Log($"<color=yellow>[RegisterUnitAtCommand] FieldManager 준비 대기 중...</color>");
                 await UniTask.WaitUntil(() => player.fieldManager != null && player.fieldManager.ground3D != null)
                     .Timeout(System.TimeSpan.FromSeconds(10));
+                cancellationToken.ThrowIfCancellationRequested();
             }
 
             var unit = unitNO.GetComponent<Unit>();
@@ -100,19 +128,7 @@ public class RegisterUnitAtCommand : ICommand
             }
 
             // StatusBar 생성
-            if (player.fieldManager.statusBarPrefab != null)
-            {
-                var existingStatusBar = unit.GetComponentInChildren<StatusBarUI>(includeInactive: true);
-                if (existingStatusBar == null)
-                {
-                    var statusBarGO = Object.Instantiate(player.fieldManager.statusBarPrefab, unit.transform);
-                    var statusBarUI = statusBarGO.GetComponent<StatusBarUI>();
-                    if (statusBarUI != null)
-                    {
-                        unit.SetStatusBar(statusBarUI);
-                    }
-                }
-            }
+            player.fieldManager.AttachStatusBar(unit.gameObject, unit.SetStatusBar);
 
             // 유닛 초기화 (필요시)
             bool needInit = unit.Data == null || (!string.IsNullOrEmpty(UnitDataKey) && unit.Data.name != UnitDataKey);
@@ -120,19 +136,24 @@ public class RegisterUnitAtCommand : ICommand
             {
                 if (LoadManager.Instance == null)
                 {
-                    await UniTask.WaitUntil(() => LoadManager.Instance != null);
+                    await UniTask.WaitUntil(
+                        () => LoadManager.Instance != null,
+                        cancellationToken: cancellationToken);
                 }
                 await LoadManager.Instance.WaitUntilReady();
+                cancellationToken.ThrowIfCancellationRequested();
                 
                 UnitData data = LoadManager.Instance.GetUnitData(UnitDataKey);
                 if (data == null)
                 {
-                    data = await AssetLoader.LoadAssetAsync<UnitData>(UnitDataKey);
+                    data = await unit.LoadOwnedAddressableAsync<UnitData>(UnitDataKey);
+                    cancellationToken.ThrowIfCancellationRequested();
                 }
                 
                 if (data != null)
                 {
                     await unit.Initialize(data, StarLevel, player);
+                    cancellationToken.ThrowIfCancellationRequested();
                 }
                 else
                 {

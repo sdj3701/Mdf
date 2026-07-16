@@ -29,6 +29,7 @@ public class AugmentUIController : MonoBehaviour
     private UiLifecycleState _uiState = UiLifecycleState.Hidden;
     private CanvasGroup _rootCanvasGroup;
     private string _lastAugmentTriggerKey = string.Empty;
+    private string _submittedAugmentTriggerKey = string.Empty;
     private float _lastAugmentTriggerRealtime = -10f;
     private int _presentationVersion;
 
@@ -100,6 +101,18 @@ public class AugmentUIController : MonoBehaviour
         int version = _presentationVersion;
 
         string triggerKey = BuildAugmentTriggerKey(player, choices);
+        if (!string.IsNullOrEmpty(_submittedAugmentTriggerKey))
+        {
+            if (string.Equals(_submittedAugmentTriggerKey, triggerKey, StringComparison.Ordinal))
+            {
+                InitializeAndHide();
+                BuildDebugGUI.LogClient($"[AugmentUI] Consumed trigger ignored key={triggerKey}");
+                return;
+            }
+
+            _submittedAugmentTriggerKey = string.Empty;
+        }
+
         float now = Time.unscaledTime;
         if (triggerKey == _lastAugmentTriggerKey && now - _lastAugmentTriggerRealtime < 1.5f)
         {
@@ -148,16 +161,23 @@ public class AugmentUIController : MonoBehaviour
     /// </summary>
     public void SetAugmentChoices(List<AugmentData> choices)
     {
+        choices ??= new List<AugmentData>();
         for (int i = 0; i < augmentSlots.Length; i++)
         {
             if (i < choices.Count)
             {
                 AugmentData data = choices[i];
-                string displayName = GamePrepareUIToolkitController.FormatAugmentDisplayName(data.augmentName);
+                string displayName = data != null
+                    ? GamePrepareUIToolkitController.FormatAugmentDisplayName(data.augmentName)
+                    : string.Empty;
                 augmentSlots[i].Display(data, displayName);
 
                 // 리스너 중복 추가를 방지하기 위해 항상 먼저 제거합니다.
                 augmentSlots[i].selectButton.onClick.RemoveAllListeners();
+                if (data == null)
+                {
+                    continue;
+                }
                 
                 // 루프 변수 'i'를 새로운 지역 변수에 복사해야 클로저 문제를 피할 수 있습니다.
                 int choiceIndex = i; 
@@ -186,19 +206,28 @@ public class AugmentUIController : MonoBehaviour
         {
             var command = new SelectAugmentCommand(localPlayer.playerId, index);
             GameManagers.Instance.CommandProcessor.RequestCommandExecution(command);
-            _uiState = UiLifecycleState.Closing;
-            SetContentVisibility(false);
-            SetPanelRootVisibility(false);
-            
-            // 증강 선택 후 UI 숨김 - UIPool 상태 동기화를 위해 ReturnUIElement 사용
-            // 직접 SetActive(false)를 호출하면 UIPool.activeObject가 불일치하여 
-            // 다음 라운드에서 ReturnUIElement가 동작하지 않는 문제 발생
-            UIManagers.Instance.ReturnUIElement("UI_Pnl_Augment");
+            CloseAfterLocalSubmission();
         }
         else
         {
             // Debug.LogError($"증강 선택 처리 중 오류 발생: LocalPlayer: {localPlayer}, Choices: {currentChoices}, Index: {index}");
         }
+    }
+
+    /// <summary>
+    /// Closes the current choice presentation without dispatching a command. This is shared by
+    /// pointer input and Development HumanBot automation, and suppresses delayed retries for the
+    /// same round/player/choice set.
+    /// </summary>
+    public void CloseAfterLocalSubmission()
+    {
+        _submittedAugmentTriggerKey = BuildAugmentTriggerKey(localPlayer, currentChoices);
+        _uiState = UiLifecycleState.Closing;
+        SetContentVisibility(false);
+        SetPanelRootVisibility(false);
+
+        // Keep UIPool.activeObject in sync; direct SetActive(false) leaves a stale pool owner.
+        UIManagers.Instance?.ReturnUIElement("UI_Pnl_Augment");
     }
 
     /// <summary>

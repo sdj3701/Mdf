@@ -12,17 +12,40 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 854c6d2b89fe346489caf756386b4481, type: 3}
   m_Name: Aug_Spawn_Skelton_Normal
   m_EditorClassIdentifier: 
-  augmentName: "\uC2A4\uCF08\uB808\uD1A4 \uC18C\uD658"
-  description: "\uB9E4 \uB77C\uC6B4\uB4DC \uC0C1\uB300\uC758 \uC655\uAD6D\uC5D0 \uC2A4\uCF08\uB808\uD1A4
-    3\uB9C8\uB9AC\uB97C \uC18C\uD658\uD569\uB2C8\uB2E4."
+  contentId: augment.monster.skeleton.strengthen.normal
+  augmentName: "\uC2A4\uCF08\uB808\uD1A4 \uAC15\uD654"
+  description: "\uC18C\uD658\uD558\uB294 \uC2A4\uCF08\uB808\uD1A4\uC758 \uCCB4\uB825\uACFC
+    \uACF5\uACA9\uB825\uC774 20% \uC99D\uAC00\uD569\uB2C8\uB2E4."
   icon: {fileID: 21300000, guid: d343d3522249a5240bff399c54de026f, type: 3}
   tier: 0
-  targetType: 1
-  effectType: 6
+  targetType: 0
+  effectType: 8
   value: 0
+  effects:
+  - targetType: 0
+    effectType: 8
+    value: 0
+    isBossSummon: 0
+    bossMonsterData: {fileID: 0}
+    monsterSpawnEntries: []
+    strengthenedMonsterData: {fileID: 11400000, guid: 7813937e9a3ea3c46a5cc8c68e61ae5a,
+      type: 2}
+    monsterHealthBonusPercent: 0.2
+    monsterDamageBonusPercent: 0.2
+    monsterMoveSpeedBonusPercent: 0
+    kingDamageBonusPercent: 0
+    kingAttackSpeedBonusPercent: 0
+    kingSkillPowerBonusPercent: 0
+    magicScrollData: {fileID: 0}
   isBossSummon: 0
   bossMonsterData: {fileID: 0}
-  monsterSpawnEntries:
-  - monsterData: {fileID: 11400000, guid: 7813937e9a3ea3c46a5cc8c68e61ae5a, type: 2}
-    count: 3
+  monsterSpawnEntries: []
+  strengthenedMonsterData: {fileID: 11400000, guid: 7813937e9a3ea3c46a5cc8c68e61ae5a,
+    type: 2}
+  monsterHealthBonusPercent: 0.2
+  monsterDamageBonusPercent: 0.2
+  monsterMoveSpeedBonusPercent: 0
+  kingDamageBonusPercent: 0
+  kingAttackSpeedBonusPercent: 0
+  kingSkillPowerBonusPercent: 0
   magicScrollData: {fileID: 0}

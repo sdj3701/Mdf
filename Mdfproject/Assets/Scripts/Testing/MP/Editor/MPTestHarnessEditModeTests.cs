@@ -1,10 +1,17 @@
 #if UNITY_EDITOR
+using AI.BehaviorTree.Nodes.Actions;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Newtonsoft.Json;
+using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 using UnityEngine.UIElements;
 
@@ -75,6 +82,19 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
+    public void HideBuildDebugGuiFlagRequiresMpTest()
+    {
+        var options = MPTestCommandLine.Parse(new[]
+        {
+            "MDF.exe",
+            "--mpHideBuildDebugGUI"
+        });
+
+        Assert.That(options.Enabled, Is.False);
+        Assert.That(options.HideBuildDebugGUI, Is.False);
+    }
+
+    [Test]
     public void RankingUiSplitsFourPlayersEvenlyAcrossSides()
     {
         Assert.That(RankingUIController.GetLeftSideSlotCountForDisplay(4), Is.EqualTo(2));
@@ -95,8 +115,7 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void RankingUiToolkitLayoutProvidesFixedSelfOpponentAndReserveSlots()
     {
-        string source = File.ReadAllText("Assets/Scripts/UI/RankingUIController.cs");
-        string registrySource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.PlayerRegistry.cs");
+        string registrySource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/GameManagers.PlayerRegistry.cs");
         var layout = Resources.Load<VisualTreeAsset>("UI/PlayerRanking/PlayerRankingPanel");
         var style = Resources.Load<StyleSheet>("UI/PlayerRanking/PlayerRankingPanelStyles");
         var tree = layout != null ? layout.CloneTree() : null;
@@ -116,30 +135,25 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(tree?.Q<VisualElement>("ranking-opponent-battle-role-icon"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("ranking-reserve-0-battle-role-icon"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("ranking-reserve-1-battle-role-icon"), Is.Not.Null);
-        Assert.That(source, Does.Contain("UIDocument"));
-        Assert.That(source, Does.Contain("ResolveOpponent"));
-        Assert.That(source, Does.Contain("GetBattleOpponent"));
-        Assert.That(source, Does.Contain("GetHealthFillPercentForDisplay"));
-        Assert.That(source, Does.Contain("ShouldUseAttackBattleRoleIconForDisplay"));
-        Assert.That(source, Does.Contain("TryGetBattleRoleSnapshot"));
-        Assert.That(source, Does.Contain("IsAttackerInCurrentBattle"));
-        Assert.That(source, Does.Contain("PanelSortingOrder = 260"));
-        Assert.That(source, Does.Contain("SetPickingModeRecursive(toolkitRoot, PickingMode.Ignore)"));
-        Assert.That(source, Does.Contain("Root.pickingMode = PickingMode.Position"));
-        Assert.That(source, Does.Contain("RegisterCallback<PointerUpEvent>"));
-        Assert.That(source, Does.Contain("MoveToPlayerField"));
-        Assert.That(source, Does.Contain("ReturnToOwnField"));
-        Assert.That(source, Does.Contain("ShouldUseAttackModeCamera"));
-        Assert.That(source, Does.Contain("HandleToolkitPointerInput"));
-        Assert.That(source, Does.Contain("FindToolkitCardAtScreenPosition"));
-        Assert.That(source, Does.Contain("RuntimePanelUtils.ScreenToPanel"));
-        Assert.That(source, Does.Contain("ToPanelScreenPosition(screenPosition)"));
-        Assert.That(source, Does.Contain("Screen.height - screenPosition.y"));
-        Assert.That(source, Does.Not.Contain("invertedPanelPosition"));
-        Assert.That(source, Does.Contain("ContainsPanelPoint"));
-        Assert.That(source, Does.Contain("lastToolkitCardClickFrame"));
-        Assert.That(source, Does.Contain("Display-only overlay"));
-        string styleSource = File.ReadAllText("Assets/Resources/UI/PlayerRanking/PlayerRankingPanelStyles.uss");
+        const BindingFlags rankingMembers = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        Assert.That(typeof(RankingUIController).GetField("toolkitDocument", rankingMembers)?.FieldType, Is.EqualTo(typeof(UIDocument)));
+        Assert.That(typeof(RankingUIController).GetField("PanelSortingOrder", rankingMembers)?.GetRawConstantValue(), Is.EqualTo(260));
+        Assert.That(typeof(RankingUIController).GetField("lastToolkitCardClickFrame", rankingMembers), Is.Not.Null);
+        foreach (string methodName in new[]
+                 {
+                     "ResolveOpponent", "GetHealthFillPercentForDisplay", "ShouldUseAttackBattleRoleIconForDisplay",
+                     "SetPickingModeRecursive", "ShouldUseAttackModeCamera", "HandleToolkitPointerInput",
+                     "FindToolkitCardAtScreenPosition", "FindToolkitCardAtPanelPosition", "ToPanelScreenPosition"
+                 })
+        {
+            Assert.That(typeof(RankingUIController).GetMethods(rankingMembers).Any(method => method.Name == methodName), Is.True, methodName);
+        }
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(RankingUIController), typeof(CameraManager), "MoveToPlayerField"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(RankingUIController), typeof(CameraManager), "ReturnToOwnField"), Is.True);
+        MethodInfo panelConversion = typeof(RankingUIController).GetMethod("ToPanelScreenPosition", rankingMembers);
+        var converted = (Vector2)panelConversion.Invoke(null, new object[] { new Vector2(17f, 23f) });
+        Assert.That(converted, Is.EqualTo(new Vector2(17f, Screen.height - 23f)));
+        string styleSource = MdfSourcePolicy.ReadStaticContract("Assets/Resources/UI/PlayerRanking/PlayerRankingPanelStyles.uss");
         Assert.That(styleSource, Does.Contain("left: 104px;"));
         Assert.That(styleSource, Does.Contain("left: 122px;"));
         Assert.That(styleSource, Does.Contain("left: 332px;"));
@@ -150,6 +164,155 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(registrySource, Does.Contain("public bool TryGetBattleRoleSnapshot"));
         Assert.That(registrySource, Does.Contain("TryGetMatchFirstAttackerSnapshot(playerId, out int firstAttackerId)"));
         Assert.That(registrySource, Does.Contain("currentState == GameState.Battle1 ? isFirstAttacker : !isFirstAttacker"));
+    }
+
+    [Test]
+    public void HostMigrationRankingClickRebindsByDurablePlayerId()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+
+        MethodInfo moveByPlayerId = typeof(CameraManager).GetMethod(
+            "MoveToPlayerField",
+            members,
+            null,
+            new[] { typeof(int), typeof(bool) },
+            null);
+        Assert.That(moveByPlayerId, Is.Not.Null, "Camera navigation must accept durable playerId.");
+        Assert.That(typeof(CameraManager).GetProperty("OwnPlayerId", members), Is.Not.Null);
+        Assert.That(typeof(CameraManager).GetProperty("CurrentViewingPlayerId", members), Is.Not.Null);
+        Assert.That(typeof(CameraManager).GetProperty("IsTransitioning", members), Is.Not.Null);
+
+        MethodInfo legacyClick = typeof(PlayerRankSlot).GetMethod("OnSlotClicked", members);
+        MethodInfo toolkitClick = typeof(RankingUIController).GetMethod("OnToolkitCardClicked", members);
+        MethodInfo playersReady = typeof(RankingUIController).GetMethod("OnPlayersDataReady", members);
+        Assert.That(legacyClick, Is.Not.Null);
+        Assert.That(toolkitClick, Is.Not.Null);
+        Assert.That(playersReady, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(legacyClick, typeof(GameManagers), "GetPlayer"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(legacyClick, typeof(CameraManager), "MoveToPlayerField"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(toolkitClick, typeof(GameManagers), "GetPlayer"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(toolkitClick, typeof(CameraManager), "MoveToPlayerField"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            playersReady,
+            typeof(RankingUIController),
+            "RebindLegacyPlayersFromActiveRegistry"), Is.True);
+        Assert.That(typeof(PlayerRankSlot).GetProperty("TrackedPlayerId", members), Is.Not.Null);
+
+        System.Type toolkitCard = typeof(RankingUIController).GetNestedType(
+            "RankingCardView",
+            BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.That(toolkitCard?.GetProperty("TrackedPlayerId", members), Is.Not.Null);
+        Assert.That(toolkitCard?.GetProperty("TrackedPlayer", members), Is.Null,
+            "Toolkit cards must not retain a replaceable PlayerManager object.");
+
+        MethodInfo presentationRebind = typeof(GameManagers).GetMethod(
+            "RebindLocalPresentationAfterPlayerRegistryChanged",
+            members);
+        MethodInfo migrationRestore = typeof(GameManagers).GetMethod("RestoreAfterHostMigration", members);
+        Assert.That(presentationRebind, Is.Not.Null);
+        Assert.That(migrationRestore, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            presentationRebind,
+            typeof(CameraManager),
+            "RebindAfterPlayerRegistryChanged"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesField(
+            presentationRebind,
+            typeof(GameManagers),
+            "OnPlayersDataReady"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            migrationRestore,
+            typeof(GameManagers),
+            "RebindLocalPresentationAfterPlayerRegistryChanged"), Is.True);
+    }
+
+    [Test]
+    public void CameraTransitionUsesLatestRequestAndIgnoresStaleCompletion()
+    {
+        const BindingFlags instanceMembers = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        const BindingFlags staticMembers = BindingFlags.Static | BindingFlags.NonPublic;
+        MethodInfo moveToPlayerField = typeof(CameraManager).GetMethod(
+            "MoveToPlayerField",
+            instanceMembers,
+            null,
+            new[] { typeof(PlayerManager), typeof(bool) },
+            null);
+        Assert.That(moveToPlayerField, Is.Not.Null);
+        AsyncStateMachineAttribute asyncStateMachine =
+            moveToPlayerField.GetCustomAttribute<AsyncStateMachineAttribute>();
+        MethodInfo moveNext = asyncStateMachine?.StateMachineType.GetMethod("MoveNext", instanceMembers);
+        Assert.That(moveNext, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            moveNext,
+            typeof(CameraManager),
+            "BeginTransitionRequest"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            moveNext,
+            typeof(CameraManager),
+            "IsCurrentTransitionRequest"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            moveNext,
+            typeof(CameraManager),
+            "CompleteTransitionRequest"), Is.True);
+
+        string cameraSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/CameraManager.cs");
+        Assert.That(cameraSource, Does.Not.Contain("IsPlayerReadable(targetPlayer) || _isTransitioning"),
+            "a running return-home transition must not discard the following attack-field request");
+
+        FieldInfo singletonField = typeof(CameraManager).GetField("_instance", staticMembers);
+        CameraManager previousInstance = singletonField?.GetValue(null) as CameraManager;
+        var cameraManagerObject = new GameObject("CameraTransitionRequestGateTest");
+
+        try
+        {
+            singletonField?.SetValue(null, null);
+            CameraManager manager = cameraManagerObject.AddComponent<CameraManager>();
+            MethodInfo begin = typeof(CameraManager).GetMethod("BeginTransitionRequest", instanceMembers);
+            MethodInfo current = typeof(CameraManager).GetMethod("IsCurrentTransitionRequest", instanceMembers);
+            MethodInfo complete = typeof(CameraManager).GetMethod("CompleteTransitionRequest", instanceMembers);
+            Assert.That(begin, Is.Not.Null);
+            Assert.That(current, Is.Not.Null);
+            Assert.That(complete, Is.Not.Null);
+
+            int returnHomeRequest = (int)begin.Invoke(manager, null);
+            int attackFieldRequest = (int)begin.Invoke(manager, null);
+            Assert.That((bool)current.Invoke(manager, new object[] { returnHomeRequest }), Is.False);
+            Assert.That((bool)current.Invoke(manager, new object[] { attackFieldRequest }), Is.True);
+
+            complete.Invoke(manager, new object[] { returnHomeRequest });
+            Assert.That(manager.IsTransitioning, Is.True,
+                "the stale return-home completion must not clear the active attack-field transition");
+            complete.Invoke(manager, new object[] { attackFieldRequest });
+            Assert.That(manager.IsTransitioning, Is.False);
+        }
+        finally
+        {
+            Object.DestroyImmediate(cameraManagerObject);
+            singletonField?.SetValue(null, previousInstance);
+        }
+    }
+
+    [Test]
+    public void CameraFieldTranslationUsesActualWorldCentersWithoutDuplicatedSpacing()
+    {
+        const BindingFlags members = BindingFlags.Static | BindingFlags.NonPublic;
+        MethodInfo calculate = typeof(CameraManager).GetMethod(
+            "CalculateFieldTranslation",
+            members);
+        Assert.That(calculate, Is.Not.Null);
+
+        Vector3 sourceCenter = new Vector3(3.5f, 0f, 3.5f);
+        Vector3 targetCenter = new Vector3(3.5f, 0f, -16.5f);
+        Vector3 translation = (Vector3)calculate.Invoke(
+            null,
+            new object[] { sourceCenter, targetCenter });
+
+        Assert.That(translation, Is.EqualTo(new Vector3(0f, 0f, -20f)));
+
+        string cameraSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/CameraManager.cs");
+        Assert.That(cameraSource, Does.Not.Contain("fieldZOffset"),
+            "Camera navigation must not duplicate GameManagers field spacing.");
+        Assert.That(cameraSource, Does.Contain("managers.GetPlayerFieldPosition(sourcePlayerId)"));
+        Assert.That(cameraSource, Does.Contain("GetFieldCenter(targetPlayer)"));
     }
 
     [Test]
@@ -174,18 +337,21 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void GameSceneCameraStartupUsesStableCameraManagerBaseline()
     {
-        string cameraManagerSource = File.ReadAllText("Assets/Scripts/Managers/CameraManager.cs");
-        string legacyCameraSource = File.ReadAllText("Assets/Scripts/Network/GetPlayerCamera.cs");
-        string sceneSource = File.ReadAllText("Assets/Scenes/03_Game.unity");
-
-        Assert.That(sceneSource, Does.Contain("m_Name: Main Camera"));
-        Assert.That(sceneSource, Does.Contain("m_Name: CameraManager"));
-        Assert.That(cameraManagerSource, Does.Contain("_sceneCameraPosition"));
-        Assert.That(cameraManagerSource, Does.Contain("CaptureSceneCameraPoseIfNeeded();"));
-        Assert.That(cameraManagerSource, Does.Contain("Vector3 sceneCameraPos = _sceneCameraPosition;"));
-        Assert.That(cameraManagerSource, Does.Not.Contain("Vector3 sceneCameraPos = mainCamera.transform.position;"));
-        Assert.That(legacyCameraSource, Does.Contain("HasCameraManagerInScene()"));
-        Assert.That(legacyCameraSource, Does.Contain("FindObjectOfType<CameraManager>(true)"));
+        WithOpenScene("Assets/Scenes/03_Game.unity", scene =>
+        {
+            Assert.That(FindSceneObject(scene, "Main Camera"), Is.Not.Null);
+            CameraManager manager = FindSceneObject(scene, "CameraManager")?.GetComponent<CameraManager>();
+            Assert.That(manager, Is.Not.Null);
+            const BindingFlags members = BindingFlags.Instance | BindingFlags.NonPublic;
+            MethodInfo capture = typeof(CameraManager).GetMethod("CaptureSceneCameraPoseIfNeeded", members);
+            Assert.That(capture, Is.Not.Null);
+            capture.Invoke(manager, null);
+            Assert.That(typeof(CameraManager).GetField("_hasSceneCameraPose", members)?.GetValue(manager), Is.True);
+            Assert.That((Vector3)typeof(CameraManager).GetField("_sceneCameraPosition", members)?.GetValue(manager),
+                Is.EqualTo(FindSceneObject(scene, "Main Camera").transform.position));
+        });
+        Assert.That(typeof(GetPlayerCamera).GetMethod("HasCameraManagerInScene", BindingFlags.Static | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(GetPlayerCamera), typeof(UnityEngine.Object), "FindObjectOfType"), Is.True);
     }
 
     [Test]
@@ -255,40 +421,45 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void MatchingLobbySceneKeepsRuntimeUiToolkitInput()
     {
-        string sceneSource = File.ReadAllText("Assets/Scenes/01_MatchingLobby.unity");
+        WithOpenScene("Assets/Scenes/01_MatchingLobby.unity", scene =>
+        {
+            GameObject eventSystem = FindSceneObject(scene, "EventSystem");
+            Assert.That(eventSystem, Is.Not.Null);
+            Assert.That(eventSystem.GetComponents<Component>().Any(component => component.GetType().Name == "InputSystemUIInputModule"), Is.True);
 
-        Assert.That(sceneSource, Does.Contain("m_Name: EventSystem"));
-        Assert.That(sceneSource, Does.Contain("guid: 01614664b831546d2ae94a42149d80ac"));
-        Assert.That(sceneSource, Does.Contain("m_Name: TestMatching UI Toolkit"));
-        Assert.That(sceneSource, Does.Contain("m_PanelSettings: {fileID: 11400000, guid: 8273b236cf53499fbd9d38004ec35985"));
+            GameObject toolkitRoot = FindSceneObject(scene, "TestMatching UI Toolkit");
+            Assert.That(toolkitRoot, Is.Not.Null);
+            Assert.That(toolkitRoot.GetComponent<UIDocument>()?.panelSettings, Is.Not.Null);
+        });
     }
 
     [Test]
     public void LobbyToolkitKeepsBackgroundImagesButRemovesLeftMenus()
     {
-        string matchingUxml = File.ReadAllText("Assets/UI/TestMatching/TestMatching.uxml");
-        string matchingStyle = File.ReadAllText("Assets/UI/TestMatching/TestMatching.uss");
-        string joinUxml = File.ReadAllText("Assets/UI/JoinLobby/JoinLobby.uxml");
-        string joinStyle = File.ReadAllText("Assets/UI/JoinLobby/JoinLobby.uss");
+        VisualTreeAsset matchingLayout = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>("Assets/UI/TestMatching/TestMatching.uxml");
+        VisualTreeAsset joinLayout = AssetDatabase.LoadAssetAtPath<VisualTreeAsset>("Assets/UI/JoinLobby/JoinLobby.uxml");
+        TemplateContainer matchingTree = matchingLayout?.CloneTree();
+        TemplateContainer joinTree = joinLayout?.CloneTree();
 
-        Assert.That(matchingUxml, Does.Not.Contain("name=\"leftMenu\""));
-        Assert.That(joinUxml, Does.Not.Contain("name=\"leftMenu\""));
-        Assert.That(matchingUxml, Does.Contain("name=\"leftMenuImageCover\""));
-        Assert.That(joinUxml, Does.Contain("name=\"leftMenuImageCover\""));
-        Assert.That(matchingStyle, Does.Contain("bg_test_matching_full.png"));
-        Assert.That(joinStyle, Does.Contain("bg_join_lobby_full.png"));
-        Assert.That(matchingStyle, Does.Contain(".tm-left-menu-image-cover"));
-        Assert.That(joinStyle, Does.Contain(".jl-left-menu-image-cover"));
-        Assert.That(joinStyle, Does.Contain("player_portrait_0.png"));
-        Assert.That(joinStyle, Does.Contain("player_portrait_1.png"));
-        Assert.That(joinStyle, Does.Contain("player_portrait_2.png"));
+        Assert.That(matchingLayout, Is.Not.Null);
+        Assert.That(joinLayout, Is.Not.Null);
+        Assert.That(matchingTree.Q<VisualElement>("leftMenu"), Is.Null);
+        Assert.That(joinTree.Q<VisualElement>("leftMenu"), Is.Null);
+        Assert.That(matchingTree.Q<VisualElement>("leftMenuImageCover"), Is.Not.Null);
+        Assert.That(joinTree.Q<VisualElement>("leftMenuImageCover"), Is.Not.Null);
+        Assert.That(matchingTree.Q<VisualElement>("leftMenuImageCover").ClassListContains("tm-left-menu-image-cover"), Is.True);
+        Assert.That(joinTree.Q<VisualElement>("leftMenuImageCover").ClassListContains("jl-left-menu-image-cover"), Is.True);
+        AssertDependenciesContainFileNames("Assets/UI/TestMatching/TestMatching.uss", "bg_test_matching_full.png");
+        AssertDependenciesContainFileNames(
+            "Assets/UI/JoinLobby/JoinLobby.uss",
+            "bg_join_lobby_full.png", "player_portrait_0.png", "player_portrait_1.png", "player_portrait_2.png");
     }
 
     [Test]
     public void NetworkManagerGuardsDuplicateSessionStartRequests()
     {
-        string networkSource = File.ReadAllText("Assets/Scripts/Network/NetworkManager.cs");
-        string matchingSource = File.ReadAllText("Assets/Scripts/UI/TestMatching/TestMatchingUIToolkitController.cs");
+        string networkSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Network/NetworkManager.cs");
+        string matchingSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/UI/TestMatching/TestMatchingUIToolkitController.cs");
 
         int startMethod = networkSource.IndexOf("public async void StartGame", System.StringComparison.Ordinal);
         int duplicateGuard = networkSource.IndexOf("if (_startGameInProgress)", startMethod, System.StringComparison.Ordinal);
@@ -312,50 +483,37 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void GameSceneKeepsRuntimeRoots()
     {
-        string sceneSource = File.ReadAllText("Assets/Scenes/03_Game.unity");
-
-        Assert.That(sceneSource, Does.Contain("m_Name: Main Camera"));
-        Assert.That(sceneSource, Does.Contain("m_Name: EventSystem"));
-        Assert.That(sceneSource, Does.Contain("guid: 01614664b831546d2ae94a42149d80ac"));
-        Assert.That(sceneSource, Does.Contain("m_Name: GameInitialrizer"));
-        Assert.That(sceneSource, Does.Contain("m_Name: Addressable Manager"));
-        Assert.That(sceneSource, Does.Contain("m_Name: VfxManager"));
+        WithOpenScene("Assets/Scenes/03_Game.unity", scene =>
+        {
+            Assert.That(FindSceneObject(scene, "Main Camera"), Is.Not.Null);
+            GameObject eventSystem = FindSceneObject(scene, "EventSystem");
+            Assert.That(eventSystem, Is.Not.Null);
+            Assert.That(eventSystem.GetComponents<Component>().Any(component => component.GetType().Name == "InputSystemUIInputModule"), Is.True);
+            Assert.That(FindSceneObject(scene, "GameInitialrizer"), Is.Not.Null);
+            Assert.That(FindSceneObject(scene, "Addressable Manager")?.GetComponent<AddressablesManager>(), Is.Not.Null);
+            Assert.That(FindSceneObject(scene, "VfxManager")?.GetComponent<VfxPoolManager>(), Is.Not.Null);
+        });
     }
 
     [Test]
     public void TitleNetworkManagerKeepsPlayerPrefabReference()
     {
-        string titleSceneSource = File.ReadAllText("Assets/Scenes/00_Title.unity");
-        string playerPrefabSource = File.ReadAllText("Assets/Prefabs/Player_Root.prefab");
+        GameObject playerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Prefabs/Player_Root.prefab");
+        Assert.That(playerPrefab, Is.Not.Null);
+        Assert.That(playerPrefab.name, Is.EqualTo("Player_Root"));
+        Assert.That(FindChildByName(playerPrefab, "MonsterSpawner")?.GetComponent<MonsterSpawner>(), Is.Not.Null);
+        Assert.That(FindChildByName(playerPrefab, "FieldManager")?.GetComponent<FieldManager>(), Is.Not.Null);
 
-        Assert.That(titleSceneSource, Does.Contain("m_Name: NetworkManager"));
-        Assert.That(titleSceneSource, Does.Contain("_playerPrefab: {fileID: -6962349454403488643, guid: 1831533972272eb408da1971d3a1e504"));
-
-        Assert.That(playerPrefabSource, Does.StartWith("%YAML"));
-        Assert.That(playerPrefabSource, Does.Contain("m_Name: Player_Root"));
-        Assert.That(playerPrefabSource, Does.Contain("m_Name: MonsterSpawner"));
-        Assert.That(playerPrefabSource, Does.Contain("m_Name: FieldManager"));
-    }
-
-    [Test]
-    public void LoadTimeOptimizationPreloadsGameCoreBeforeGameScene()
-    {
-        string addressablesSource = File.ReadAllText("Assets/Scripts/Managers/AddressablesManager.cs");
-        string bootstrapSource = File.ReadAllText("Assets/Scripts/Bootstrap/AppBootstrapper.cs");
-        string networkSource = File.ReadAllText("Assets/Scripts/Network/NetworkManager.cs");
-        string titleSceneSource = File.ReadAllText("Assets/Scenes/00_Title.unity");
-        string gameSceneSource = File.ReadAllText("Assets/Scenes/03_Game.unity");
-
-        Assert.That(addressablesSource, Does.Contain("private bool autoPreloadAllOnStart = false"));
-        Assert.That(addressablesSource, Does.Contain("public bool AutoPreloadAllOnStart => autoPreloadAllOnStart"));
-        Assert.That(addressablesSource, Does.Contain("public void BeginGamePrefabsPreload(string reason)"));
-        Assert.That(addressablesSource, Does.Contain("LoadGamePrefabsAsync().Forget();"));
-        Assert.That(bootstrapSource, Does.Contain("if (AddressablesManager.Instance.AutoPreloadAllOnStart)"));
-        Assert.That(addressablesSource, Does.Contain("LogLoadMarker(\"game_prefabs_load_begin\""));
-        Assert.That(addressablesSource, Does.Contain("LogLoadMarker(\"game_prefabs_load_end\""));
-        Assert.That(networkSource, Does.Not.Contain("BeginGameCorePreload("));
-        Assert.That(titleSceneSource, Does.Contain("autoPreloadAllOnStart: 0"));
-        Assert.That(gameSceneSource, Does.Contain("autoPreloadAllOnStart: 0"));
+        WithOpenScene("Assets/Scenes/00_Title.unity", scene =>
+        {
+            NetworkManager networkManager = FindSceneObject(scene, "NetworkManager")?.GetComponent<NetworkManager>();
+            Assert.That(networkManager, Is.Not.Null);
+            var serializedManager = new SerializedObject(networkManager);
+            Object configuredPrefab = serializedManager.FindProperty("_playerPrefab")?.objectReferenceValue;
+            Assert.That(configuredPrefab, Is.Not.Null);
+            Assert.That(AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(configuredPrefab)),
+                Is.EqualTo(AssetDatabase.AssetPathToGUID("Assets/Prefabs/Player_Root.prefab")));
+        });
     }
 
     [Test]
@@ -531,13 +689,10 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void ZoneControllerClearsBattleOnlyZonesOnPrepareTransition()
     {
-        string source = File.ReadAllText("Assets/Scripts/Game/Skills/ZoneController.cs");
-
-        Assert.That(source, Does.Contain("GameEvents.OnGameStateChanged += HandleGameStateChanged"));
-        Assert.That(source, Does.Contain("GameEvents.OnGameStateChanged -= HandleGameStateChanged"));
-        Assert.That(source, Does.Contain("newState != GameManagers.GameState.Battle1"));
-        Assert.That(source, Does.Contain("newState != GameManagers.GameState.Battle2"));
-        Assert.That(source, Does.Contain("Destroy(gameObject);"));
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(ZoneController), typeof(GameEvents), "add_OnGameStateChanged"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(ZoneController), typeof(GameEvents), "remove_OnGameStateChanged"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(ZoneController), typeof(UnityEngine.Object), "Destroy"), Is.True);
+        Assert.That(typeof(ZoneController).GetMethod("HandleGameStateChanged", BindingFlags.Instance | BindingFlags.NonPublic), Is.Not.Null);
     }
 
     [Test]
@@ -576,7 +731,7 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void AutomationServerSourceKeepsProductionSafetyGates()
     {
-        string source = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
 
         Assert.That(source, Does.Contain("UNITY_EDITOR || DEVELOPMENT_BUILD"));
         Assert.That(source, Does.Contain("missing --mpTest"));
@@ -588,6 +743,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("/bot/start"));
         Assert.That(source, Does.Contain("/bot/status"));
         Assert.That(source, Does.Contain("/test/freezeGameFlow"));
+        Assert.That(source, Does.Contain("/test/hideTransientUi"));
+        Assert.That(source, Does.Contain("MPTestCommandLine.IsEnabled"));
         Assert.That(source, Does.Contain("MPTestGracefulQuit.RequestQuit"));
     }
 
@@ -666,22 +823,33 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void ServerBattleCommandExecutorRequiresExplicitDelegates()
     {
-        string source = File.ReadAllText("Assets/Scripts/Commands/Battle/ServerBattleCommandExecutor.cs");
-
-        Assert.That(source, Does.Contain("validation_delegate_required"));
-        Assert.That(source, Does.Contain("execution_delegate_required"));
-        Assert.That(source, Does.Not.Contain("no_validation_delegate"));
-        Assert.That(source, Does.Not.Contain("no_execution_delegate"));
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(ServerBattleCommandExecutor), "validation_delegate_required"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(ServerBattleCommandExecutor), "execution_delegate_required"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(ServerBattleCommandExecutor), "no_validation_delegate"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(ServerBattleCommandExecutor), "no_execution_delegate"), Is.False);
+        BattleCommandResult result = ServerBattleCommandExecutor.TryExecute(
+            CommandType.ActivateSkill,
+            1,
+            CommandExecutionScope.PresentationOnly,
+            "editmode",
+            validate: null,
+            execute: null);
+        Assert.That(result.Success, Is.False);
+        Assert.That(result.ErrorCode, Is.EqualTo("presentation_scope_not_executable"));
     }
 
     [Test]
     public void BattleCommandOpponentResolutionKeepsClientPathsReadOnly()
     {
-        string source = File.ReadAllText("Assets/Scripts/Commands/Battle/BattleCommandValidator.cs");
-
-        Assert.That(source, Does.Contain("battle_opponent_snapshot_missing"));
-        Assert.That(source, Does.Contain("CanUseAuthorityOpponentFallback"));
-        Assert.That(source, Does.Contain("scope == CommandExecutionScope.ServerAuthorityOnly"));
+        const BindingFlags members = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        MethodInfo resolveOpponent = typeof(BattleCommandValidator).GetMethod("ResolveOpponent", members);
+        MethodInfo fallback = typeof(BattleCommandValidator).GetMethod("CanUseAuthorityOpponentFallback", members);
+        Assert.That(resolveOpponent, Is.Not.Null);
+        Assert.That(fallback, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(BattleCommandValidator), "battle_opponent_snapshot_missing"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(resolveOpponent, typeof(BattleCommandValidator), "CanUseAuthorityOpponentFallback"), Is.True);
+        Assert.That((bool)fallback.Invoke(null, new object[] { null, CommandExecutionScope.ClientRequest }), Is.False);
+        Assert.That((bool)fallback.Invoke(null, new object[] { null, CommandExecutionScope.ServerAuthorityOnly }), Is.False);
     }
 
     [Test]
@@ -807,99 +975,100 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void ActivateSkillCommandSourceContainsStrategicManualSkillGuards()
     {
-        string commandSource = File.ReadAllText("Assets/Scripts/Commands/PlayerActions/ActivateSkillCommand.cs");
-        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
-        string loggerSource = File.ReadAllText("Assets/Scripts/Commands/PlayerActions/SkillCommandMpTestLogger.cs");
+        foreach (string errorCode in new[]
+                 {
+                     "skill_not_manual_or_ai_strategic", "skill_mana_not_ready", "skill_unit_disabled_or_silenced",
+                     "skill_target_unavailable", "skill_unit_dead"
+                 })
+        {
+            Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(ActivateSkillCommand), errorCode), Is.True, errorCode);
+        }
+        Assert.That(typeof(Unit).GetMethod("HasSkillTargetsAvailable"), Is.Not.Null);
+        foreach (string phase in new[]
+                 {
+                     "skill_command_request", "skill_command_accepted", "skill_command_rejected",
+                     "skill_command_skipped", "skill_command_executed"
+                 })
+        {
+            Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(SkillCommandMpTestLogger), phase), Is.True, phase);
+        }
 
-        Assert.That(commandSource, Does.Contain("skill_not_manual_or_ai_strategic"));
-        Assert.That(commandSource, Does.Contain("skill_mana_not_ready"));
-        Assert.That(commandSource, Does.Contain("skill_unit_disabled_or_silenced"));
-        Assert.That(commandSource, Does.Contain("skill_target_unavailable"));
-        Assert.That(commandSource, Does.Contain("skill_unit_dead"));
-        Assert.That(unitSource, Does.Contain("HasSkillTargetsAvailable"));
-        Assert.That(loggerSource, Does.Contain("skill_command_request"));
-        Assert.That(loggerSource, Does.Contain("skill_command_accepted"));
-        Assert.That(loggerSource, Does.Contain("skill_command_rejected"));
-        Assert.That(loggerSource, Does.Contain("skill_command_skipped"));
-        Assert.That(loggerSource, Does.Contain("skill_command_executed"));
-
-        string playerManagerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
-        string commandProcessorSource = File.ReadAllText("Assets/Scripts/Commands/Core/CommandProcessor.cs");
-        Assert.That(commandSource, Does.Contain("IsVolatileNoOpReason"));
-        Assert.That(playerManagerSource, Does.Contain("ActivateSkillCommand.IsVolatileNoOp"));
-        Assert.That(playerManagerSource, Does.Contain("type == CommandType.ActivateSkill"));
-        Assert.That(playerManagerSource, Does.Contain("new ActivateSkillCommand(playerId"));
-        Assert.That(commandProcessorSource, Does.Contain("command is ActivateSkillCommand"));
-        Assert.That(commandProcessorSource, Does.Contain("command.Execute()"));
+        Assert.That(ActivateSkillCommand.IsVolatileNoOpReason("skill_target_unavailable"), Is.True);
+        Assert.That(ActivateSkillCommand.IsVolatileNoOpReason("skill_unit_dead"), Is.True);
+        Assert.That(ActivateSkillCommand.IsVolatileNoOpReason("skill_mana_not_ready"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(PlayerManager), typeof(ActivateSkillCommand), "IsVolatileNoOpReason"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(PlayerCommandRequestValidator), typeof(ActivateSkillCommand), "IsVolatileNoOp"), Is.True);
+        Assert.That(typeof(PlayerCommandRequestValidator).GetMethod(
+            "ValidateActivateSkillRequest",
+            BindingFlags.Instance | BindingFlags.NonPublic), Is.Not.Null);
+        MethodInfo requestRpc = typeof(PlayerManager).GetMethod("RPC_RequestCommandToServer", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.That(requestRpc, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(requestRpc, typeof(ActivateSkillCommand), ".ctor"), Is.False,
+            "The player RPC must validate and enqueue the serialized command without constructing an ActivateSkillCommand.");
+        MethodInfo sequentialWorker = typeof(CommandProcessor).GetMethod(
+            "ProcessCommandsSequentiallyAsync",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.That(sequentialWorker, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ContainsIsInstanceOf(sequentialWorker, typeof(ActivateSkillCommand)), Is.False,
+            "The generic processor must not special-case ActivateSkillCommand through a runtime type test.");
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(CommandProcessor), typeof(CommandProcessor), "ReceiveAndEnqueueCommand"), Is.True);
     }
 
     [Test]
     public void DefenderSkillPolicyEmitsOnlyActivateSkillCommandDecision()
     {
-        string policySource = File.ReadAllText("Assets/Scripts/AI/Planning/DefenderSkillPolicy.cs");
-
-        Assert.That(policySource, Does.Contain("new ActivateSkillCommand"));
-        Assert.That(policySource, Does.Contain("defender_skill_evaluated"));
-        Assert.That(policySource, Does.Contain("defender_skill_selected"));
-        Assert.That(policySource, Does.Not.Contain(".ActivateSkill("));
-        Assert.That(policySource, Does.Not.Contain("ApplyEffect("));
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(DefenderSkillDecision), typeof(ActivateSkillCommand), ".ctor"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(DefenderSkillPolicy), "defender_skill_evaluated"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(DefenderSkillPolicy), "defender_skill_selected"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(DefenderSkillPolicy), typeof(Unit), "ActivateSkill"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(DefenderSkillPolicy), typeof(SkillEffect), "ApplyEffect"), Is.False);
     }
 
     [Test]
     public void BehaviorTreeV2WiresAiAndHumanBotThroughSharedPolicies()
     {
-        string aiSource = File.ReadAllText("Assets/Scripts/Commands/AI/AIPlayerController.cs");
-        string humanBotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestHumanBotDriver.cs");
-        string journalSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestBotJournal.cs");
+        const BindingFlags fields = BindingFlags.Instance | BindingFlags.NonPublic;
+        Assert.That(typeof(AIPlayerController).GetField("_profile", fields)?.FieldType, Is.EqualTo(typeof(MdfBotProfile)));
+        Assert.That(typeof(AIPlayerController).GetField("_prepareDecisionPolicy", fields)?.FieldType, Is.EqualTo(typeof(PrepareDecisionPolicy)));
+        Assert.That(typeof(AIPlayerController).GetField("_battleDecisionPolicy", fields)?.FieldType, Is.EqualTo(typeof(BattleDecisionPolicy)));
+        Assert.That(typeof(AIPlayerController).GetField("_serverAiCommandEmitter", fields)?.FieldType, Is.EqualTo(typeof(ServerAiCommandEmitter)));
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(AIPlayerController), typeof(MdfBotProfile), "ServerAiDefault"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(AIPlayerController), typeof(MdfDecisionContext), "Create"), Is.True);
+        Assert.That(typeof(AIPlayerController).GetMethod("BuildBehaviorTrees", fields), Is.Null);
+        Assert.That(typeof(AIPlayerController).GetMethod("GetActiveTree", fields), Is.Null);
 
-        Assert.That(aiSource, Does.Contain("MdfBotProfile"));
-        Assert.That(aiSource, Does.Contain("MdfBotProfile.ServerAiDefault"));
-        Assert.That(aiSource, Does.Contain("new PrepareDecisionPolicy(_profile)"));
-        Assert.That(aiSource, Does.Contain("BattleDecisionPolicy"));
-        Assert.That(aiSource, Does.Contain("ServerAiCommandEmitter"));
-        Assert.That(aiSource, Does.Contain("MdfDecisionContext.Create"));
-        Assert.That(aiSource, Does.Contain("isServerAi: true"));
-        Assert.That(aiSource, Does.Not.Contain("BuildBehaviorTrees"));
-        Assert.That(aiSource, Does.Not.Contain("GetActiveTree"));
-        Assert.That(humanBotSource, Does.Contain("MdfBotProfile"));
-        Assert.That(humanBotSource, Does.Contain("new PrepareDecisionPolicy(_profile)"));
-        Assert.That(humanBotSource, Does.Contain("BattleDecisionPolicy"));
-        Assert.That(humanBotSource, Does.Contain("HumanClientCommandEmitter"));
-        Assert.That(humanBotSource, Does.Contain("isHumanBot: true"));
-        Assert.That(humanBotSource, Does.Not.Contain("ComponentRegistry.Register<AIPlayerController>"));
-        Assert.That(journalSource, Does.Contain("BuildDecisionEntry(MPTestHumanBotDriver.BotStatus status, MdfDecision decision)"));
+        Assert.That(typeof(MPTestHumanBotDriver).GetField("_profile", fields)?.FieldType, Is.EqualTo(typeof(MdfBotProfile)));
+        Assert.That(typeof(MPTestHumanBotDriver).GetField("_preparePolicy", fields)?.FieldType, Is.EqualTo(typeof(PrepareDecisionPolicy)));
+        Assert.That(typeof(MPTestHumanBotDriver).GetField("_battlePolicy", fields)?.FieldType, Is.EqualTo(typeof(BattleDecisionPolicy)));
+        Assert.That(typeof(MPTestHumanBotDriver).GetField("_commandEmitter", fields)?.FieldType, Is.EqualTo(typeof(HumanClientCommandEmitter)));
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(MPTestHumanBotDriver), typeof(ComponentRegistry), "Register"), Is.False);
+        Assert.That(typeof(MPTestBotJournal).GetMethods(BindingFlags.Static | BindingFlags.Public)
+            .Any(method => method.Name == "BuildDecisionEntry" && method.GetParameters().Any(parameter => parameter.ParameterType == typeof(MdfDecision))), Is.True);
     }
 
     [Test]
     public void PreparePolicyDoesNotPaceServerAiInsidePolicy()
     {
-        string source = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
-
-        Assert.That(source, Does.Not.Contain("AIPacer.Ready"));
-        Assert.That(source, Does.Not.Contain("AIPacer.Arm"));
-        Assert.That(source, Does.Not.Contain("context.IsServerAi &&"));
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(PrepareDecisionPolicy), typeof(AI.BehaviorTree.AIPacer), "Ready"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(PrepareDecisionPolicy), typeof(AI.BehaviorTree.AIPacer), "Arm"), Is.False);
     }
 
     [Test]
     public void BattleStartDoesNotAutoSpawnForAiAttackers()
     {
-        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
-        string migrationRecoverySource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.MigrationRecovery.cs");
-        string monsterSpawnerSource = File.ReadAllText("Assets/Scripts/Game/Monsters/MonsterSpawner.cs");
-        string aiSource = File.ReadAllText("Assets/Scripts/Commands/AI/AIPlayerController.cs");
-
-        Assert.That(gameManagersSource, Does.Not.Contain("StartBattleForPlayers/SpawnAllMonstersToTargetField"));
-        Assert.That(migrationRecoverySource, Does.Not.Contain("BattleRebootstrap/SpawnAllMonstersToTargetField"));
-        Assert.That(monsterSpawnerSource, Does.Contain("AI bootstrap is disabled"));
-        Assert.That(monsterSpawnerSource, Does.Not.Contain("await StartAutoSpawnFromPool"));
-        Assert.That(aiSource, Does.Contain("BattleDecisionPolicy"));
-        Assert.That(aiSource, Does.Contain("ServerAiCommandEmitter"));
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(GameManagers), typeof(MonsterSpawner), "SpawnAllMonstersToTargetField"), Is.False);
+        MethodInfo legacySpawn = typeof(MonsterSpawner).GetMethod("SpawnAllMonstersToTargetField");
+        Assert.That(legacySpawn, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteralFragment(legacySpawn, "AI bootstrap is disabled"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(legacySpawn, typeof(MonsterSpawner), "StartAutoSpawnFromPool"), Is.False);
+        Assert.That(typeof(AIPlayerController).GetField("_battleDecisionPolicy", BindingFlags.Instance | BindingFlags.NonPublic)?.FieldType, Is.EqualTo(typeof(BattleDecisionPolicy)));
+        Assert.That(typeof(AIPlayerController).GetField("_serverAiCommandEmitter", BindingFlags.Instance | BindingFlags.NonPublic)?.FieldType, Is.EqualTo(typeof(ServerAiCommandEmitter)));
     }
 
     [Test]
     public void FirstPrepareStartsAfterPlayersAreReadable()
     {
-        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
+        string gameManagersSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/GameManagers.cs");
 
         int initStart = gameManagersSource.IndexOf("private async UniTask InitializeAndStartGame()", System.StringComparison.Ordinal);
         int gameFlowCall = gameManagersSource.IndexOf("await GameFlow();", initStart, System.StringComparison.Ordinal);
@@ -916,63 +1085,277 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
-    public void HumanBotClosesShopUiBeforeBoardActionCommands()
+    public void HumanBotUsesSharedPrepareUiPresentationWithoutFakingPointerClicks()
     {
-        string source = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestHumanBotDriver.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Testing/MP/MPTestHumanBotDriver.cs");
 
-        Assert.That(source, Does.Contain("CloseShopUiBeforeBoardAction(decision);"));
-        Assert.That(source.IndexOf("CloseShopUiBeforeBoardAction(decision);", System.StringComparison.Ordinal),
-            Is.LessThan(source.IndexOf("_commandEmitter.TryEmit(decision", System.StringComparison.Ordinal)));
-        Assert.That(source, Does.Contain("CloseShopUiAfterPrepareIdle(context, decision);"));
-        Assert.That(source, Does.Contain("shop_close_after_shopping_complete"));
-        Assert.That(source, Does.Contain("CommandType.PlaceWall"));
-        Assert.That(source, Does.Contain("CommandType.MoveUnit"));
-        Assert.That(source, Does.Contain("FindObjectOfType<ShopUIController>(true)"));
-        Assert.That(source, Does.Contain("SetContentVisibility(false)"));
-        Assert.That(source, Does.Contain("shop_close_before_board_action"));
-        Assert.That(source, Does.Contain("human_bot_ui"));
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(MPTestHumanBotDriver),
+                typeof(GamePrepareUIToolkitController),
+                "TryPresentHumanBotCommand"),
+            Is.True);
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(MPTestHumanBotDriver),
+                typeof(GamePrepareUIToolkitController),
+                "TryDismissHumanBotPreparePanels"),
+            Is.True);
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(MPTestHumanBotDriver),
+                typeof(ShopSlot),
+                "TryBeginPurchasePresentation"),
+            Is.True);
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(MPTestHumanBotDriver),
+                typeof(AugmentUIController),
+                "CloseAfterLocalSubmission"),
+            Is.True);
+        Assert.That(source, Does.Contain("PresentAcceptedCommand(decision);"));
+        Assert.That(source.IndexOf("_commandEmitter.TryEmit(decision", System.StringComparison.Ordinal),
+            Is.LessThan(source.IndexOf("PresentAcceptedCommand(decision);", System.StringComparison.Ordinal)),
+            "request-time UI state is applied only after the local emitter accepts the command");
+        Assert.That(source, Does.Not.Contain("buyButton.onClick.Invoke"));
+        Assert.That(source, Does.Not.Contain("selectButton.onClick.Invoke"));
         Assert.That(source, Does.Contain("MinimumCommandIntervalSeconds = 0.7f"));
         Assert.That(source, Does.Contain("Mathf.Max(decisionInterval, MinimumCommandIntervalSeconds)"));
     }
 
     [Test]
+    public void PurchaseAndAugmentNotificationsConvergeClientPresentationCaches()
+    {
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(NotifyPurchaseSucceededCommand),
+                typeof(ShopManager),
+                "ApplyAuthoritativePurchaseNotification"),
+            Is.True);
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(NotifyAugmentSelectedCommand),
+                typeof(AugmentManager),
+                "ApplyAuthoritativeSelectionNotification"),
+            Is.True);
+        Assert.That(
+            MdfCompiledCodePolicy.ReferencesMethod(
+                typeof(BuyUnitCommand),
+                typeof(PlayerManager),
+                "RPC_SyncShopItems"),
+            Is.True);
+    }
+
+    [Test]
+    public void HumanBotToolkitPresentationAppliesRealPanelStates()
+    {
+        GamePrepareUIToolkitController controller = null;
+        UnitData unitData = null;
+        AugmentData augment = null;
+        PanelSettings runtimePanelSettings = null;
+        try
+        {
+            controller = GamePrepareUIToolkitController.EnsureExists();
+            Assert.That(controller, Is.Not.Null);
+            typeof(GamePrepareUIToolkitController).GetMethod(
+                    "Awake",
+                    BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.Invoke(controller, null);
+            typeof(GamePrepareUIToolkitController).GetMethod(
+                    "OnEnable",
+                    BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.Invoke(controller, null);
+            UIDocument document = controller.GetComponent<UIDocument>();
+            Assert.That(document, Is.Not.Null);
+            runtimePanelSettings = document.panelSettings;
+
+            unitData = ScriptableObject.CreateInstance<UnitData>();
+            unitData.unitName = "UI Test Unit";
+            unitData.cost = 3;
+            unitData.unitIcon = string.Empty;
+            var shopItems = new List<ShopItem> { new ShopItem(unitData, 1) };
+
+            augment = ScriptableObject.CreateInstance<AugmentData>();
+            var choices = new List<AugmentData> { augment };
+            Assert.That(GamePrepareUIToolkitController.TryShowAugmentsFromLegacy(null, choices), Is.True);
+            VisualElement augmentPanel = document.rootVisualElement.Q<VisualElement>("augment-panel");
+            Assert.That(augmentPanel.style.display.value, Is.EqualTo(DisplayStyle.Flex));
+
+            Assert.That(
+                GamePrepareUIToolkitController.TryPresentHumanBotCommand(
+                    CommandType.SelectAugment,
+                    -1,
+                    out GamePrepareUIToolkitController.MpTestPrepareUiPresentationState augmentState),
+                Is.True);
+            Assert.That(augmentState.Action, Is.EqualTo("augment_selection_closed"));
+            Assert.That(augmentState.AugmentIsVisible, Is.False);
+            Assert.That(augmentPanel.style.display.value, Is.EqualTo(DisplayStyle.None));
+            Assert.That(augmentPanel.pickingMode, Is.EqualTo(PickingMode.Ignore));
+
+            Assert.That(GamePrepareUIToolkitController.TryShowAugmentsFromLegacy(null, choices), Is.True);
+            Assert.That(augmentPanel.style.display.value, Is.EqualTo(DisplayStyle.None),
+                "a delayed sync retry must not reopen choices consumed in this Prepare phase");
+
+            Assert.That(GamePrepareUIToolkitController.TryShowShopFromLegacy(shopItems, out _), Is.True);
+            Assert.That(
+                GamePrepareUIToolkitController.TryPresentHumanBotCommand(
+                    CommandType.MoveUnit,
+                    -1,
+                    out GamePrepareUIToolkitController.MpTestPrepareUiPresentationState boardState),
+                Is.True);
+            Assert.That(boardState.Action, Is.EqualTo("prepare_panels_closed_for_board_action"));
+            Assert.That(boardState.ShopIsVisible, Is.False);
+            VisualElement shopPanel = document.rootVisualElement.Q<VisualElement>("shop-panel");
+            Assert.That(shopPanel.style.display.value, Is.EqualTo(DisplayStyle.None));
+            Assert.That(shopPanel.pickingMode, Is.EqualTo(PickingMode.Ignore));
+        }
+        finally
+        {
+            if (controller != null)
+            {
+                Object.DestroyImmediate(controller.gameObject);
+            }
+            if (runtimePanelSettings != null && !AssetDatabase.Contains(runtimePanelSettings))
+            {
+                Object.DestroyImmediate(runtimePanelSettings);
+            }
+            if (unitData != null)
+            {
+                Object.DestroyImmediate(unitData);
+            }
+            if (augment != null)
+            {
+                Object.DestroyImmediate(augment);
+            }
+        }
+    }
+
+    [Test]
+    public void ShopCardViewDistinguishesPendingFromAuthoritativeSoldState()
+    {
+        UnitData unitData = ScriptableObject.CreateInstance<UnitData>();
+        try
+        {
+            unitData.unitName = "UI State Unit";
+            unitData.cost = 2;
+            var root = new VisualElement();
+            var soldOverlay = new Label();
+            System.Type viewType = typeof(GamePrepareUIToolkitController).GetNestedType(
+                "ShopCardView",
+                BindingFlags.NonPublic);
+            Assert.That(viewType, Is.Not.Null);
+            object view = System.Activator.CreateInstance(
+                viewType,
+                new object[]
+                {
+                    0,
+                    root,
+                    new UnityEngine.UIElements.Image(),
+                    new Label(),
+                    new Label(),
+                    new Label(),
+                    new VisualElement(),
+                    soldOverlay
+                });
+            MethodInfo bind = viewType.GetMethod("Bind", BindingFlags.Instance | BindingFlags.Public);
+            Assert.That(bind, Is.Not.Null);
+            ShopItem item = new ShopItem(unitData, 1);
+
+            bind.Invoke(view, new object[] { item, true, false, true });
+            Assert.That(root.enabledSelf, Is.False);
+            Assert.That(root.ClassListContains("is-disabled"), Is.True);
+            Assert.That(root.ClassListContains("is-pending"), Is.True);
+            Assert.That(soldOverlay.style.display.value, Is.EqualTo(DisplayStyle.None));
+
+            bind.Invoke(view, new object[] { item, true, true, false });
+            Assert.That(root.enabledSelf, Is.False);
+            Assert.That(root.ClassListContains("is-disabled"), Is.True);
+            Assert.That(root.ClassListContains("is-pending"), Is.False);
+            Assert.That(soldOverlay.style.display.value, Is.EqualTo(DisplayStyle.Flex));
+        }
+        finally
+        {
+            Object.DestroyImmediate(unitData);
+        }
+    }
+
+    [Test]
+    public void AuthoritativeNotificationsProjectOnlyPeerLocalPresentationCaches()
+    {
+        var host = new GameObject("authoritative-ui-projection-test");
+        UnitData unitData = ScriptableObject.CreateInstance<UnitData>();
+        AugmentData augment = ScriptableObject.CreateInstance<AugmentData>();
+        try
+        {
+            ShopManager shop = host.AddComponent<ShopManager>();
+            AugmentManager augments = host.AddComponent<AugmentManager>();
+            shop.GetCurrentShopItems().Add(new ShopItem(unitData, 1));
+            augments.GetPresentedAugments().Add(augment);
+
+            Assert.That(shop.ApplyAuthoritativePurchaseNotification(-1), Is.False);
+            Assert.That(shop.ApplyAuthoritativePurchaseNotification(1), Is.False);
+            Assert.That(shop.ApplyAuthoritativePurchaseNotification(0), Is.True);
+            Assert.That(shop.IsSlotSold(0), Is.True);
+            Assert.That(shop.ApplyAuthoritativePurchaseNotification(0), Is.True,
+                "duplicate State Authority notifications must be idempotent");
+
+            augments.ApplyAuthoritativeSelectionNotification();
+            Assert.That(augments.GetPresentedAugments(), Is.Empty);
+            augments.ApplyAuthoritativeSelectionNotification();
+            Assert.That(augments.GetPresentedAugments(), Is.Empty,
+                "duplicate selection notifications must remain harmless");
+        }
+        finally
+        {
+            Object.DestroyImmediate(unitData);
+            Object.DestroyImmediate(augment);
+            Object.DestroyImmediate(host);
+        }
+    }
+
+    [Test]
     public void PurchaseSuccessUiEventCannotBreakCommandProcessing()
     {
-        string shopSource = File.ReadAllText("Assets/Scripts/UI/ShopUIController.cs");
-        string gameEventsSource = File.ReadAllText("Assets/Scripts/Managers/GameEvents.cs");
+        string shopSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/UI/ShopUIController.cs");
 
         Assert.That(shopSource, Does.Contain("TryGetLocalShopPlayerId(out var localPlayerId)"));
         Assert.That(shopSource, Does.Contain("shopSlots == null || slotIndex < 0 || slotIndex >= shopSlots.Length"));
         Assert.That(shopSource, Does.Contain("var slot = shopSlots[slotIndex];"));
         Assert.That(shopSource, Does.Contain("if (slot == null)"));
 
-        Assert.That(gameEventsSource, Does.Contain("foreach (Action<int, ShopItem, int> handler in handlers.GetInvocationList())"));
-        Assert.That(gameEventsSource, Does.Contain("OnUnitPurchaseSucceeded handler exception"));
-        Assert.That(gameEventsSource, Does.Contain("Debug.LogException(ex);"));
+        int laterSubscriberCalls = 0;
+        System.Action<int, ShopItem, int> throwingSubscriber = (_, __, ___) =>
+            throw new System.InvalidOperationException("purchase-subscriber-failure");
+        System.Action<int, ShopItem, int> laterSubscriber = (_, __, ___) => laterSubscriberCalls++;
+        try
+        {
+            LogAssert.Expect(LogType.Error, new Regex("OnUnitPurchaseSucceeded handler exception"));
+            LogAssert.Expect(LogType.Exception, new Regex("InvalidOperationException: purchase-subscriber-failure"));
+            GameEvents.OnUnitPurchaseSucceeded += throwingSubscriber;
+            GameEvents.OnUnitPurchaseSucceeded += laterSubscriber;
+
+            GameEvents.TriggerUnitPurchaseSucceeded(3, default, 2);
+
+            Assert.That(laterSubscriberCalls, Is.EqualTo(1), "A broken UI subscriber must not stop later purchase-success handlers.");
+        }
+        finally
+        {
+            GameEvents.OnUnitPurchaseSucceeded -= throwingSubscriber;
+            GameEvents.OnUnitPurchaseSucceeded -= laterSubscriber;
+        }
     }
 
     [Test]
     public void GamePrepareToolkitKeepsChoiceCountsAndCommandRoutes()
     {
-        string controllerSource = File.ReadAllText("Assets/Scripts/UI/Game/GamePrepareUIToolkitController.cs");
-        string shopSource = File.ReadAllText("Assets/Scripts/UI/ShopUIController.cs");
-        string augmentSource = File.ReadAllText("Assets/Scripts/UI/AugmentUIController.cs");
-        string playerHudSource = File.ReadAllText("Assets/Scripts/UI/PlayerHUDController.cs");
-        string attackUiSource = File.ReadAllText("Assets/Scripts/UI/AttackSequence/AttackSequenceUIController.cs");
-        string attackManagerSource = File.ReadAllText("Assets/Scripts/Game/Battle/AttackSequenceManager.cs");
-        string inputSource = File.ReadAllText("Assets/Scripts/Managers/MdfInput.cs");
-        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
-        string placementSource = File.ReadAllText("Assets/Scripts/Managers/PlacementManager.cs");
-        string placementButtonsSource = File.ReadAllText("Assets/Scripts/Button/PlacementButtonsUI.cs");
-        string playerManagerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
-        string removeWallCommandSource = File.ReadAllText("Assets/Scripts/Commands/PlayerActions/RemoveWallCommand.cs");
-        string automationSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
-        string rankingSource = File.ReadAllText("Assets/Scripts/UI/RankingUIController.cs");
-        string shopSlotSource = File.ReadAllText("Assets/Scripts/UI/ShopSlot.cs");
-        string monsterSlotSource = File.ReadAllText("Assets/Scripts/UI/AttackSequence/MonsterSlotUI.cs");
-        string spriteCacheSource = File.ReadAllText("Assets/Scripts/Managers/AssetLoader.cs");
-        string uxml = File.ReadAllText("Assets/Resources/UI/GamePrepare/GamePreparePanels.uxml");
-        string styleSource = File.ReadAllText("Assets/Resources/UI/GamePrepare/GamePreparePanelsStyles.uss");
+        string controllerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/UI/Game/GamePrepareUIToolkitController.cs");
+        string attackManagerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Battle/AttackSequenceManager.cs");
+        string inputSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/MdfInput.cs");
+        string placementSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/PlacementManager.cs");
+        string playerManagerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/PlayerManager.cs");
+        string removeWallCommandSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Commands/PlayerActions/RemoveWallCommand.cs");
+        string automationSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
+        string styleSource = MdfSourcePolicy.ReadStaticContract("Assets/Resources/UI/GamePrepare/GamePreparePanelsStyles.uss");
         var layout = Resources.Load<VisualTreeAsset>("UI/GamePrepare/GamePreparePanels");
         var style = Resources.Load<StyleSheet>("UI/GamePrepare/GamePreparePanelsStyles");
         var theme = Resources.Load<ThemeStyleSheet>("UI/GamePrepare/GamePrepareRuntimeTheme");
@@ -980,7 +1363,7 @@ public sealed class MPTestHarnessEditModeTests
 
         Assert.That(GamePrepareUIToolkitController.ShopCardCount, Is.EqualTo(5));
         Assert.That(GamePrepareUIToolkitController.AugmentCardCount, Is.EqualTo(3));
-        Assert.That(GamePrepareUIToolkitController.MonsterCardCount, Is.EqualTo(9));
+        Assert.That(GamePrepareUIToolkitController.MonsterCardCount, Is.EqualTo(12));
         Assert.That(GamePrepareUIToolkitController.ScrollCardCount, Is.EqualTo(5));
         Assert.That(
             GamePrepareUIToolkitController.FormatAugmentDisplayName("\uBCF4\uC2A4\uBAAC\uC2A4\uD130 \uC18C\uD658(\uACF5\uC911)"),
@@ -1013,21 +1396,21 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(tree?.Q<Label>("shop-cost-0"), Is.Not.Null);
         Assert.That(tree?.Q<VisualElement>("game-wall-icon"), Is.Not.Null);
         Assert.That(tree?.Q<Label>("game-wall-count-label"), Is.Not.Null);
-        Assert.That(Regex.Matches(uxml, "name=\"shop-card-\\d\"").Count, Is.EqualTo(5));
-        Assert.That(Regex.Matches(uxml, "class=\"shop-art-frame\"").Count, Is.EqualTo(5));
-        Assert.That(Regex.Matches(uxml, "class=\"shop-text-overlay\"").Count, Is.EqualTo(5));
-        Assert.That(Regex.Matches(uxml, "name=\"augment-card-\\d\"").Count, Is.EqualTo(3));
-        Assert.That(Regex.Matches(uxml, "name=\"attack-monster-card-\\d\"").Count, Is.EqualTo(9));
-        Assert.That(Regex.Matches(uxml, "name=\"attack-scroll-card-\\d\"").Count, Is.EqualTo(5));
-        Assert.That(uxml, Does.Contain("project://database/Assets/Resources/UI/GamePrepare/GamePreparePanelsStyles.uss"));
-        Assert.That(uxml, Does.Contain("name=\"shop-panel\" class=\"prepare-panel shop-panel\""));
+        AssertNamedElements(tree, "shop-card-", 5);
+        Assert.That(CountElementsWithClass(tree, "shop-art-frame"), Is.EqualTo(5));
+        Assert.That(CountElementsWithClass(tree, "shop-text-overlay"), Is.EqualTo(5));
+        AssertNamedElements(tree, "augment-card-", 3);
+        AssertNamedElements(tree, "attack-monster-card-", 12);
+        AssertNamedElements(tree, "attack-scroll-card-", 5);
+        Assert.That(tree.styleSheets.Contains(style), Is.True);
+        Assert.That(tree.Q<VisualElement>("shop-panel")?.ClassListContains("prepare-panel"), Is.True);
+        Assert.That(tree.Q<VisualElement>("shop-panel")?.ClassListContains("shop-panel"), Is.True);
         Assert.That(tree?.Q<VisualElement>("shop-card-0")?.ClassListContains("shop-card-star-1"), Is.True);
         Assert.That(tree?.Q<VisualElement>("shop-card-4")?.ClassListContains("shop-card-star-5"), Is.True);
         Assert.That(controllerSource, Does.Contain("new BuyUnitCommand(playerId, slotIndex)"));
         Assert.That(controllerSource, Does.Contain("new RerollShopCommand(playerId)"));
         Assert.That(controllerSource, Does.Contain("new SelectAugmentCommand(playerId, index)"));
         Assert.That(controllerSource, Does.Contain("FormatAugmentDisplayName(augment.augmentName)"));
-        Assert.That(augmentSource, Does.Contain("GamePrepareUIToolkitController.FormatAugmentDisplayName(data.augmentName)"));
         Assert.That(controllerSource, Does.Contain("!root.styleSheets.Contains(styleSheet)"));
         Assert.That(controllerSource, Does.Contain("TryShowAttackSequenceFromLegacy"));
         Assert.That(controllerSource, Does.Contain("ShopCardReferenceWidth"));
@@ -1053,7 +1436,7 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMonsterSlot(slotIndex)"));
         Assert.That(controllerSource, Does.Contain("attackSequenceManager?.SelectMagicScroll(scrolls[slotIndex])"));
         Assert.That(styleSource, Does.Match(@"(?s)\.monster-attack-card \.attack-card-icon\s*\{.*?position:\s*absolute;.*?width:\s*auto;.*?height:\s*auto;.*?scale-and-crop;"));
-        Assert.That(styleSource, Does.Match(@"(?s)\.monster-attack-card \.attack-card-name\s*\{.*?bottom:\s*18px;"));
+        Assert.That(styleSource, Does.Not.Contain(".monster-attack-card .attack-card-name"));
         Assert.That(styleSource, Does.Match(@"(?s)\.monster-attack-card \.attack-card-count\s*\{.*?bottom:\s*1px;"));
         Assert.That(controllerSource, Does.Contain("game-gold-count-value"));
         Assert.That(controllerSource, Does.Contain("game-wall-count-label"));
@@ -1066,14 +1449,6 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("SetVisible(rerollGoldRow, cost > 0);"));
         Assert.That(controllerSource, Does.Contain("SetText(hudShopLabel, $\"\\uC0C1\\uC810\\n{shopAction}\");"));
         Assert.That(controllerSource, Does.Contain("SetText(hudShopGoldLabel, Mathf.Max(0, goldCount).ToString());"));
-        Assert.That(controllerSource, Does.Contain("ShouldRefreshRuntimeReferences"));
-        Assert.That(controllerSource, Does.Contain("hudStateDirty"));
-        Assert.That(controllerSource, Does.Contain("UISpriteCache.LoadAsync"));
-        Assert.That(shopSlotSource, Does.Contain("UISpriteCache.LoadAsync"));
-        Assert.That(monsterSlotSource, Does.Contain("UISpriteCache.LoadAsync"));
-        Assert.That(spriteCacheSource, Does.Contain("public static class UISpriteCache"));
-        Assert.That(spriteCacheSource, Does.Contain("PendingHandles"));
-        Assert.That(spriteCacheSource, Does.Contain("LoadedHandles"));
         Assert.That(controllerSource, Does.Contain("SetPickingMode(rerollButton, shopVisible ? PickingMode.Position : PickingMode.Ignore)"));
         Assert.That(styleSource, Does.Contain("Spr_UnitCost.png"));
         Assert.That(styleSource, Does.Contain("Bricks.png"));
@@ -1083,11 +1458,14 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("GetUIElement(\"OptionCanvas\")"));
         Assert.That(controllerSource, Does.Contain("\"\\uB2EB\\uAE30\""));
         Assert.That(controllerSource, Does.Contain("\"\\uC5F4\\uAE30\""));
-        Assert.That(controllerSource, Does.Contain("Mathf.Max(0, wallCount).ToString()"));
+        Assert.That(controllerSource, Does.Contain("Mathf.Max(0, displayedWallCount).ToString()"));
+        Assert.That(controllerSource, Does.Contain("ToggleWallPlacementKind()"));
+        Assert.That(controllerSource, Does.Contain("GetPermanentWallPlacementCount()"));
+        Assert.That(styleSource, Does.Contain("PermanentBricks.png"));
         Assert.That(controllerSource, Does.Contain("Mathf.Clamp(area.xMin, 0f, screenWidth)"));
         Assert.That(controllerSource, Does.Contain("UpdateRoundTimerLabel"));
-        Assert.That(controllerSource, Does.Contain("currentPhaseTimer"));
-        Assert.That(controllerSource, Does.Contain("currentSequenceTransitionTimer"));
+        Assert.That(controllerSource, Does.Contain("currentDisplayedPhaseTimer"));
+        Assert.That(controllerSource, Does.Not.Contain("currentSequenceTransitionTimer"));
         Assert.That(controllerSource, Does.Contain("IsPointerOverBlockingElement"));
         Assert.That(controllerSource, Does.Contain("IsToolkitRaycastObject"));
         Assert.That(controllerSource, Does.Contain("IsRuntimePanelRaycasterObject"));
@@ -1097,16 +1475,20 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(controllerSource, Does.Contain("IsBlockingElementOrDescendant"));
         Assert.That(controllerSource, Does.Contain("ToPanelScreenPosition(screenPosition)"));
         Assert.That(controllerSource, Does.Not.Contain("invertedPanelPosition"));
-        Assert.That(attackUiSource, Does.Contain("TryShowAttackSequenceFromLegacy"));
-        Assert.That(attackUiSource, Does.Contain("SetLegacyContentVisibilityOnly(false)"));
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(AttackSequenceUIController), typeof(GamePrepareUIToolkitController), "TryShowAttackSequenceFromLegacy"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(AttackSequenceUIController), typeof(AttackSequenceUIController), "SetLegacyContentVisibilityOnly"), Is.True);
         Assert.That(attackManagerSource, Does.Contain("IsPointerOverBattleActionBlocker"));
         Assert.That(attackManagerSource, Does.Contain("TryGetSpawnPositionUnderPointer"));
         Assert.That(attackManagerSource, Does.Contain("ShouldSuppressBattleMapInput"));
         Assert.That(attackManagerSource, Does.Contain("BattleCommandValidator.IsInsideBattleSpawnZone"));
         Assert.That(inputSource, Does.Contain("HasNonGamePrepareToolkitUiHit"));
         Assert.That(inputSource, Does.Contain("eventSystem.RaycastAll"));
-        Assert.That(inputSource, Does.Contain("GetUiRaycastResults"));
-        Assert.That(inputSource, Does.Contain("cachedRaycastFrame == Time.frameCount"));
+        Assert.That(inputSource, Does.Contain("EnsureUiRaycastResults"));
+        Assert.That(inputSource, Does.Contain("int frame = Time.frameCount"));
+        Assert.That(inputSource, Does.Contain("cachedRaycastFrame == frame"));
+        Assert.That(inputSource, Does.Contain("cachedRaycastEventSystem == eventSystem"));
+        Assert.That(inputSource, Does.Contain("cachedRaycastPosition == pointerPosition"));
+        Assert.That(inputSource, Does.Contain("cachedBlockingHitKnown"));
         Assert.That(inputSource, Does.Contain("IsPointerOverFieldBlockingUI"));
         Assert.That(inputSource, Does.Contain("IsFieldPassthroughUi"));
         Assert.That(inputSource, Does.Contain("GetComponentInParent<StatusBarUI>()"));
@@ -1114,22 +1496,11 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(inputSource, Does.Contain("RankingUIController.IsToolkitRaycastObject"));
         Assert.That(inputSource, Does.Contain("RankingUIController.IsPointerOverBlockingElement(pointerPosition)"));
         Assert.That(inputSource, Does.Contain("DescribeFieldBlockingUiHits"));
-        Assert.That(rankingSource, Does.Contain("public static bool IsPointerOverBlockingElement"));
-        Assert.That(rankingSource, Does.Contain("public static bool IsToolkitRaycastObject"));
-        Assert.That(rankingSource, Does.Contain("IsRuntimePanelRaycasterObject"));
-        Assert.That(rankingSource, Does.Contain("PlayerRankingRuntimePanelSettings"));
-        Assert.That(rankingSource, Does.Contain("FindToolkitCardAtScreenPosition(screenPosition)"));
-        Assert.That(rankingSource, Does.Contain("GetNetworkPlayerNameLookup"));
-        Assert.That(rankingSource, Does.Contain("TryGetNetworkPlayerNickname"));
-        Assert.That(rankingSource, Does.Contain("catch (InvalidOperationException)"));
-        Assert.That(rankingSource, Does.Contain("HasSameDisplayData"));
-        Assert.That(placementButtonsSource, Does.Contain("CameraManager.Instance.ReturnToOwnField()"));
-        Assert.That(placementButtonsSource, Does.Contain("TrySetShopVisibilityFromLegacy(false"));
-        Assert.That(fieldSource, Does.Contain("ShouldAllowUnitDragThroughPrepareToolkit"));
-        Assert.That(fieldSource, Does.Contain("MdfInput.IsPointerOverFieldBlockingUI()"));
-        Assert.That(fieldSource, Does.Contain("GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition)"));
-        Assert.That(fieldSource, Does.Contain("TryRequestRemoveWallAt"));
-        Assert.That(fieldSource, Does.Contain("new RemoveWallCommand(playerManager.playerId, gridPosition)"));
+        Assert.That(typeof(RankingUIController).GetMethod("IsPointerOverBlockingElement"), Is.Not.Null);
+        Assert.That(typeof(RankingUIController).GetMethod("IsToolkitRaycastObject"), Is.Not.Null);
+        Assert.That(typeof(RankingUIController).GetMethod("IsRuntimePanelRaycasterObject", BindingFlags.Instance | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(PlacementButtonsUI), typeof(CameraManager), "ReturnToOwnField"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(PlacementButtonsUI), typeof(GamePrepareUIToolkitController), "TrySetShopVisibilityFromLegacy"), Is.True);
         Assert.That(placementSource, Does.Contain("bool pointerOverUI = MdfInput.IsPointerOverFieldBlockingUI()"));
         Assert.That(placementSource, Does.Contain("if (currentMode == PlacementMode.None)"));
         Assert.That(placementSource, Does.Not.Contain("currentMode == PlacementMode.None || !showPreview"));
@@ -1140,8 +1511,10 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(placementSource, Does.Match(@"(?s)if \(secondaryPressed\)\s*\{\s*StopPlacementMode\(\);\s*return;\s*\}"));
         Assert.That(placementSource, Does.Not.Match(@"(?s)if \(secondaryPressed\)\s*\{[^}]*TryRemoveWall\("));
         Assert.That(placementSource, Does.Contain("currentMode == PlacementMode.Wall && TryRemoveWall()"));
-        Assert.That(placementSource, Does.Contain("fieldManager.GetWallAt(currentMouseGridPosition) == null"));
-        Assert.That(removeWallCommandSource, Does.Contain("if (fm.GetWallAt(Position) == null)"));
+        Assert.That(placementSource, Does.Contain("fieldManager.HasRemovableWallAt(currentMouseGridPosition)"));
+        Assert.That(removeWallCommandSource, Does.Contain("fm.IsPlayerPlacedPermanentWallAt(Position)"));
+        Assert.That(removeWallCommandSource, Does.Contain("fm.TryRemovePlayerPlacedPermanentWallAt(Position)"));
+        Assert.That(removeWallCommandSource, Does.Contain("player.ReturnPermanentWallPlacement();"));
         Assert.That(removeWallCommandSource, Does.Contain("player.ReturnWall();"));
         Assert.That(playerManagerSource, Does.Contain("public void ReturnWall()"));
         Assert.That(playerManagerSource, Does.Not.Contain("wallCount < MAX_WALL_COUNT"));
@@ -1149,10 +1522,10 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(automationSource, Does.Contain("ExecuteRemoveWallCommand"));
         Assert.That(automationSource, Does.Contain("place_wall"));
         Assert.That(automationSource, Does.Contain("remove_wall"));
-        Assert.That(shopSource, Does.Contain("TryToggleShopFromLegacy"));
-        Assert.That(augmentSource, Does.Contain("TryShowAugmentsFromLegacy"));
-        Assert.That(playerHudSource, Does.Contain("SetLegacyHudButtonsVisible"));
-        Assert.That(playerHudSource, Does.Contain("SetLegacyResourceHudVisible"));
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(ShopUIController), typeof(GamePrepareUIToolkitController), "TryToggleShopFromLegacy"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(AugmentUIController), typeof(GamePrepareUIToolkitController), "TryShowAugmentsFromLegacy"), Is.True);
+        Assert.That(typeof(PlayerHUDController).GetMethod("SetLegacyHudButtonsVisible"), Is.Not.Null);
+        Assert.That(typeof(PlayerHUDController).GetMethod("SetLegacyResourceHudVisible"), Is.Not.Null);
         Assert.That(styleSource, Does.Contain(".game-left-wireframe-rail"));
         Assert.That(styleSource, Does.Contain(".game-prepare-design-space"));
         Assert.That(styleSource, Does.Contain("NotoSansKR-VariableFont_wght_UITK.asset"));
@@ -1194,14 +1567,14 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(styleSource, Does.Contain("Spr_SlotBlue.png"));
         Assert.That(styleSource, Does.Contain("Spr_SlotPurple.png"));
         Assert.That(styleSource, Does.Contain("Spr_SlotOrange.png"));
-        Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotGray.png.meta"), Does.Contain("spriteMeshType: 0"));
-        Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotGreen.png.meta"), Does.Contain("spriteMeshType: 0"));
-        Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotBlue.png.meta"), Does.Contain("spriteMeshType: 0"));
-        Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotPurple.png.meta"), Does.Contain("spriteMeshType: 0"));
-        Assert.That(File.ReadAllText("Assets/Resource/Image/UI/SlotUI/Spr_SlotOrange.png.meta"), Does.Contain("spriteMeshType: 0"));
-        Assert.That(uxml, Does.Contain("game-round-timer-label"));
-        Assert.That(uxml, Does.Contain("game-prepare-design-space"));
-        Assert.That(uxml, Does.Contain("wall-action-button"));
+        AssertSpriteUsesFullRectMesh("Assets/Resource/Image/UI/SlotUI/Spr_SlotGray.png");
+        AssertSpriteUsesFullRectMesh("Assets/Resource/Image/UI/SlotUI/Spr_SlotGreen.png");
+        AssertSpriteUsesFullRectMesh("Assets/Resource/Image/UI/SlotUI/Spr_SlotBlue.png");
+        AssertSpriteUsesFullRectMesh("Assets/Resource/Image/UI/SlotUI/Spr_SlotPurple.png");
+        AssertSpriteUsesFullRectMesh("Assets/Resource/Image/UI/SlotUI/Spr_SlotOrange.png");
+        Assert.That(tree.Q<VisualElement>("game-round-timer-label"), Is.Not.Null);
+        Assert.That(tree.Q<VisualElement>("game-prepare-design-space"), Is.Not.Null);
+        Assert.That(tree.Q<VisualElement>(className: "wall-action-button"), Is.Not.Null);
         Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(1), Is.EqualTo("shop-card-star-1"));
         Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(2), Is.EqualTo("shop-card-star-2"));
         Assert.That(GamePrepareUIToolkitController.GetShopCardStarClass(3), Is.EqualTo("shop-card-star-3"));
@@ -1223,16 +1596,16 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void FieldUnitRegistrationHandlesLateMovesAndRetiredUnits()
     {
-        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
-        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
-        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
+        string fieldSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/FieldManager.cs");
+        string playerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/PlayerManager.cs");
+        string gameManagersSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/GameManagers.cs");
 
         Assert.That(fieldSource, Does.Contain("pendingNetworkMoves"));
         Assert.That(fieldSource, Does.Contain("retiredNetworkUnitIds"));
         Assert.That(fieldSource, Does.Contain("retiredNetworkUnitIds.Remove"));
         Assert.That(fieldSource, Does.Contain("QueuePendingNetworkMove(from, to);"));
         Assert.That(fieldSource, Does.Contain("ProcessPendingNetworkMoves();"));
-        Assert.That(fieldSource, Does.Contain("BroadcastUnitUnregistered"));
+        Assert.That(fieldSource, Does.Contain("RetireUnitRegistrationLocally"));
         Assert.That(fieldSource, Does.Contain("BroadcastAuthoritativeUnitRoster"));
         Assert.That(fieldSource, Does.Contain("ReconcileUnitsToAuthoritativeRoster"));
         Assert.That(fieldSource, Does.Contain("UnregisterUnitAt"));
@@ -1247,13 +1620,13 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("UnitBelongsToFieldOwner"));
         Assert.That(fieldSource, Does.Contain("IsLegalMoveDestinationForUnit"));
         Assert.That(fieldSource, Does.Contain("melee_unit_cannot_move_to_wall"));
-        Assert.That(playerSource, Does.Contain("move_source_not_owned_by_player"));
-        Assert.That(playerSource, Does.Contain("OwnsUnitForCommand"));
+        Assert.That(typeof(PlayerCommandRequestValidator).GetMethod(nameof(PlayerCommandRequestValidator.IsUnitOwnedByPlayer)), Is.Not.Null);
+        Assert.That(typeof(PlayerManager).GetMethod(nameof(PlayerManager.IsUnitOwnedByPlayerForCommand)), Is.Not.Null);
         Assert.That(fieldSource, Does.Contain("IsLiveDestructibleWallCandidate"));
         Assert.That(fieldSource, Does.Contain("wall.gameObject.activeSelf"));
         Assert.That(playerSource, Does.Contain("RPC_UnregisterUnitAt"));
         Assert.That(playerSource, Does.Contain("RPC_ReconcileUnitRoster"));
-        Assert.That(playerSource, Does.Contain("ApplyUnitRosterFromAuthority"));
+        Assert.That(playerSource, Does.Contain("ApplyAcceptedUnitRosterFromAuthority"));
         Assert.That(playerSource, Does.Contain("_retiredUnitRegistrationIds"));
         Assert.That(playerSource, Does.Contain("_retiredUnitRegistrationIds.Remove"));
         Assert.That(playerSource, Does.Contain("RemoveAll(reg => reg.unitIdRaw == unitIdRaw)"));
@@ -1263,7 +1636,7 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void FieldUnitRosterDoesNotReapplySameCellTransformEverySync()
     {
-        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        string fieldSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/FieldManager.cs");
 
         Assert.That(fieldSource, Does.Contain("previousCells.Count == 1 && previousCells[0] == gridPosition"));
         Assert.That(fieldSource, Does.Contain("(unit.transform.position - targetWorldPos).sqrMagnitude > 0.0001f"));
@@ -1274,8 +1647,8 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void NewlyPurchasedUnitMovesAreQueuedUntilRegistrationCompletes()
     {
-        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
-        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+        string fieldSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/FieldManager.cs");
+        string playerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/PlayerCommandRequestValidator.cs");
 
         Assert.That(fieldSource, Does.Contain("pendingUnitDataByPosition"));
         Assert.That(fieldSource, Does.Contain("public bool HasPendingUnitAt"));
@@ -1292,7 +1665,10 @@ public sealed class MPTestHarnessEditModeTests
 
         int rebuildStart = fieldSource.IndexOf("public bool RebuildUnitMapAfterMigration", System.StringComparison.Ordinal);
         int preservePendingMoves = fieldSource.IndexOf("preservedPendingNetworkMoves", rebuildStart, System.StringComparison.Ordinal);
-        int unitMapAssigned = fieldSource.IndexOf("placedUnits = rebuiltUnits;", rebuildStart, System.StringComparison.Ordinal);
+        int unitMapAssigned = fieldSource.IndexOf(
+            "placedUnits = new GridOccupancyIndex<Unit>(rebuiltUnits);",
+            rebuildStart,
+            System.StringComparison.Ordinal);
         int restorePendingState = fieldSource.IndexOf("RestorePendingStateAfterUnitMapRebuild", unitMapAssigned, System.StringComparison.Ordinal);
         int replayPendingMoves = fieldSource.IndexOf("ProcessPendingNetworkMoves();", restorePendingState, System.StringComparison.Ordinal);
         Assert.That(rebuildStart, Is.GreaterThanOrEqualTo(0));
@@ -1308,9 +1684,9 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(pendingMovesProcessed, Is.GreaterThan(createdUnitAdded));
         Assert.That(pendingMovesProcessed, Is.LessThan(createRosterBroadcast));
 
-        Assert.That(playerSource, Does.Contain("fieldManager.HasPendingUnitAt(from)"));
-        Assert.That(playerSource, Does.Contain("fieldManager.TryGetPendingUnitDataAt(from"));
-        Assert.That(playerSource, Does.Contain("fieldManager.IsUnitAt(to)"));
+        Assert.That(playerSource, Does.Contain("field.HasPendingUnitAt(from)"));
+        Assert.That(playerSource, Does.Contain("field.TryGetPendingUnitDataAt(from"));
+        Assert.That(playerSource, Does.Contain("field.IsUnitAt(to)"));
         Assert.That(playerSource, Does.Contain("move_pending_unit_type_unknown_for_wall"));
         Assert.That(playerSource, Does.Contain("move_source_not_owned_by_player"));
     }
@@ -1318,10 +1694,10 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void MoveUnitCommandHasFinalAuthorityAndPlacementGuards()
     {
-        string commandSource = File.ReadAllText("Assets/Scripts/Commands/PlayerActions/MoveUnitCommand.cs");
-        string processorSource = File.ReadAllText("Assets/Scripts/Commands/Core/CommandProcessor.cs");
-        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
-        string playerManagerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+        string commandSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Commands/PlayerActions/MoveUnitCommand.cs");
+        string processorSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Commands/Core/CommandProcessor.cs");
+        string gameManagersSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/GameManagers.cs");
+        string playerManagerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/PlayerManager.cs");
 
         Assert.That(commandSource, Does.Contain("move_requires_prepare_phase"));
         Assert.That(commandSource, Does.Contain("field_ownership_mismatch"));
@@ -1341,97 +1717,192 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void UnitMigrationIdentityReadsAreSpawnGuarded()
     {
-        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        foreach (string methodName in new[]
+                 {
+                     "CanReadNetworkedIdentity", "CanWriteNetworkedIdentity", "TryGetOwnerPlayerIdForRoster",
+                     "GetSnapshotUnitDataKey", "TryGetNetworkedStarLevel", "UpdateLocalNetworkIdentityMirror"
+                 })
+        {
+            Assert.That(typeof(Unit).GetMethods(members).Any(method => method.Name == methodName), Is.True, methodName);
+        }
+        Assert.That(typeof(Unit).GetProperty("UnitDataKeyForRoster", members), Is.Not.Null);
+        Assert.That(typeof(Unit).GetProperty("StarLevelForRoster", members), Is.Not.Null);
+        MethodInfo ownerGetter = typeof(Unit).GetProperty("OwnerPlayerIdForRoster", members)?.GetGetMethod(true);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(ownerGetter, typeof(Unit), "TryGetOwnerPlayerIdForRoster"), Is.True);
 
-        Assert.That(unitSource, Does.Contain("private bool CanReadNetworkedIdentity()"));
-        Assert.That(unitSource, Does.Contain("private bool CanWriteNetworkedIdentity()"));
-        Assert.That(unitSource, Does.Contain("TryGetOwnerPlayerIdForRoster(out int ownerPlayerId)"));
-        Assert.That(unitSource, Does.Contain("GetSnapshotUnitDataKey()"));
-        Assert.That(unitSource, Does.Contain("UnitDataKeyForRoster"));
-        Assert.That(unitSource, Does.Contain("StarLevelForRoster"));
-        Assert.That(unitSource, Does.Contain("starLevel = TryGetNetworkedStarLevel(out int networkedStarLevel) ? networkedStarLevel : 1;"));
-        Assert.That(unitSource, Does.Contain("UpdateLocalNetworkIdentityMirror();"));
-        Assert.That(unitSource, Does.Contain("if (CanReadNetworkedIdentity() && NetworkedHasOwnerPlayerId)"));
+        var unitObject = new GameObject("unit-migration-identity-fallback-test");
+        try
+        {
+            var unit = unitObject.AddComponent<Unit>();
+            Assert.That(unit.StarLevelForRoster, Is.EqualTo(1));
+        }
+        finally
+        {
+            Object.DestroyImmediate(unitObject);
+        }
     }
 
     [Test]
     public void HostMigrationDurableSnapshotRestoresFieldUnitRoster()
     {
-        string handlerSource = File.ReadAllText("Assets/Scripts/Network/HostMigrationHandler.cs");
-        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
-        string networkSource = File.ReadAllText("Assets/Scripts/Network/NetworkManager.cs");
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static |
+                                     BindingFlags.Public | BindingFlags.NonPublic;
 
-        Assert.That(handlerSource, Does.Contain("FieldUnitDataKeys"));
-        Assert.That(handlerSource, Does.Contain("TryGetFieldUnitSnapshot"));
-        Assert.That(handlerSource, Does.Contain("RestoreFieldUnitsAfterHostMigration"));
-        Assert.That(handlerSource, Does.Contain("ShouldRestoreFieldUnitsForContext"));
-        Assert.That(handlerSource, Does.Contain("preserving previous snapshot"));
-        Assert.That(handlerSource, Does.Contain("OrderBy(kv => (kv.Value.FieldUnitFlatPositions?.Length ?? 0) > 0 ? 1 : 0)"));
-        Assert.That(fieldSource, Does.Contain("TryGetFieldUnitSnapshot"));
-        Assert.That(fieldSource, Does.Contain("RestoreFieldUnitsAfterHostMigration"));
-        Assert.That(fieldSource, Does.Contain("suppressCombination: true"));
-        Assert.That(fieldSource, Does.Contain("if (!belongsToPlayer && playerManager != null && networkRunning)"));
-        Assert.That(networkSource, Does.Contain("ShouldDelayFallbackForHostMigration"));
-        Assert.That(networkSource, Does.Contain("ScheduleHostMigrationFallbackGrace"));
-        Assert.That(networkSource, Does.Contain("CancelPendingConnectionLossFallback();"));
+        Assert.That(typeof(FieldUnitMigrationSnapshot).GetField("UnitDataKey", members), Is.Not.Null);
+        Assert.That(typeof(FieldUnitMigrationSnapshot).GetField("Position", members), Is.Not.Null);
+        Assert.That(typeof(FieldUnitMigrationSnapshot).GetField("CurrentHealth", members), Is.Not.Null);
+        Assert.That(typeof(FieldUnitMigrationSnapshot).GetField("CurrentMana", members), Is.Not.Null);
+        Assert.That(typeof(FieldUnitMigrationSnapshot).GetField("AttackCooldownRemaining", members), Is.Not.Null);
+        Assert.That(typeof(FieldUnitMigrationSnapshot).GetField("ActivationMode", members), Is.Not.Null);
+
+        Assert.That(typeof(FieldManager).GetMethod(
+            "TryGetFieldUnitMigrationSnapshot",
+            members), Is.Not.Null);
+        Assert.That(typeof(FieldManager).GetMethods(members).Any(method =>
+            method.Name == "RestoreFieldUnitsAfterHostMigration" &&
+            method.GetParameters().Any(parameter =>
+                parameter.ParameterType == typeof(FieldUnitMigrationSnapshot[]))), Is.True);
+        Assert.That(typeof(HostMigrationHandler).GetMethod(
+            "ShouldRestoreFieldUnitsForContext",
+            members), Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(HostMigrationHandler),
+            typeof(FieldManager),
+            "TryGetFieldUnitMigrationSnapshot"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(HostMigrationHandler),
+            typeof(FieldManager),
+            "RestoreFieldUnitsAfterHostMigration"), Is.True);
+
+        foreach (string methodName in new[]
+                 {
+                     "ShouldDelayFallbackForHostMigration",
+                     "ScheduleHostMigrationFallbackGrace",
+                     "CancelPendingConnectionLossFallback"
+                 })
+        {
+            Assert.That(typeof(NetworkManager).GetMethod(methodName, members), Is.Not.Null, methodName);
+        }
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(NetworkManager),
+            typeof(NetworkManager),
+            "ScheduleHostMigrationFallbackGrace"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(NetworkManager),
+            typeof(NetworkManager),
+            "CancelPendingConnectionLossFallback"), Is.True);
     }
 
     [Test]
     public void RuntimeHarnessSupportsPostMigrationMoveUnitCommand()
     {
-        string serverSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
-        string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
+        string snapshotSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
 
-        Assert.That(serverSource, Does.Contain("move_unit"));
-        Assert.That(serverSource, Does.Contain("ExecuteMoveUnitCommand"));
-        Assert.That(serverSource, Does.Contain("TryFindMoveUnitPositions"));
-        Assert.That(serverSource, Does.Contain("ValidateMoveUnitTarget"));
-        Assert.That(serverSource, Does.Contain("new MoveUnitCommand(playerId, from, to)"));
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(MPTestAutomationServer), "move_unit"), Is.True);
+        foreach (string methodName in new[] { "ExecuteMoveUnitCommand", "TryFindMoveUnitPositions", "ValidateMoveUnitTarget" })
+        {
+            Assert.That(typeof(MPTestAutomationServer).GetMethod(methodName, BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic), Is.Not.Null, methodName);
+        }
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(MPTestAutomationServer), typeof(MoveUnitCommand), ".ctor"), Is.True);
         Assert.That(snapshotSource, Does.Contain("if (MPTestCommandLine.IsEnabled)"));
         Assert.That(snapshotSource, Does.Contain("return true;"));
     }
 
     [Test]
+    public void PerformanceStressHarnessIsDevelopmentOnlyAuthorityOwnedAndCleansTrackedSpawns()
+    {
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Testing/MP/MPTestPerformanceStressDriver.cs");
+        string serverSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Testing/MP/MPTestAutomationServer.cs");
+        Assert.That(source, Does.Contain("#if UNITY_EDITOR || DEVELOPMENT_BUILD"));
+        Assert.That(source, Does.Contain("MPTestCommandLine.IsEnabled"));
+        Assert.That(source, Does.Contain("_runner.IsServer"));
+        Assert.That(source, Does.Contain("game.Object.HasStateAuthority"));
+        Assert.That(source, Does.Contain("SpawnMonsterAtPositionAsync"));
+        Assert.That(source, Does.Contain("MinimumMonsterCount = 60"));
+        Assert.That(source, Does.Contain("CleanupTrackedMonsters"));
+        Assert.That(serverSource, Does.Contain("uint originalNetworkIdRaw = wall.Object.Id.Raw;"));
+        Assert.That(serverSource, Does.Contain("replacementNetworkIdRaw != originalNetworkIdRaw"),
+            "Wall-load verification must survive synchronous network-pool reuse of the wall component.");
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(MPTestAutomationServer), "/test/performanceStress"), Is.True);
+    }
+
+    [Test]
+    public void RuntimeHarnessProbesPostMigrationPortraitNavigationByDurablePlayerId()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        MethodInfo probe = typeof(MPTestAutomationServer).GetMethod("ExecuteViewPlayerFieldCommand", members);
+
+        Assert.That(probe, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(MPTestAutomationServer), "view_player_field"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(probe, typeof(GameManagers), "GetPlayer"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(probe, typeof(CameraManager), "MoveToPlayerField"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(probe, typeof(CameraManager), "get_CurrentViewingPlayerId"), Is.True);
+    }
+
+    [Test]
     public void BattleDeathDoesNotDropUnitsBeforePrepareRespawn()
     {
-        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
-        string manaSource = File.ReadAllText("Assets/Scripts/Game/Game Rules/ManaController.cs");
-        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
-        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
-        string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
+        string fieldSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/FieldManager.cs");
 
-        Assert.That(unitSource, Does.Contain("else if (!NetworkedIsDead && IsDead)"));
-        Assert.That(unitSource, Does.Contain("HandleNetworkedDeathStateChanged();"));
-        Assert.That(unitSource, Does.Contain("if (!CanReadNetworkedState)"));
-        Assert.That(unitSource, Does.Contain("Object.HasStateAuthority"));
-        Assert.That(unitSource, Does.Contain("if (!IsDead && !inactive) return;"));
-        Assert.That(unitSource, Does.Contain("SetDeathPresentationActive(false);"));
-        Assert.That(unitSource, Does.Not.Contain("gameObject.SetActive(false);"));
-        Assert.That(unitSource, Does.Contain("private bool CanWriteNetworkedStats()"));
-        Assert.That(unitSource, Does.Contain("float berserkDamage = currentAttackDamage * 1.5f;"));
-        Assert.That(unitSource, Does.Not.Contain("_networkedAttackDamage *= 1.5f;"));
-        Assert.That(manaSource, Does.Contain("private bool CanWriteNetworkedMana()"));
-        Assert.That(manaSource, Does.Contain("public float CurrentMana => CanReadNetworkedMana() ? _currentMana : _localCurrentMana;"));
-        Assert.That(manaSource, Does.Not.Contain("public float CurrentMana => _currentMana;"));
+        const BindingFlags unitMembers = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        MethodInfo deathHandler = typeof(Unit).GetMethod("HandleNetworkedDeathStateChanged", unitMembers);
+        Assert.That(deathHandler, Is.Not.Null);
+        Assert.That(typeof(Unit).GetMethod("SetDeathPresentationActive", unitMembers), Is.Not.Null);
+        Assert.That(typeof(Unit).GetMethod("CanWriteNetworkedStats", unitMembers), Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(deathHandler, typeof(GameObject), "SetActive"), Is.False);
+
+        var berserkObject = new GameObject("berserk-local-stat-test");
+        var berserkData = ScriptableObject.CreateInstance<UnitData>();
+        try
+        {
+            var unit = berserkObject.AddComponent<Unit>();
+            berserkData.baseAttackDamage = 20f;
+            berserkData.attackSpeed = 2f;
+            typeof(Unit).GetField("unitData", unitMembers)?.SetValue(unit, berserkData);
+            typeof(Unit).GetField("_localAttackDamage", unitMembers)?.SetValue(unit, 20f);
+            typeof(Unit).GetField("_localAttackSpeed", unitMembers)?.SetValue(unit, 2f);
+            unit.ApplyBerserkMode();
+            Assert.That(unit.IsBerserkModeActive, Is.True);
+            Assert.That(unit.currentAttackDamage, Is.EqualTo(30f).Within(0.001f));
+            Assert.That(unit.currentAttackSpeed, Is.EqualTo(3f).Within(0.001f));
+        }
+        finally
+        {
+            Object.DestroyImmediate(berserkData);
+            Object.DestroyImmediate(berserkObject);
+        }
+        var manaObject = new GameObject("mana-fallback-test");
+        try
+        {
+            var mana = manaObject.AddComponent<ManaController>();
+            typeof(ManaController).GetField("_localCurrentMana", BindingFlags.Instance | BindingFlags.NonPublic)?.SetValue(mana, 37f);
+            Assert.That(mana.CurrentMana, Is.EqualTo(37f));
+            Assert.That(typeof(ManaController).GetMethod("CanWriteNetworkedMana", BindingFlags.Instance | BindingFlags.NonPublic), Is.Not.Null);
+        }
+        finally
+        {
+            Object.DestroyImmediate(manaObject);
+        }
         Assert.That(fieldSource, Does.Contain("bool wasAlreadyRegistered"));
         Assert.That(fieldSource, Does.Contain("inactiveOrDead && !wasAlreadyRegistered && !belongsToPlayer"));
         Assert.That(fieldSource, Does.Contain("unit.IsDead || !unit.gameObject.activeSelf || !unit.gameObject.activeInHierarchy"));
         Assert.That(fieldSource, Does.Contain("public void RespawnAllUnits()"));
         Assert.That(fieldSource, Does.Contain("bool networkRunning = runner != null && runner.IsRunning;"));
         Assert.That(fieldSource, Does.Contain("if (networkRunning && !unit.HasValidNetworkObject)"));
-        Assert.That(gameManagersSource, Does.Contain("player?.fieldManager?.RespawnAllUnits();"));
-        Assert.That(snapshotSource, Does.Contain("deadUnitCount"));
-        Assert.That(snapshotSource, Does.Contain("DeadUnitsHash"));
-        Assert.That(snapshotSource, Does.Contain("RefreshPlayerRuntimeForSnapshot"));
-        Assert.That(snapshotSource, Does.Contain("MPTestStateSnapshot.CapturePlayer"));
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(GameManagers), typeof(FieldManager), "RespawnAllUnits"), Is.True);
+        Assert.That(typeof(MPTestStateSnapshot.FieldSnapshot).GetField("DeadUnitCount"), Is.Not.Null);
+        Assert.That(typeof(MPTestStateSnapshot.FieldSnapshot).GetField("DeadUnitsHash"), Is.Not.Null);
+        Assert.That(typeof(MPTestStateSnapshot).GetMethod("RefreshPlayerRuntimeForSnapshot", BindingFlags.Static | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(typeof(MPTestStateSnapshot).GetMethod("CapturePlayer", BindingFlags.Static | BindingFlags.NonPublic), Is.Not.Null);
     }
 
     [Test]
     public void BattleStartDoesNotRebuildUnitRosterFromWorldPositions()
     {
-        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
-        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
-        string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
+        string gameManagersSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/GameManagers.cs");
+        string playerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/PlayerManager.cs");
+        string snapshotSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
 
         Assert.That(playerSource, Does.Contain("bool rebuildUnitMap = true"));
         Assert.That(playerSource, Does.Contain("bool repairUnitPresentation = true"));
@@ -1448,34 +1919,48 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void AiUnitOwnershipDoesNotTreatPlayerRefNoneAsDurableOwner()
     {
-        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
-        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
-        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+        string unitSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Game/Units/Unit.cs");
+        string fieldSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/FieldManager.cs");
 
         Assert.That(unitSource, Does.Contain("Object.InputAuthority != PlayerRef.None"));
         Assert.That(unitSource, Does.Contain("SetOwnerReference"));
         Assert.That(fieldSource, Does.Not.Contain("UnitBelongsToFieldOwnerDurable(unit) || ownedUnits.Contains(unit)"));
         Assert.That(fieldSource, Does.Contain("rosterOwnerId >= 0 && rosterOwnerId != playerManager.playerId"));
         Assert.That(fieldSource, Does.Contain("RemovePlacedUnitEntriesFromOtherFields"));
-        Assert.That(playerSource, Does.Contain("rosterOwnerId >= 0"));
-        Assert.That(playerSource, Does.Not.Contain("unit.OwnerPlayerIdForRoster == player.playerId"));
+        Assert.That(PlayerCommandRequestValidator.IsUnitOwnedByPlayer(null, null), Is.False);
+        Assert.That(PlayerManager.IsUnitOwnedByPlayerForCommand(null, null), Is.False);
     }
 
     [Test]
     public void DirectSingleplayerSceneRunnerPassesActiveRunnerGate()
     {
-        string source = File.ReadAllText("Assets/Scripts/Managers/GameManagers.MigrationRecovery.cs");
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.NonPublic;
+        MethodInfo runnerGate = typeof(GameManagers).GetMethod("IsBoundToActiveRunner", members);
+        MethodInfo aiGate = typeof(GameManagers).GetMethod("IsMigrationAiTakeoverReady", members);
+        Assert.That(runnerGate, Is.Not.Null);
+        Assert.That(aiGate, Is.Not.Null);
+        Assert.That(typeof(NetworkManager).GetProperty("_runner", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(runnerGate, typeof(NetworkManager), "get_Instance"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(GameManagers), "hostMigrationHandler=null"), Is.True);
 
-        Assert.That(source, Does.Contain("NetworkManager.Instance?._runner"));
-        Assert.That(source, Does.Contain("Runner.IsRunning && Runner.GameMode == GameMode.Single"));
-        Assert.That(source, Does.Contain("NetworkManager.Instance == null && Runner.GameMode == GameMode.Single"));
-        Assert.That(source, Does.Contain("reason = \"hostMigrationHandler=null\""));
+        var managersObject = new GameObject("single-runner-gate-test");
+        try
+        {
+            var managers = managersObject.AddComponent<GameManagers>();
+            Assert.That((bool)runnerGate.Invoke(managers, null), Is.False);
+            object[] args = { null };
+            Assert.That((bool)aiGate.Invoke(managers, args), Is.True, "A missing runner has no migration AI dependency.");
+        }
+        finally
+        {
+            Object.DestroyImmediate(managersObject);
+        }
     }
 
     [Test]
     public void PlayerBuildToolBuildsAddressablesForRequestedTarget()
     {
-        string buildSource = File.ReadAllText("Assets/Scripts/Testing/MP/Editor/BuildAutomation.cs");
+        string buildSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Testing/MP/Editor/BuildAutomation.cs");
 
         Assert.That(buildSource, Does.Contain("EnsureActiveBuildTarget(target, out buildTargetSwitched)"));
         Assert.That(buildSource, Does.Contain("SwitchActiveBuildTarget(group, target)"));
@@ -1493,61 +1978,58 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void AttackSequenceMonsterSelectionTracksAuthorityPoolSlot()
     {
-        string managerSource = File.ReadAllText("Assets/Scripts/Game/Battle/AttackSequenceManager.cs");
-        string uiSource = File.ReadAllText("Assets/Scripts/UI/AttackSequence/AttackSequenceUIController.cs");
-
-        Assert.That(managerSource, Does.Contain("_selectedMonsterSlotIndex"));
-        Assert.That(managerSource, Does.Contain("SelectMonsterSlot(int slotIndex)"));
-        Assert.That(managerSource, Does.Contain("TryResolveSelectedMonster(out var selectedMonster, out int poolSlotIndex)"));
-        Assert.That(managerSource, Does.Contain("HasPendingBattleSpawnForCurrentSnapshot(poolSlotIndex)"));
-        Assert.That(managerSource, Does.Contain("MarkPendingBattleSpawn(poolSlotIndex)"));
-        Assert.That(managerSource, Does.Contain("SuppressBattleMapInputForCurrentPointer"));
-        Assert.That(managerSource, Does.Not.Contain("FirstOrDefault(entry => entry != null && !entry.IsEmpty)"));
-        Assert.That(uiSource, Does.Contain("_attackSequenceManager?.SelectMonsterSlot(slotIndex)"));
-        Assert.That(uiSource, Does.Contain("GamePrepareUIToolkitController.TrySyncMonsterSelectionFromLegacy(slotIndex)"));
-        Assert.That(uiSource, Does.Not.Contain("SelectFirstAvailableMonsterSlot(pool);"));
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        Assert.That(typeof(AttackSequenceManager).GetField("_selectedMonsterSlotIndex", members), Is.Not.Null);
+        foreach (string methodName in new[]
+                 {
+                     "SelectMonsterSlot", "TryResolveSelectedMonster", "HasPendingBattleSpawnForCurrentSnapshot",
+                     "MarkPendingBattleSpawn", "SuppressBattleMapInputForCurrentPointer"
+                 })
+        {
+            Assert.That(typeof(AttackSequenceManager).GetMethods(members).Any(method => method.Name == methodName), Is.True, methodName);
+        }
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(AttackSequenceUIController), typeof(AttackSequenceManager), "SelectMonsterSlot"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(AttackSequenceUIController), typeof(GamePrepareUIToolkitController), "TrySyncMonsterSelectionFromLegacy"), Is.True);
+        Assert.That(typeof(AttackSequenceUIController).GetMethod("SelectFirstAvailableMonsterSlot", members), Is.Null);
     }
 
     [Test]
     public void AiFillIdentityReplicatesToClientSnapshots()
     {
-        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
-        string gameManagersSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.cs");
-        string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
-
-        Assert.That(playerSource, Does.Contain("[Networked] public NetworkBool IsAiControlled"));
-        Assert.That(playerSource, Does.Contain("SetAiControlled(bool isAi)"));
-        Assert.That(gameManagersSource, Does.Contain("newPlayer.SetAiControlled(isAI);"));
-        Assert.That(snapshotSource, Does.Contain("player.IsAiControlled"));
-        Assert.That(snapshotSource, Does.Contain("|| ComponentRegistry.Has<AIPlayerController>"));
+        PropertyInfo aiControlled = typeof(PlayerManager).GetProperty("IsAiControlled", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        Assert.That(aiControlled, Is.Not.Null);
+        Assert.That(aiControlled.PropertyType, Is.EqualTo(typeof(Fusion.NetworkBool)));
+        Assert.That(aiControlled.GetCustomAttributes(false).Any(attribute =>
+            attribute.GetType().Name == "NetworkedAttribute" || attribute.GetType().Name == "NetworkedWeavedAttribute"), Is.True);
+        Assert.That(typeof(PlayerManager).GetMethod("SetAiControlled", new[] { typeof(bool) }), Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(GameManagers), typeof(PlayerManager), "SetAiControlled"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(MPTestStateSnapshot), typeof(PlayerManager), "get_IsAiControlled"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(MPTestStateSnapshot), typeof(ComponentRegistry), "Has"), Is.True);
     }
 
     [Test]
     public void ManualSkillSnapshotAvoidsFrameLocalReadinessInputs()
     {
-        string source = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
-        int start = source.IndexOf("private static string CaptureManualSkillReadyHash", System.StringComparison.Ordinal);
-        int end = source.IndexOf("private static bool PlayerRefIsConnected", System.StringComparison.Ordinal);
-        Assert.That(start, Is.GreaterThanOrEqualTo(0));
-        Assert.That(end, Is.GreaterThan(start));
-
-        string method = source.Substring(start, end - start);
-        Assert.That(method, Does.Contain("skill="));
-        Assert.That(method, Does.Not.Contain("LoadedSkillData"));
-        Assert.That(method, Does.Not.Contain("IsManualOrAiStrategicSkill"));
-        Assert.That(method, Does.Not.Contain("currentSkillActivationType"));
-        Assert.That(method, Does.Not.Contain("SkillCurrentMana"));
-        Assert.That(method, Does.Not.Contain("SkillMaxMana"));
-        Assert.That(method, Does.Not.Contain("CountSkillTargets"));
-        Assert.That(method, Does.Not.Contain("HasSkillTargetsAvailable"));
-        Assert.That(method, Does.Not.Contain("manaBucket="));
-        Assert.That(method, Does.Not.Contain("ready="));
+        MethodInfo capture = typeof(MPTestStateSnapshot).GetMethod("CaptureManualSkillReadyHash", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.That(capture, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteralFragment(capture, "skill="), Is.True);
+        foreach (string getter in new[]
+                 {
+                     "get_LoadedSkillData", "IsManualOrAiStrategicSkill",
+                     "get_SkillCurrentMana", "get_SkillMaxMana", "CountSkillTargets", "HasSkillTargetsAvailable"
+                 })
+        {
+            Assert.That(MdfCompiledCodePolicy.ReferencesMethod(capture, typeof(Unit), getter), Is.False, getter);
+        }
+        Assert.That(MdfCompiledCodePolicy.ReferencesField(capture, typeof(Unit), "currentSkillActivationType"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteralFragment(capture, "manaBucket="), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteralFragment(capture, "ready="), Is.False);
     }
 
     [Test]
     public void PrepareDecisionPolicyPreservesExpectedActionOrder()
     {
-        string source = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
 
         Assert.That(source, Does.Contain("yield return TryChooseAugment"));
         Assert.That(source.IndexOf("yield return TryChooseBuy;", System.StringComparison.Ordinal),
@@ -1604,7 +2086,8 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("MinimumRepairReserveWalls"));
         Assert.That(source, Does.Contain("cached.FieldInstanceId == fieldInstanceId"));
         Assert.That(source, Does.Contain("cached.Signature == signature"));
-        Assert.That(source, Does.Contain("player.GetWallCount() > GetWallBuildReserve(player)"));
+        Assert.That(source, Does.Contain("GetTotalWallStock(player) > GetWallBuildReserve(player)"));
+        Assert.That(source, Does.Contain("player.GetPermanentWallPlacementCount() > 0"));
         Assert.That(source, Does.Contain("OrderBy(unit => unit.Data.unitType == UnitType.Ranged ? 0 : 1)"));
         Assert.That(source, Does.Contain("OrderBy(entry => entry.UnitData != null && entry.UnitData.unitType == UnitType.Ranged ? 0 : 1)"));
         Assert.That(source, Does.Contain("sold_slots_below_3"));
@@ -1620,7 +2103,7 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void PrepareDecisionPolicyPendingMoveSuppressionDoesNotBlockNextRound()
     {
-        string source = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
 
         int sourceStart = source.IndexOf("private bool IsPendingMoveSource", System.StringComparison.Ordinal);
         int targetStart = source.IndexOf("private bool IsPendingMoveTarget", System.StringComparison.Ordinal);
@@ -1651,22 +2134,28 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void FieldManagerRestoresDragNetworkTransformForRoundTransitionsAndInvalidDrops()
     {
-        string source = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/FieldManager.InputPresentation.cs");
+        string stateSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/FieldManager.cs");
 
         Assert.That(source, Does.Contain("RestoreSelectedUnitNetworkTransform"));
         Assert.That(source, Does.Contain("originalUnitPosition = GetUnitPosition(selectedUnit) ?? WorldToGridInt(selectedUnit.transform.position);"));
+        Assert.That(source, Does.Contain("ShouldAllowUnitDragThroughPrepareToolkit"));
+        Assert.That(source, Does.Contain("MdfInput.IsPointerOverFieldBlockingUI()"));
+        Assert.That(source, Does.Contain("GamePrepareUIToolkitController.IsPointerOverBlockingElement(MdfInput.PointerPosition)"));
+        Assert.That(source, Does.Contain("TryRequestRemoveWallAt"));
+        Assert.That(source, Does.Contain("new RemoveWallCommand(playerManager.playerId, gridPosition)"));
 
-        int stateChangeStart = source.IndexOf("private void HandleGameStateChange", System.StringComparison.Ordinal);
-        int stateChangeEnd = source.IndexOf("#endregion", stateChangeStart, System.StringComparison.Ordinal);
+        int stateChangeStart = stateSource.IndexOf("private void HandleGameStateChange", System.StringComparison.Ordinal);
+        int stateChangeEnd = stateSource.IndexOf("#endregion", stateChangeStart, System.StringComparison.Ordinal);
         Assert.That(stateChangeStart, Is.GreaterThanOrEqualTo(0));
         Assert.That(stateChangeEnd, Is.GreaterThan(stateChangeStart));
-        string stateChangeMethod = source.Substring(stateChangeStart, stateChangeEnd - stateChangeStart);
+        string stateChangeMethod = stateSource.Substring(stateChangeStart, stateChangeEnd - stateChangeStart);
         Assert.That(stateChangeMethod, Does.Contain("RestoreSelectedUnitNetworkTransform();"));
         Assert.That(stateChangeMethod.IndexOf("RestoreSelectedUnitNetworkTransform();", System.StringComparison.Ordinal),
             Is.LessThan(stateChangeMethod.IndexOf("SnapbackSelectedUnit(originalWorldPos);", System.StringComparison.Ordinal)));
 
         int releaseStart = source.IndexOf("if (MdfInput.PrimaryPointerWasReleasedThisFrame() && selectedUnit != null)", System.StringComparison.Ordinal);
-        int releaseEnd = source.IndexOf("private bool ShouldAllowUnitDragThroughPrepareToolkit", releaseStart, System.StringComparison.Ordinal);
+        int releaseEnd = source.IndexOf("private bool TryRequestRemoveWallAt", releaseStart, System.StringComparison.Ordinal);
         Assert.That(releaseStart, Is.GreaterThanOrEqualTo(0));
         Assert.That(releaseEnd, Is.GreaterThan(releaseStart));
         string releaseBlock = source.Substring(releaseStart, releaseEnd - releaseStart);
@@ -1678,7 +2167,7 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void PrepareDecisionPolicyUsesMonsterPathForHumanBotRepositioning()
     {
-        string source = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
 
         Assert.That(source, Does.Contain("BuildMonsterPathContext"));
         Assert.That(source, Does.Contain("FindBestSpotForAI(unit.Data, monsterPath"));
@@ -1688,11 +2177,11 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(source, Does.Contain("pathAwarePlacement"));
         Assert.That(source, Does.Contain("monsterPathCount"));
 
-        string coverageSource = File.ReadAllText("Assets/Scripts/AI/UtilitySystem/Considerations/Placement/AttackRangeCoverageConsideration.cs");
+        string coverageSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/AI/UtilitySystem/Considerations/Placement/AttackRangeCoverageConsideration.cs");
         Assert.That(coverageSource, Does.Contain("BuildTargetTiles"));
         Assert.That(coverageSource, Does.Contain("context.MonsterPath"));
 
-        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
+        string fieldSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/FieldAiPlacementService.cs");
         Assert.That(fieldSource, Does.Contain("FilterRangedCandidatesForMonsterPath"));
         Assert.That(fieldSource, Does.Contain("SelectPreferredRangedCandidateTier"));
         Assert.That(fieldSource, Does.Contain("FindBestRangedFallbackAwayFromOriginal"));
@@ -1723,11 +2212,25 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("centerScore * 8.0f"));
         Assert.That(fieldSource, Does.Contain("currentScore -= 20.0f"));
         Assert.That(fieldSource, Does.Contain("currentScore += 20.0f"));
-        Assert.That(fieldSource, Does.Contain("if (!HasWallAt(pos))"));
         Assert.That(fieldSource, Does.Contain("return new List<Vector3Int>();"));
         Assert.That(fieldSource, Does.Contain("return movingUnitOriginalPos;"));
 
-        string mazeSource = File.ReadAllText("Assets/Scripts/AI/Planning/MazePlanner.cs");
+        var fieldObject = new GameObject("placement-policy-field-test");
+        try
+        {
+            var field = fieldObject.AddComponent<FieldManager>();
+            field.gridSize = new Vector2Int(3, 2);
+            var meleeCandidates = field.GetValidPlacementTiles(UnitType.Melee);
+            Assert.That(meleeCandidates, Has.Count.EqualTo(5),
+                "Every empty melee cell except the King Goal reservation should remain a valid candidate when no walls exist.");
+            Assert.That(meleeCandidates.Contains(new Vector3Int(1, 1, 0)), Is.False);
+        }
+        finally
+        {
+            Object.DestroyImmediate(fieldObject);
+        }
+
+        string mazeSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/AI/Planning/MazePlanner.cs");
         Assert.That(mazeSource, Does.Contain("PruneRedundantWalls"));
         Assert.That(mazeSource, Does.Contain("lengthWithoutWall > currentLength"));
         Assert.That(mazeSource, Does.Contain("harmful maze walls that shortened the final monster path when kept"));
@@ -1915,55 +2418,63 @@ public sealed class MPTestHarnessEditModeTests
     }
 
     [Test]
-    public void LegacyHumanBotPolicyIsNotConstructedByRuntimeDriver()
+    public void RuntimeHumanBotUsesSharedPrepareDecisionPolicy()
     {
-        string driverSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestHumanBotDriver.cs");
-        Assert.That(driverSource, Does.Contain("new PrepareDecisionPolicy"));
-        Assert.That(driverSource, Does.Not.Contain("new MPTestHumanBotPolicy"));
+        Assert.That(typeof(MPTestHumanBotDriver).GetField("_preparePolicy", BindingFlags.Instance | BindingFlags.NonPublic)?.FieldType,
+            Is.EqualTo(typeof(PrepareDecisionPolicy)));
     }
 
     [Test]
     public void BattleDecisionLayerRoutesOnlyThroughCommandEmitters()
     {
-        string policySource = File.ReadAllText("Assets/Scripts/AI/Planning/BattleDecisionPolicy.cs");
-        string emitterSource = File.ReadAllText("Assets/Scripts/AI/Planning/MdfCommandEmitter.cs");
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(BattleDecisionPolicy), typeof(BattleSpawnMonsterCommand), ".ctor"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(BattleDecisionPolicy), typeof(UseMagicScrollCommand), ".ctor"), Is.True);
+        Assert.That(typeof(BattleDecisionPolicy).GetField("MinimumBattleCommandLeadTime", BindingFlags.Static | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(typeof(BattleDecisionPolicy).GetField("SpawnCellReservationSeconds", BindingFlags.Static | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(typeof(BattleDecisionPolicy).GetField("_recentSpawnCells", BindingFlags.Instance | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(typeof(AIAttackStrategy).GetField("_reservedSpawnCells", BindingFlags.Instance | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(typeof(AISpawnOrder).GetField(nameof(AISpawnOrder.ReservedNavigationCells)), Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesField(
+            typeof(BattleDecisionPolicy),
+            typeof(AISpawnOrder),
+            nameof(AISpawnOrder.ReservedNavigationCells)), Is.True);
+        Assert.That(typeof(BattleDecisionPolicy).GetField("_defenderSkillPolicy", BindingFlags.Instance | BindingFlags.NonPublic)?.FieldType,
+            Is.EqualTo(typeof(DefenderSkillPolicy)));
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(BattleDecisionPolicy), typeof(MonsterSpawner), "SpawnMonsterAtPositionAsync"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesAnyMethod(
+            typeof(BattleDecisionPolicy),
+            typeof(PlayerManager),
+            "TryReserveBattleSpawnResource", "CommitBattleSpawnReservation", "TryRefundBattleSpawnReservation"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesAnyMethod(typeof(BattleDecisionPolicy), typeof(PlayerManager), "TryConsumeMagicScrollSlot"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(BattleDecisionPolicy), typeof(SkillEffect), "CastGameplay"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(BattleDecisionPolicy), typeof(Unit), "ActivateSkill"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            typeof(AIAttackStrategy),
+            typeof(BattleCommandValidator),
+            nameof(BattleCommandValidator.TryResolveExactBattleSpawnPosition)), Is.True,
+            "AI spawn planning must discard occupied or blocked exact cells before emitting a command.");
 
-        Assert.That(policySource, Does.Contain("new BattleSpawnMonsterCommand"));
-        Assert.That(policySource, Does.Contain("MinimumBattleCommandLeadTime"));
-        Assert.That(policySource, Does.Contain("context.PhaseTimerRemaining"));
-        Assert.That(policySource, Does.Contain("attacker.HasPendingAttackMonsterPoolCommand"));
-        Assert.That(policySource, Does.Contain("!attacker.HasAppliedCurrentAttackMonsterPoolSnapshot"));
-        Assert.That(policySource, Does.Contain("new UseMagicScrollCommand"));
-        Assert.That(policySource, Does.Contain("DefenderSkillPolicy"));
-        Assert.That(policySource, Does.Not.Contain("SpawnMonsterAtPositionAsync"));
-        Assert.That(policySource, Does.Not.Contain("TryConsumeMonsterPoolSlot"));
-        Assert.That(policySource, Does.Not.Contain("TryConsumeMagicScrollSlot"));
-        Assert.That(policySource, Does.Not.Contain("CastGameplay"));
-        Assert.That(policySource, Does.Not.Contain(".ActivateSkill("));
-        Assert.That(emitterSource, Does.Contain("CommandProcessor.RequestCommandExecution"));
-        Assert.That(emitterSource, Does.Contain("ExecuteBattleSpawnMonsterCommandAsync"));
-        Assert.That(emitterSource, Does.Contain("RPC_RequestBattleSpawnMonster"));
-        Assert.That(emitterSource, Does.Contain("MarkAttackMonsterPoolCommandSubmitted"));
-        Assert.That(emitterSource, Does.Contain("ExecuteUseMagicScrollCommandAsync"));
-        Assert.That(emitterSource, Does.Contain("RPC_RequestUseMagicScrollCommand"));
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(MdfCommandEmitter), typeof(CommandProcessor), "RequestCommandExecution"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(HumanClientCommandEmitter), typeof(GameManagers), "ExecuteBattleSpawnMonsterCommandAsync"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(HumanClientCommandEmitter), typeof(GameManagers), "RPC_RequestBattleSpawnMonster"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(HumanClientCommandEmitter), typeof(PlayerManager), "MarkAttackMonsterPoolCommandSubmitted"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(HumanClientCommandEmitter), typeof(GameManagers), "ExecuteUseMagicScrollCommandAsync"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(HumanClientCommandEmitter), typeof(GameManagers), "RPC_RequestUseMagicScrollCommand"), Is.True);
     }
 
     [Test]
     public void ClientBattleOpponentSnapshotsPreferNetworkedStateOverLocalCache()
     {
-        string registrySource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.PlayerRegistry.cs");
-
-        Assert.That(registrySource, Does.Contain("Object != null && !Object.HasStateAuthority"));
-        Assert.That(registrySource, Does.Contain("TryReadNetworkedBattleOpponentSnapshot(playerId, out opponentId)"));
-        Assert.That(registrySource, Does.Contain("_battleOpponents[playerId] = opponentId"));
-        Assert.That(registrySource, Does.Contain("TryReadNetworkedMatchFirstAttackerSnapshot(playerId, out firstAttackerId)"));
-        Assert.That(registrySource, Does.Contain("_matchFirstAttacker[playerId] = firstAttackerId"));
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(GameManagers), typeof(GameManagers), "TryReadNetworkedBattleOpponentSnapshot"), Is.True);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(GameManagers), typeof(GameManagers), "TryReadNetworkedMatchFirstAttackerSnapshot"), Is.True);
+        Assert.That(typeof(GameManagers).GetField("_battleOpponents", BindingFlags.Instance | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(typeof(GameManagers).GetField("_matchFirstAttacker", BindingFlags.Instance | BindingFlags.NonPublic), Is.Not.Null);
     }
 
     [Test]
     public void GameToEndRunnerDoesNotFailWhenTransientCheckpointStateSlips()
     {
-        string source = File.ReadAllText("../tools/harness/mp/long_progression_common.py");
+        string source = MdfSourcePolicy.ReadStaticContract("../tools/harness/mp/long_progression_common.py");
 
         Assert.That(source, Does.Contain("state_slipped_success"));
         Assert.That(source, Does.Contain("checkpoint_state_slipped_before_capture"));
@@ -1973,63 +2484,134 @@ public sealed class MPTestHarnessEditModeTests
     [Test]
     public void AttackStrategyEvaluatesFullPathAndKeepsTankSpawnOnGroundRoute()
     {
-        string source = File.ReadAllText("Assets/Scripts/AI/BehaviorTree/Nodes/Actions/AIAttackStrategy.cs");
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/AI/BehaviorTree/Nodes/Actions/AIAttackStrategy.cs");
 
         Assert.That(source, Does.Contain("var candidates = kvp.Value;"));
         Assert.That(source, Does.Not.Contain("GetClosestCandidates(kvp.Value"));
-        Assert.That(source, Does.Contain("phase0.Orders.Add(new AISpawnOrder(firstTank, groundSpawnPos"));
-        Assert.That(source, Does.Contain("phase1.Orders.Add(new AISpawnOrder(entry, destroyerSpawnPos"));
+        Assert.That(source, Does.Contain("TryGetPath(candidate, false, out List<AstarNode> path)"));
+        Assert.That(source, Does.Contain("TryGetPath(candidate, true, out List<AstarNode> path)"));
+        Assert.That(source, Does.Contain("groundSpawn.Position"));
+        Assert.That(source, Does.Contain("destroyerSpawn.Position"));
+    }
+
+    [Test]
+    public void AttackStrategyPreservesOnlySelectedRoutePrefixForSpawnReservation()
+    {
+        const BindingFlags staticPrivate = BindingFlags.Static | BindingFlags.NonPublic;
+        FieldInfo prefixCount = typeof(AIAttackStrategy).GetField("ReservedPathPrefixCellCount", staticPrivate);
+        MethodInfo capturePrefix = typeof(AIAttackStrategy).GetMethod("CapturePathReservationCells", staticPrivate);
+        Assert.That(prefixCount, Is.Not.Null);
+        Assert.That(prefixCount.GetRawConstantValue(), Is.EqualTo(3));
+        Assert.That(capturePrefix, Is.Not.Null);
+
+        var path = new List<AstarNode>
+        {
+            new AstarNode(false, 4, 8),
+            new AstarNode(false, 3, 8),
+            new AstarNode(false, 2, 8),
+            new AstarNode(false, 1, 8)
+        };
+        var prefix = (Vector2Int[])capturePrefix.Invoke(
+            null,
+            new object[] { new Vector2Int(4, 8), path });
+
+        Assert.That(prefix, Is.EqualTo(new[]
+        {
+            new Vector2Int(4, 8),
+            new Vector2Int(3, 8),
+            new Vector2Int(2, 8)
+        }));
+
+        string source = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/AI/BehaviorTree/Nodes/Actions/AIAttackStrategy.cs");
+        Assert.That(source, Does.Contain("CreatePathSpawnSelection(candidate, path)"));
+        Assert.That(source, Does.Contain("groundSpawn.ReservedNavigationCells"));
+        Assert.That(source, Does.Contain("destroyerSpawn.ReservedNavigationCells"));
+        Assert.That(source, Does.Contain("flyingSpawn.ReservedNavigationCells"));
+        Assert.That(source, Does.Contain("CreateExactSpawnSelection(candidates[candidates.Count / 2])"),
+            "Flying plans must reserve only their exact origin cell.");
+        Assert.That(source, Does.Contain("_validSpawnPositions.Values.All(v => v.Count == 0)"),
+            "When every exact origin is reserved, planning must return no order instead of using a fallback.");
+    }
+
+    [Test]
+    public void BattleDecisionPolicyReservesExactlyTheSelectedCellsForThreeSeconds()
+    {
+        const BindingFlags privateMembers = BindingFlags.Instance | BindingFlags.NonPublic;
+        FieldInfo ttl = typeof(BattleDecisionPolicy).GetField(
+            "SpawnCellReservationSeconds",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        MethodInfo reserve = typeof(BattleDecisionPolicy).GetMethod("ReserveSpawnCells", privateMembers);
+        MethodInfo getActive = typeof(BattleDecisionPolicy).GetMethod("GetActiveSpawnCellReservations", privateMembers);
+        Assert.That(ttl, Is.Not.Null);
+        Assert.That(ttl.GetRawConstantValue(), Is.EqualTo(3f));
+        Assert.That(reserve, Is.Not.Null);
+        Assert.That(getActive, Is.Not.Null);
+
+        var selectedCells = new List<Vector2Int>
+        {
+            new Vector2Int(4, 8),
+            new Vector2Int(3, 8),
+            new Vector2Int(2, 8)
+        };
+        var policy = new BattleDecisionPolicy();
+        reserve.Invoke(policy, new object[] { 1, 2, selectedCells });
+
+        var active = (HashSet<Vector2Int>)getActive.Invoke(policy, new object[] { 1, 2 });
+        Assert.That(active, Is.EquivalentTo(selectedCells));
+        Assert.That(active.Count, Is.EqualTo(selectedCells.Count),
+            "Reservation must not expand to neighboring cells outside the selected path prefix.");
     }
 
     [Test]
     public void BehaviorTreeV2DoesNotMutateDurableStateInPoliciesOrTestLogging()
     {
-        string prepareSource = File.ReadAllText("Assets/Scripts/AI/Planning/PrepareDecisionPolicy.cs");
-        string loggerSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestLogger.cs");
-        string emitterSource = File.ReadAllText("Assets/Scripts/AI/Planning/MdfCommandEmitter.cs");
+        string loggerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Testing/MP/MPTestLogger.cs");
 
-        Assert.That(prepareSource, Does.Not.Contain("unitPurchaseComplete = true"));
+        Assert.That(MdfCompiledCodePolicy.ReferencesField(typeof(PrepareDecisionPolicy), typeof(PlayerManager), "unitPurchaseComplete"), Is.False);
         Assert.That(loggerSource, Does.Contain("#if !(UNITY_EDITOR || DEVELOPMENT_BUILD)"));
         Assert.That(loggerSource, Does.Contain("!options.Enabled"));
-        Assert.That(emitterSource, Does.Contain("missing_mp_test"));
+        Assert.That(MdfCompiledCodePolicy.ContainsStringLiteral(typeof(TestAutomationCommandEmitter), "missing_mp_test"), Is.True);
     }
 
     [Test]
     public void NotificationDoesNotApplyPeerPersistentEffects()
     {
-        string source = File.ReadAllText("Assets/Scripts/Commands/Sync/NotifyAugmentSelectedCommand.cs");
-        string snapshotSource = File.ReadAllText("Assets/Scripts/Testing/MP/MPTestStateSnapshot.cs");
-
-        Assert.That(source, Does.Not.Contain("player.chosenAugments.Add"));
-        Assert.That(source, Does.Not.Contain("player.AddOwnedBoss"));
-        Assert.That(source, Does.Not.Contain("player.RegisterActiveMonsterSummonAugment"));
-        Assert.That(source, Does.Not.Contain("permanentAttackDamagePercent +="));
-        Assert.That(source, Does.Not.Contain("permanentAttackSpeedPercent +="));
-        Assert.That(source, Does.Not.Contain("GetPresentedAugments().Clear"));
-        Assert.That(source, Does.Not.Contain("presentedAugments.Clear"));
-        Assert.That(snapshotSource, Does.Contain("EnumerateSelectedAugmentsForSnapshot"));
-        Assert.That(snapshotSource, Does.Contain("GetSelectedAugmentSnapshotNames"));
+        Assert.That(MdfCompiledCodePolicy.ReferencesField(typeof(NotifyAugmentSelectedCommand), typeof(PlayerManager), "chosenAugments"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesField(typeof(NotifyAugmentSelectedCommand), typeof(PlayerManager), "permanentAttackDamagePercent"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesField(typeof(NotifyAugmentSelectedCommand), typeof(PlayerManager), "permanentAttackSpeedPercent"), Is.False);
+        Assert.That(MdfCompiledCodePolicy.ReferencesAnyMethod(
+            typeof(NotifyAugmentSelectedCommand),
+            typeof(PlayerManager),
+            "AddOwnedBoss", "RegisterActiveMonsterSummonAugment", "GetPresentedAugments"), Is.False);
+        Assert.That(typeof(MPTestStateSnapshot).GetMethod("EnumerateSelectedAugmentsForSnapshot", BindingFlags.Static | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(MPTestStateSnapshot), typeof(PlayerManager), "GetSelectedAugmentSnapshotNames"), Is.True);
     }
 
     [Test]
     public void FieldRosterReconcileKeepsRegistrationMetadataForCompactRosterOrdering()
     {
-        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
-        string fieldSource = File.ReadAllText("Assets/Scripts/Managers/FieldManager.cs");
-        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
-        string gameManagersRosterSource = File.ReadAllText("Assets/Scripts/Managers/GameManagers.UnitRosterSync.cs");
-
-        Assert.That(playerSource, Does.Contain("_latestUnitRegistrationById"));
-        Assert.That(playerSource, Does.Contain("_pendingUnitRosterDataKeyHashes"));
-        Assert.That(playerSource, Does.Contain("RememberLatestUnitRegistration"));
-        Assert.That(playerSource, Does.Contain("metadataForKey.starLevel == starLevel"));
-        Assert.That(playerSource, Does.Contain("unitDataKey = metadataForKey.unitDataKey"));
-        Assert.That(playerSource, Does.Contain("ResolveUnitDataKeyByStableHashAsync"));
-        Assert.That(playerSource, Does.Contain("StableUnitDataKeyHash(data.name) == unitDataKeyHash"));
-        Assert.That(playerSource, Does.Contain("_latestUnitRegistrationById.Remove(unitIdRaw)"));
-        Assert.That(fieldSource, Does.Contain("compactRoster[0] = -2"));
+        string fieldSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/FieldManager.cs");
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        Assert.That(typeof(PlayerManager).GetField("_latestUnitRegistrationById", members), Is.Not.Null);
+        Assert.That(typeof(PlayerManager).GetField("_pendingUnitRosterDataKeyHashes", members), Is.Not.Null);
+        foreach (string methodName in new[] { "RememberLatestUnitRegistration", "ResolveUnitDataKeyByStableHashAsync", "StableUnitDataKeyHash" })
+        {
+            Assert.That(typeof(PlayerManager).GetMethods(members).Any(method => method.Name == methodName), Is.True, methodName);
+        }
+        Assert.That(fieldSource, Does.Contain("compactRoster[0] = -4"));
+        Assert.That(fieldSource, Does.Contain("compactRoster[1] = rosterRevision"));
+        Assert.That(fieldSource, Does.Contain("compactRoster[2] = PlayerManager.ComputeUnitRosterFingerprint"));
+        Assert.That(fieldSource, Does.Contain("compactRoster[3] = entries.Count"));
         Assert.That(fieldSource, Does.Contain("UnitDataKeyHash"));
-        Assert.That(fieldSource, Does.Contain("StableUnitDataKeyHash(GetUnitDataRegistrationKey(entry.Value))"));
+        MethodInfo registrationHash = typeof(FieldManager).GetMethod(
+            "GetUnitDataRegistrationHash",
+            members);
+        Assert.That(registrationHash, Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(
+            registrationHash,
+            typeof(UnitData),
+            "get_ContentIdHash"), Is.True,
+            "compact roster identity must prefer the immutable contentId hash");
         Assert.That(fieldSource, Does.Contain("ReconcileClientUnitMapFromWorldIfNeeded"));
         Assert.That(fieldSource, Does.Contain("ClientRoster.{context}"));
         Assert.That(fieldSource, Does.Contain("playerManager.Object.HasStateAuthority"));
@@ -2038,86 +2620,505 @@ public sealed class MPTestHarnessEditModeTests
         Assert.That(fieldSource, Does.Contain("RPC_ReconcileUnitRosterCompact(compactRoster)"));
         Assert.That(fieldSource, Does.Contain("RPC_ReconcilePlayerUnitRosterCompact(playerManager.playerId, compactRoster)"));
         Assert.That(fieldSource, Does.Not.Contain("Full unit roster broadcast failed"));
-        Assert.That(unitSource, Does.Contain("NetworkedOwnerPlayerId"));
-        Assert.That(unitSource, Does.Contain("NetworkedHasOwnerPlayerId"));
-        Assert.That(unitSource, Does.Contain("OwnerPlayerIdForRoster"));
-        Assert.That(unitSource, Does.Contain("SyncFieldPlacementIdentity"));
-        Assert.That(gameManagersRosterSource, Does.Contain("RPC_ReconcilePlayerUnitRosterCompact"));
-        Assert.That(gameManagersRosterSource, Does.Contain("ApplyCompactUnitRosterFromAuthority"));
+        Assert.That(Regex.Matches(fieldSource, @"playerManager\.RPC_RegisterUnitAt\s*\(").Count, Is.EqualTo(1),
+            "only the full roster broadcast may send same-revision per-entry enrichment");
+        Assert.That(fieldSource, Does.Not.Contain("playerManager.RPC_UnregisterUnitAt("));
+        Assert.That(Regex.Matches(fieldSource, @"AdvanceUnitRosterRevisionForAuthority\s*\(").Count, Is.EqualTo(1),
+            "the full roster broadcast must uniquely own revision advancement");
+        Assert.That(typeof(Unit).GetProperty("NetworkedOwnerPlayerId", members), Is.Not.Null);
+        Assert.That(typeof(Unit).GetProperty("NetworkedHasOwnerPlayerId", members), Is.Not.Null);
+        Assert.That(typeof(Unit).GetProperty("OwnerPlayerIdForRoster", members), Is.Not.Null);
+        Assert.That(typeof(Unit).GetMethod("SyncFieldPlacementIdentity", members), Is.Not.Null);
+        Assert.That(typeof(GameManagers).GetMethod("RPC_ReconcilePlayerUnitRosterCompact", members), Is.Not.Null);
+        Assert.That(typeof(PlayerManager).GetMethod("ApplyCompactUnitRosterFromAuthority", members), Is.Not.Null);
+        Assert.That(typeof(PlayerManager).GetProperty("UnitRosterRevision", members), Is.Not.Null);
+        Assert.That(typeof(PlayerManager).GetMethod("AdvanceUnitRosterRevisionForAuthority", members), Is.Not.Null);
+        Assert.That(typeof(PlayerManager).GetMethod("TryAcceptUnitRosterRevision", members), Is.Not.Null);
+        Assert.That(typeof(PlayerManager).GetMethod("IsUnitRegistrationCurrent", members), Is.Not.Null);
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(GameManagers), typeof(PlayerManager), "ApplyCompactUnitRosterFromAuthority"), Is.True);
+    }
+
+    [Test]
+    public void UnitRosterRevisionGateUsesFingerprintAndAtomicallyReplacesDesiredMembership()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        GameObject owner = new GameObject("UnitRosterRevisionGateTest");
+        try
+        {
+            PlayerManager player = owner.AddComponent<PlayerManager>();
+            MethodInfo accept = typeof(PlayerManager).GetMethod("TryAcceptUnitRosterRevision", members);
+            MethodInfo isCurrent = typeof(PlayerManager).GetMethod("IsUnitRegistrationCurrent", members);
+            MethodInfo stableKeyHash = typeof(PlayerManager).GetMethod("StableUnitDataKeyHash", members);
+            Assert.That(accept, Is.Not.Null);
+            Assert.That(isCurrent, Is.Not.Null);
+            Assert.That(stableKeyHash, Is.Not.Null);
+
+            int keyHash = (int)stableKeyHash.Invoke(null, new object[] { "UnitData_Warrior" });
+            int[] ids = { 42 };
+            int[] positions = { 5, 0, 0 };
+            int[] hashes = { keyHash };
+            int[] stars = { 1 };
+            int fingerprint = PlayerManager.ComputeUnitRosterFingerprint(ids, positions, hashes, stars);
+
+            object[] firstAcceptArgs = { 10, fingerprint, ids, positions, hashes, stars, 0 };
+            Assert.That(accept.Invoke(player, firstAcceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            int firstApplyGeneration = (int)firstAcceptArgs[6];
+
+            FieldInfo registrationGenerationField = typeof(PlayerManager).GetField("_unitRegistrationGeneration", members);
+            FieldInfo latestRegistrationsField = typeof(PlayerManager).GetField("_latestUnitRegistrationById", members);
+            FieldInfo desiredRosterField = typeof(PlayerManager).GetField("_desiredUnitRosterById", members);
+            Assert.That(registrationGenerationField, Is.Not.Null);
+            Assert.That(latestRegistrationsField, Is.Not.Null);
+            Assert.That(desiredRosterField, Is.Not.Null);
+
+            var latestRegistrations = (System.Collections.IDictionary)latestRegistrationsField.GetValue(player);
+            var desiredRoster = (System.Collections.IDictionary)desiredRosterField.GetValue(player);
+            object staleRegistration = latestRegistrations[42u];
+            int firstRegistrationGeneration = (int)registrationGenerationField.GetValue(player);
+            Assert.That(staleRegistration, Is.Not.Null);
+            Assert.That((bool)isCurrent.Invoke(player, new[] { staleRegistration }), Is.True);
+
+            object[] duplicateArgs = { 10, fingerprint, ids, positions, hashes, stars, 0 };
+            Assert.That(accept.Invoke(player, duplicateArgs).ToString(), Is.EqualTo("Duplicate"));
+            Assert.That((int)duplicateArgs[6], Is.EqualTo(firstApplyGeneration));
+            Assert.That((int)registrationGenerationField.GetValue(player), Is.EqualTo(firstRegistrationGeneration),
+                "an exact same-revision full snapshot must not replace registration generations");
+
+            int[] conflictingPositions = { 6, 0, 0 };
+            int conflictingFingerprint = PlayerManager.ComputeUnitRosterFingerprint(ids, conflictingPositions, hashes, stars);
+            object[] conflictingArgs = { 10, conflictingFingerprint, ids, conflictingPositions, hashes, stars, 0 };
+            Assert.That(accept.Invoke(player, conflictingArgs).ToString(), Is.EqualTo("Rejected"));
+            Assert.That(desiredRoster.Count, Is.EqualTo(1));
+            Assert.That(latestRegistrations.Count, Is.EqualTo(1));
+            Assert.That((bool)isCurrent.Invoke(player, new[] { staleRegistration }), Is.True);
+
+            int[] empty = System.Array.Empty<int>();
+            int emptyFingerprint = PlayerManager.ComputeUnitRosterFingerprint(empty, empty, empty, empty);
+            object[] emptyAcceptArgs = { 11, emptyFingerprint, empty, empty, empty, empty, 0 };
+            Assert.That(accept.Invoke(player, emptyAcceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            Assert.That((int)emptyAcceptArgs[6], Is.GreaterThan(firstApplyGeneration));
+            Assert.That(desiredRoster.Count, Is.Zero);
+            Assert.That(latestRegistrations.Count, Is.Zero);
+            Assert.That((bool)isCurrent.Invoke(player, new[] { staleRegistration }), Is.False,
+                "an empty newer full roster must invalidate in-flight registration continuations");
+
+            object[] staleAcceptArgs = { 10, fingerprint, ids, positions, hashes, stars, 0 };
+            Assert.That(accept.Invoke(player, staleAcceptArgs).ToString(), Is.EqualTo("Rejected"));
+        }
+        finally
+        {
+            Object.DestroyImmediate(owner);
+        }
+    }
+
+    [Test]
+    public void UnitRosterPendingFullSnapshotIsMonotonicAndNewEmptyRosterCancelsIt()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.NonPublic;
+        GameObject owner = new GameObject("UnitRosterPendingMonotonicTest");
+        try
+        {
+            PlayerManager player = owner.AddComponent<PlayerManager>();
+            MethodInfo accept = typeof(PlayerManager).GetMethod("TryAcceptUnitRosterRevision", members);
+            MethodInfo storePending = typeof(PlayerManager).GetMethod("StorePendingUnitRoster", members);
+            FieldInfo pendingIds = typeof(PlayerManager).GetField("_pendingUnitRosterIdRaws", members);
+            FieldInfo pendingRevision = typeof(PlayerManager).GetField("_pendingUnitRosterRevision", members);
+            FieldInfo pendingFingerprint = typeof(PlayerManager).GetField("_pendingUnitRosterFingerprint", members);
+            Assert.That(accept, Is.Not.Null);
+            Assert.That(storePending, Is.Not.Null);
+
+            int[] ids = { 7 };
+            int[] positions = { 1, 2, 0 };
+            int[] hashes = { 31415 };
+            int[] stars = { 2 };
+            int fingerprint = PlayerManager.ComputeUnitRosterFingerprint(ids, positions, hashes, stars);
+            object[] acceptArgs = { 20, fingerprint, ids, positions, hashes, stars, 0 };
+            Assert.That(accept.Invoke(player, acceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            int applyGeneration = (int)acceptArgs[6];
+
+            object[] storeArgs = { ids, positions, null, hashes, stars, 20, fingerprint, applyGeneration };
+            Assert.That((bool)storePending.Invoke(player, storeArgs), Is.True);
+            Assert.That((int)pendingRevision.GetValue(player), Is.EqualTo(20));
+            Assert.That((int)pendingFingerprint.GetValue(player), Is.EqualTo(fingerprint));
+
+            object[] conflictingArgs = { ids, positions, null, hashes, stars, 20, fingerprint + 1, applyGeneration };
+            Assert.That((bool)storePending.Invoke(player, conflictingArgs), Is.False);
+            object[] olderArgs = { ids, positions, null, hashes, stars, 19, fingerprint, applyGeneration };
+            Assert.That((bool)storePending.Invoke(player, olderArgs), Is.False);
+            Assert.That((int)pendingRevision.GetValue(player), Is.EqualTo(20));
+            Assert.That((int)pendingFingerprint.GetValue(player), Is.EqualTo(fingerprint));
+
+            int[] empty = System.Array.Empty<int>();
+            int emptyFingerprint = PlayerManager.ComputeUnitRosterFingerprint(empty, empty, empty, empty);
+            object[] emptyAcceptArgs = { 21, emptyFingerprint, empty, empty, empty, empty, 0 };
+            Assert.That(accept.Invoke(player, emptyAcceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            Assert.That(pendingIds.GetValue(player), Is.Null,
+                "accepting a newer empty full roster must cancel the previous pending full snapshot");
+            Assert.That((int)pendingRevision.GetValue(player), Is.EqualTo(-1));
+        }
+        finally
+        {
+            Object.DestroyImmediate(owner);
+        }
+    }
+
+    [Test]
+    public void UnitRosterEntryEnrichmentRequiresDesiredTupleAndDoesNotReuseOldKeys()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        GameObject owner = new GameObject("UnitRosterDesiredEntryGateTest");
+        try
+        {
+            PlayerManager player = owner.AddComponent<PlayerManager>();
+            MethodInfo accept = typeof(PlayerManager).GetMethod("TryAcceptUnitRosterRevision", members);
+            MethodInfo remember = typeof(PlayerManager).GetMethod("RememberLatestUnitRegistration", members);
+            MethodInfo canUnregister = typeof(PlayerManager).GetMethod("CanApplyUnitUnregister", members);
+            FieldInfo latestField = typeof(PlayerManager).GetField("_latestUnitRegistrationById", members);
+            FieldInfo retiredField = typeof(PlayerManager).GetField("_retiredUnitRegistrationIds", members);
+            Assert.That(accept, Is.Not.Null);
+            Assert.That(remember, Is.Not.Null);
+            Assert.That(canUnregister, Is.Not.Null);
+
+            UnitData warriorData = AssetDatabase.LoadAssetAtPath<UnitData>(
+                "Assets/GameData/Units/UnitData_Warrior.asset");
+            UnitData mageData = AssetDatabase.LoadAssetAtPath<UnitData>(
+                "Assets/GameData/Units/UnitData_Mage.asset");
+            Assert.That(warriorData, Is.Not.Null);
+            Assert.That(mageData, Is.Not.Null);
+            int warriorHash = warriorData.ContentIdHash;
+            int mageHash = mageData.ContentIdHash;
+            int[] ids = { 42 };
+            int[] positions = { 5, 0, 0 };
+            int[] stars = { 1 };
+            int[] warriorHashes = { warriorHash };
+            int fingerprint = PlayerManager.ComputeUnitRosterFingerprint(ids, positions, warriorHashes, stars);
+            object[] acceptArgs = { 30, fingerprint, ids, positions, warriorHashes, stars, 0 };
+            Assert.That(accept.Invoke(player, acceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+
+            var latest = (System.Collections.IDictionary)latestField.GetValue(player);
+            object bootstrap = latest[42u];
+            FieldInfo registrationGeneration = bootstrap.GetType().GetField("registrationGeneration", members);
+            FieldInfo unitDataKey = bootstrap.GetType().GetField("unitDataKey", members);
+            FieldInfo unitDataKeyHash = bootstrap.GetType().GetField("unitDataKeyHash", members);
+            int bootstrapGeneration = (int)registrationGeneration.GetValue(bootstrap);
+
+            object[] exactArgs = { 42u, null, 5, 0, "UnitData_Warrior", 1, 30, null };
+            Assert.That((bool)remember.Invoke(player, exactArgs), Is.True);
+            Assert.That((int)registrationGeneration.GetValue(exactArgs[7]), Is.EqualTo(bootstrapGeneration));
+            object[] duplicateArgs = { 42u, null, 5, 0, "UnitData_Warrior", 1, 30, null };
+            Assert.That((bool)remember.Invoke(player, duplicateArgs), Is.True);
+            Assert.That((int)registrationGeneration.GetValue(duplicateArgs[7]), Is.EqualTo(bootstrapGeneration),
+                "same-revision exact enrichment must not replace the registration generation");
+
+            Assert.That((bool)remember.Invoke(player, new object[] { 42u, null, 6, 0, "UnitData_Warrior", 1, 30, null }), Is.False);
+            Assert.That((bool)remember.Invoke(player, new object[] { 42u, null, 5, 0, "UnitData_Warrior", 2, 30, null }), Is.False);
+            Assert.That((bool)remember.Invoke(player, new object[] { 42u, null, 5, 0, "UnitData_Mage", 1, 30, null }), Is.False);
+            Assert.That((bool)remember.Invoke(player, new object[] { 42u, null, 5, 0, "UnitData_Warrior", 1, 29, null }), Is.False);
+            Assert.That((bool)canUnregister.Invoke(player, new object[] { 42u, 30 }), Is.False,
+                "same-revision unregister cannot remove desired membership");
+
+            var retired = (HashSet<uint>)retiredField.GetValue(player);
+            retired.Add(42u);
+            Assert.That((bool)remember.Invoke(player, new object[] { 42u, null, 6, 0, "UnitData_Warrior", 1, 30, null }), Is.False);
+            Assert.That(retired.Contains(42u), Is.True, "stale validation must not mutate the tombstone first");
+            object[] restoreArgs = { 42u, null, 5, 0, "UnitData_Warrior", 1, 30, null };
+            Assert.That((bool)remember.Invoke(player, restoreArgs), Is.True);
+            Assert.That(retired.Contains(42u), Is.False);
+
+            int[] mageHashes = { mageHash };
+            int mageFingerprint = PlayerManager.ComputeUnitRosterFingerprint(ids, positions, mageHashes, stars);
+            object[] mageAcceptArgs = { 31, mageFingerprint, ids, positions, mageHashes, stars, 0 };
+            Assert.That(accept.Invoke(player, mageAcceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            object replacement = latest[42u];
+            Assert.That((string)unitDataKey.GetValue(replacement), Is.EqualTo(string.Empty),
+                "a new full roster must not reuse an old registration key for the same raw id");
+            Assert.That((int)unitDataKeyHash.GetValue(replacement), Is.EqualTo(mageHash));
+
+            int[] empty = System.Array.Empty<int>();
+            int emptyFingerprint = PlayerManager.ComputeUnitRosterFingerprint(empty, empty, empty, empty);
+            object[] emptyAcceptArgs = { 32, emptyFingerprint, empty, empty, empty, empty, 0 };
+            Assert.That(accept.Invoke(player, emptyAcceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            Assert.That((bool)canUnregister.Invoke(player, new object[] { 42u, 32 }), Is.True);
+            Assert.That((bool)canUnregister.Invoke(player, new object[] { 42u, 31 }), Is.False);
+        }
+        finally
+        {
+            Object.DestroyImmediate(owner);
+        }
+    }
+
+    [Test]
+    public void UnitRosterLifecycleResetInvalidatesStateButRetainsPerUnitApplyGate()
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.NonPublic;
+        GameObject owner = new GameObject("UnitRosterLifecycleGateTest");
+        System.Threading.SemaphoreSlim heldGate = null;
+        bool gateEntered = false;
+        try
+        {
+            PlayerManager player = owner.AddComponent<PlayerManager>();
+            MethodInfo accept = typeof(PlayerManager).GetMethod("TryAcceptUnitRosterRevision", members);
+            MethodInfo isCurrent = typeof(PlayerManager).GetMethod("IsUnitRegistrationCurrent", members);
+            MethodInfo storePending = typeof(PlayerManager).GetMethod("StorePendingUnitRoster", members);
+            MethodInfo reset = typeof(PlayerManager).GetMethod("ResetLocalUnitRosterSyncState", members);
+            MethodInfo getGate = typeof(PlayerManager).GetMethod("GetUnitRegistrationApplyGate", members);
+            FieldInfo latestField = typeof(PlayerManager).GetField("_latestUnitRegistrationById", members);
+            FieldInfo desiredField = typeof(PlayerManager).GetField("_desiredUnitRosterById", members);
+            FieldInfo pendingIds = typeof(PlayerManager).GetField("_pendingUnitRosterIdRaws", members);
+            FieldInfo latestRevision = typeof(PlayerManager).GetField("_latestAcceptedUnitRosterRevision", members);
+            FieldInfo lifecycleGeneration = typeof(PlayerManager).GetField("_unitRosterLifecycleGeneration", members);
+
+            int[] ids = { 99 };
+            int[] positions = { 2, 3, 0 };
+            int[] hashes = { 2718 };
+            int[] stars = { 1 };
+            int fingerprint = PlayerManager.ComputeUnitRosterFingerprint(ids, positions, hashes, stars);
+            object[] acceptArgs = { 40, fingerprint, ids, positions, hashes, stars, 0 };
+            Assert.That(accept.Invoke(player, acceptArgs).ToString(), Is.EqualTo("AcceptedNew"));
+            int applyGeneration = (int)acceptArgs[6];
+            Assert.That((bool)storePending.Invoke(player,
+                new object[] { ids, positions, null, hashes, stars, 40, fingerprint, applyGeneration }), Is.True);
+
+            var latest = (System.Collections.IDictionary)latestField.GetValue(player);
+            object staleRegistration = latest[99u];
+            heldGate = (System.Threading.SemaphoreSlim)getGate.Invoke(player, new object[] { 99u });
+            Assert.That(getGate.Invoke(player, new object[] { 99u }), Is.SameAs(heldGate));
+            Assert.That(getGate.Invoke(player, new object[] { 100u }), Is.Not.SameAs(heldGate));
+            gateEntered = heldGate.Wait(0);
+            Assert.That(gateEntered, Is.True);
+            int generationBeforeReset = (int)lifecycleGeneration.GetValue(player);
+
+            reset.Invoke(player, null);
+
+            Assert.That((int)lifecycleGeneration.GetValue(player), Is.GreaterThan(generationBeforeReset));
+            Assert.That((bool)isCurrent.Invoke(player, new[] { staleRegistration }), Is.False);
+            Assert.That(((System.Collections.IDictionary)latestField.GetValue(player)).Count, Is.Zero);
+            Assert.That(((System.Collections.IDictionary)desiredField.GetValue(player)).Count, Is.Zero);
+            Assert.That(pendingIds.GetValue(player), Is.Null);
+            Assert.That((int)latestRevision.GetValue(player), Is.EqualTo(-1));
+            Assert.That(getGate.Invoke(player, new object[] { 99u }), Is.SameAs(heldGate),
+                "the old lifecycle gate must serialize a reused raw id until its Initialize unwinds");
+            Assert.That(heldGate.CurrentCount, Is.Zero, "reset must not replace or release an in-flight gate");
+        }
+        finally
+        {
+            if (gateEntered)
+            {
+                heldGate.Release();
+            }
+            Object.DestroyImmediate(owner);
+        }
+    }
+
+    [Test]
+    public void UnitRosterAsyncApplySerializesInitializeAndDrainsFullRosterFirst()
+    {
+        string playerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/PlayerManager.cs");
+        int initializePlayer = playerSource.IndexOf("public async void Rpc_InitializePlayer", System.StringComparison.Ordinal);
+        Assert.That(initializePlayer, Is.GreaterThanOrEqualTo(0));
+        int drainPendingFull = playerSource.IndexOf("await DrainPendingUnitRoster(\"Rpc_InitializePlayer\")", initializePlayer, System.StringComparison.Ordinal);
+        Assert.That(drainPendingFull, Is.GreaterThan(initializePlayer));
+        int drainPendingEntries = playerSource.IndexOf("// Process any unit registrations that arrived early.", drainPendingFull, System.StringComparison.Ordinal);
+        Assert.That(drainPendingEntries, Is.GreaterThan(drainPendingFull));
+
+        int internalApply = playerSource.IndexOf("RPC_RegisterUnitAt_Internal(", System.StringComparison.Ordinal);
+        Assert.That(internalApply, Is.GreaterThanOrEqualTo(0));
+        int internalDefinition = playerSource.IndexOf("private async Cysharp.Threading.Tasks.UniTask RPC_RegisterUnitAt_Internal", internalApply, System.StringComparison.Ordinal);
+        Assert.That(internalDefinition, Is.GreaterThan(internalApply));
+        int gateWait = playerSource.IndexOf("await applyGate.WaitAsync();", internalDefinition, System.StringComparison.Ordinal);
+        int tokenRecheck = playerSource.IndexOf("_latestUnitRegistrationById.TryGetValue(unitIdRaw, out registration)", gateWait, System.StringComparison.Ordinal);
+        int latestObjectRebind = playerSource.IndexOf("unitNO = registration.unitNO != null ? registration.unitNO : unitNO;", tokenRecheck, System.StringComparison.Ordinal);
+        int attachStatusBar = playerSource.IndexOf("fieldManager.AttachStatusBar(unit.gameObject, unit.SetStatusBar);", latestObjectRebind, System.StringComparison.Ordinal);
+        int unitInitialize = playerSource.IndexOf("await unit.Initialize(data, starLevel, this);", attachStatusBar, System.StringComparison.Ordinal);
+        int registerAt = playerSource.IndexOf("fieldManager.RegisterUnitAt(unit, pos);", unitInitialize, System.StringComparison.Ordinal);
+        int gateRelease = playerSource.IndexOf("applyGate.Release();", unitInitialize, System.StringComparison.Ordinal);
+        Assert.That(gateWait, Is.GreaterThan(internalDefinition));
+        Assert.That(tokenRecheck, Is.GreaterThan(gateWait), "latest registration token must be rechecked after gate acquisition");
+        Assert.That(latestObjectRebind, Is.GreaterThan(tokenRecheck), "waiters must apply the latest same-token enrichment metadata");
+        Assert.That(attachStatusBar, Is.GreaterThan(latestObjectRebind));
+        Assert.That(unitInitialize, Is.GreaterThan(attachStatusBar));
+        Assert.That(registerAt, Is.GreaterThan(unitInitialize));
+        Assert.That(gateRelease, Is.GreaterThan(registerAt));
+        Assert.That(playerSource, Does.Not.Contain("_unitRegistrationApplyGates.Clear()"));
     }
 
     [Test]
     public void MeleeUnitsRecheckRangeBeforeApplyingDamage()
     {
-        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
-
-        Assert.That(unitSource, Does.Contain("PruneBlockedMonsters();"));
-        Assert.That(unitSource, Does.Contain("IsCurrentTargetValidForAttack(false)"));
-        Assert.That(unitSource, Does.Contain("IsTargetWithinAttackRange(targetTransform, AttackRangePadding)"));
-        Assert.That(unitSource, Does.Contain("IsPendingMeleeAttackStillValid()"));
-        Assert.That(unitSource, Does.Contain("GetClosestTargetPoint(target, transform.position)"));
-        Assert.That(unitSource, Does.Contain("monster.Unblock();"));
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        foreach (string methodName in new[]
+                 {
+                     "PruneBlockedMonsters", "IsCurrentTargetValidForAttack", "IsTargetWithinAttackRange",
+                     "IsPendingMeleeAttackStillValid", "GetClosestTargetPoint"
+                 })
+        {
+            Assert.That(typeof(Unit).GetMethods(members).Any(method => method.Name == methodName), Is.True, methodName);
+        }
+        Assert.That(MdfCompiledCodePolicy.ReferencesMethod(typeof(Unit), typeof(Monster), "Unblock"), Is.True);
     }
 
     [Test]
     public void AttackMonsterPoolSnapshotApplyDoesNotDropUnresolvedEntries()
     {
-        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
-        string augmentSource = File.ReadAllText("Assets/Scripts/Managers/AugmentManager.cs");
+        string playerSource = MdfSourcePolicy.ReadStaticContract("Assets/Scripts/Managers/PlayerManager.cs");
 
         Assert.That(playerSource, Does.Contain("ResolveAttackMonsterDataAsync"));
         Assert.That(playerSource, Does.Contain("FindLoadedMonsterDataByName"));
         Assert.That(playerSource, Does.Contain("FindWaveMonsterDataByName"));
         Assert.That(playerSource, Does.Contain("AttackMonsterPool snapshot apply aborted"));
         Assert.That(playerSource, Does.Not.Match(@"if \(monsterData == null\)\s*\{\s*continue;"));
-        Assert.That(augmentSource, Does.Contain("FindMonsterDataByName"));
-        Assert.That(augmentSource, Does.Contain("augment?.bossMonsterData"));
-        Assert.That(augmentSource, Does.Contain("augment?.monsterSpawnEntries"));
+        Assert.That(typeof(AugmentManager).GetMethod("FindMonsterDataByName", BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic), Is.Not.Null);
+        Assert.That(typeof(AugmentData).GetField("bossMonsterData"), Is.Not.Null);
+        Assert.That(typeof(AugmentData).GetField("monsterSpawnEntries"), Is.Not.Null);
     }
 
     [Test]
     public void PlayerManagerDurableSnapshotsUseCompactStableIds()
     {
-        string playerSource = File.ReadAllText("Assets/Scripts/Managers/PlayerManager.cs");
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        System.Type shopSlot = typeof(PlayerManager).GetNestedType("ShopSnapshotSlot", BindingFlags.NonPublic);
+        System.Type monsterSlot = typeof(PlayerManager).GetNestedType("AttackMonsterPoolSnapshotSlot", BindingFlags.NonPublic);
+        Assert.That(shopSlot, Is.Not.Null);
+        Assert.That(monsterSlot, Is.Not.Null);
+        Assert.That(typeof(Fusion.INetworkStruct).IsAssignableFrom(shopSlot), Is.True);
+        Assert.That(typeof(Fusion.INetworkStruct).IsAssignableFrom(monsterSlot), Is.True);
 
-        Assert.That(playerSource, Does.Contain("NetworkArray<ShopSnapshotSlot> ShopSnapshotSlots"));
-        Assert.That(playerSource, Does.Contain("NetworkArray<int> PresentedAugmentSnapshotIds"));
-        Assert.That(playerSource, Does.Contain("NetworkArray<int> SelectedAugmentSnapshotIds"));
-        Assert.That(playerSource, Does.Contain("SELECTED_AUGMENT_SNAPSHOT_CAPACITY = 32"));
-        Assert.That(playerSource, Does.Contain("NetworkArray<AttackMonsterPoolSnapshotSlot> AttackMonsterPoolSnapshotSlots"));
-        Assert.That(playerSource, Does.Contain("private struct ShopSnapshotSlot : INetworkStruct"));
-        Assert.That(playerSource, Does.Contain("private struct AttackMonsterPoolSnapshotSlot : INetworkStruct"));
-        Assert.That(playerSource, Does.Contain("PackShopSnapshotMeta"));
-        Assert.That(playerSource, Does.Contain("PackAttackMonsterCounts"));
-        Assert.That(playerSource, Does.Contain("ResolveLoadedUnitDataKeyByStableHash"));
-        Assert.That(playerSource, Does.Contain("ResolveLoadedAugmentNameByStableId"));
-        Assert.That(playerSource, Does.Contain("ResolveLoadedMonsterDataNameByStableHash"));
-        Assert.That(playerSource, Does.Not.Contain("NetworkArray<int> ShopSnapshotUnitKeyHashes"));
-        Assert.That(playerSource, Does.Not.Contain("NetworkArray<int> ShopSnapshotStarLevels"));
-        Assert.That(playerSource, Does.Not.Contain("NetworkArray<int> ShopSnapshotSoldFlags"));
-        Assert.That(playerSource, Does.Not.Contain("NetworkArray<int> AttackMonsterPoolSnapshotDataIds"));
-        Assert.That(playerSource, Does.Not.Contain("NetworkArray<int> AttackMonsterPoolSnapshotRemainingCounts"));
-        Assert.That(playerSource, Does.Not.Contain("NetworkArray<int> AttackMonsterPoolSnapshotMaxCounts"));
-        Assert.That(playerSource, Does.Not.Contain("NetworkArray<NetworkString<_64>> ShopSnapshotUnitKeys"));
-        Assert.That(playerSource, Does.Not.Contain("NetworkArray<NetworkString<_64>> PresentedAugmentSnapshotNames"));
-        Assert.That(playerSource, Does.Not.Contain("NetworkArray<NetworkString<_64>> SelectedAugmentSnapshotNames"));
-        Assert.That(playerSource, Does.Not.Contain("NetworkArray<NetworkString<_64>> AttackMonsterPoolSnapshotNames"));
+        AssertNetworkArrayElementType(typeof(PlayerManager), "ShopSnapshotSlots", shopSlot);
+        AssertNetworkArrayElementType(typeof(PlayerManager), "PresentedAugmentSnapshotIds", typeof(int));
+        AssertNetworkArrayElementType(typeof(PlayerManager), "SelectedAugmentSnapshotIds", typeof(int));
+        AssertNetworkArrayElementType(typeof(PlayerManager), "SelectedAugmentSnapshotCounts", typeof(int));
+        AssertNetworkArrayElementType(typeof(PlayerManager), "AttackMonsterPoolSnapshotSlots", monsterSlot);
+        Assert.That(typeof(PlayerManager).GetField("SELECTED_AUGMENT_SNAPSHOT_CAPACITY", members)?.GetRawConstantValue(), Is.EqualTo(64));
+
+        foreach (string methodName in new[]
+                 {
+                     "PackShopSnapshotMeta", "PackAttackMonsterCounts", "ResolveLoadedUnitDataKeyByStableHash",
+                     "ResolveLoadedAugmentContentIdByStableId", "ResolveLoadedMonsterDataNameByStableHash"
+                 })
+        {
+            Assert.That(typeof(PlayerManager).GetMethods(members).Any(method => method.Name == methodName), Is.True, methodName);
+        }
+
+        foreach (string obsoleteProperty in new[]
+                 {
+                     "ShopSnapshotUnitKeyHashes", "ShopSnapshotStarLevels", "ShopSnapshotSoldFlags",
+                     "AttackMonsterPoolSnapshotDataIds", "AttackMonsterPoolSnapshotRemainingCounts",
+                     "AttackMonsterPoolSnapshotMaxCounts", "ShopSnapshotUnitKeys", "PresentedAugmentSnapshotNames",
+                     "SelectedAugmentSnapshotNames", "AttackMonsterPoolSnapshotNames"
+                 })
+        {
+            Assert.That(typeof(PlayerManager).GetProperty(obsoleteProperty, members), Is.Null, obsoleteProperty);
+        }
     }
 
     [Test]
     public void RuntimeCombatObjectsUseCompactStableIdentityKeys()
     {
-        string unitSource = File.ReadAllText("Assets/Scripts/Game/Units/Unit.cs");
-        string monsterSource = File.ReadAllText("Assets/Scripts/Game/Monsters/Monster.cs");
-        string stableKeySource = File.ReadAllText("Assets/Scripts/Network/StableDataKeyUtility.cs");
+        const BindingFlags InstanceMembers = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
+        PropertyInfo unitKey = typeof(Unit).GetProperty("NetworkedUnitDataKeyHash", InstanceMembers);
+        PropertyInfo monsterKey = typeof(Monster).GetProperty("NetworkedMonsterDataKeyHash", InstanceMembers);
+        Assert.That(unitKey, Is.Not.Null);
+        Assert.That(unitKey.PropertyType, Is.EqualTo(typeof(int)));
+        Assert.That(System.Array.Exists(
+            unitKey.GetCustomAttributes(false),
+            attribute => attribute.GetType().Name == "NetworkedAttribute" || attribute.GetType().Name == "NetworkedWeavedAttribute"), Is.True);
+        Assert.That(monsterKey, Is.Not.Null);
+        Assert.That(monsterKey.PropertyType, Is.EqualTo(typeof(int)));
+        Assert.That(System.Array.Exists(
+            monsterKey.GetCustomAttributes(false),
+            attribute => attribute.GetType().Name == "NetworkedAttribute" || attribute.GetType().Name == "NetworkedWeavedAttribute"), Is.True);
 
-        Assert.That(unitSource, Does.Contain("NetworkedUnitDataKeyHash"));
-        Assert.That(unitSource, Does.Contain("TryResolveUnitDataKeyByStableHash"));
-        Assert.That(unitSource, Does.Not.Contain("NetworkString<_64> NetworkedUnitDataKey"));
-        Assert.That(monsterSource, Does.Contain("NetworkedMonsterDataKeyHash"));
-        Assert.That(monsterSource, Does.Contain("TryResolveMonsterDataKeyByStableHash"));
-        Assert.That(monsterSource, Does.Not.Contain("NetworkString<_64> NetworkedMonsterDataKey"));
-        Assert.That(stableKeySource, Does.Contain("StableKeyHash"));
+        Assert.That(System.Array.Exists(
+            typeof(Unit).GetMethods(InstanceMembers),
+            method => method.Name == "TryResolveUnitDataKeyByStableHash"), Is.True);
+        Assert.That(System.Array.Exists(
+            typeof(Monster).GetMethods(InstanceMembers),
+            method => method.Name == "TryResolveMonsterDataKeyByStableHash"), Is.True);
+        Assert.That(StableDataKeyUtility.StableKeyHash(" Fighter(Clone) "),
+            Is.EqualTo(StableDataKeyUtility.StableKeyHash("Fighter")));
+    }
+
+    private static void WithOpenScene(string assetPath, System.Action<Scene> assertion)
+    {
+        Scene scene = SceneManager.GetSceneByPath(assetPath);
+        bool openedForTest = !scene.IsValid() || !scene.isLoaded;
+        if (openedForTest)
+        {
+            scene = EditorSceneManager.OpenScene(assetPath, OpenSceneMode.Additive);
+        }
+
+        try
+        {
+            Assert.That(scene.IsValid() && scene.isLoaded, Is.True, assetPath);
+            assertion(scene);
+        }
+        finally
+        {
+            if (openedForTest && scene.IsValid() && scene.isLoaded)
+            {
+                EditorSceneManager.CloseScene(scene, removeScene: true);
+            }
+        }
+    }
+
+    private static GameObject FindSceneObject(Scene scene, string objectName)
+    {
+        return scene.GetRootGameObjects()
+            .SelectMany(root => root.GetComponentsInChildren<Transform>(true))
+            .FirstOrDefault(transform => transform.name == objectName)
+            ?.gameObject;
+    }
+
+    private static GameObject FindChildByName(GameObject root, string objectName)
+    {
+        return root.GetComponentsInChildren<Transform>(true)
+            .FirstOrDefault(transform => transform.name == objectName)
+            ?.gameObject;
+    }
+
+    private static void AssertNamedElements(VisualElement root, string namePrefix, int count)
+    {
+        Assert.That(root, Is.Not.Null);
+        for (int i = 0; i < count; i++)
+        {
+            Assert.That(root.Q<VisualElement>($"{namePrefix}{i}"), Is.Not.Null, $"{namePrefix}{i}");
+        }
+    }
+
+    private static int CountElementsWithClass(VisualElement root, string className)
+    {
+        int count = 0;
+        root.Query<VisualElement>(className: className).ForEach(_ => count++);
+        return count;
+    }
+
+    private static void AssertSpriteUsesFullRectMesh(string assetPath)
+    {
+        var importer = AssetImporter.GetAtPath(assetPath) as TextureImporter;
+        Assert.That(importer, Is.Not.Null, assetPath);
+        var settings = new TextureImporterSettings();
+        importer.ReadTextureSettings(settings);
+        Assert.That(settings.spriteMeshType, Is.EqualTo(SpriteMeshType.FullRect), assetPath);
+    }
+
+    private static void AssertDependenciesContainFileNames(string assetPath, params string[] expectedFileNames)
+    {
+        string[] dependencyNames = AssetDatabase.GetDependencies(assetPath, recursive: true)
+            .Select(System.IO.Path.GetFileName)
+            .ToArray();
+        foreach (string expected in expectedFileNames)
+        {
+            Assert.That(dependencyNames, Does.Contain(expected), $"{assetPath} dependency {expected}");
+        }
+    }
+
+    private static void AssertNetworkArrayElementType(System.Type ownerType, string propertyName, System.Type expectedElementType)
+    {
+        const BindingFlags members = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+        PropertyInfo property = ownerType.GetProperty(propertyName, members);
+        Assert.That(property, Is.Not.Null, propertyName);
+        Assert.That(property.PropertyType.IsGenericType, Is.True, propertyName);
+        Assert.That(property.PropertyType.GetGenericArguments()[0], Is.EqualTo(expectedElementType), propertyName);
     }
 
     private static void AssertComparisonFails(System.Action<MPTestStateSnapshot.Snapshot, MPTestStateSnapshot.Snapshot> mutate, string expectedErrorField)

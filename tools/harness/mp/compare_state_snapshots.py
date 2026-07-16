@@ -60,6 +60,18 @@ def compare_snapshots(left: dict[str, Any], right: dict[str, Any]) -> dict[str, 
         compare_equal(errors, f"player.{player_id}.health", lp.get("health"), rp.get("health"))
         compare_equal(errors, f"player.{player_id}.gold", lp.get("gold"), rp.get("gold"))
         compare_equal(errors, f"player.{player_id}.wallCount", lp.get("wallCount"), rp.get("wallCount"))
+        compare_equal(errors, f"player.{player_id}.permanentWallPlacementCount", lp.get("permanentWallPlacementCount"), rp.get("permanentWallPlacementCount"))
+        compare_equal(errors, f"player.{player_id}.permanentWallStockRevision", lp.get("permanentWallStockRevision"), rp.get("permanentWallStockRevision"))
+        compare_equal(errors, f"player.{player_id}.permanentWallLayoutRevision", lp.get("permanentWallLayoutRevision"), rp.get("permanentWallLayoutRevision"))
+        compare_equal(errors, f"player.{player_id}.blackMagicCurrent", lp.get("blackMagicCurrent"), rp.get("blackMagicCurrent"))
+        compare_equal(errors, f"player.{player_id}.blackMagicMaximum", lp.get("blackMagicMaximum"), rp.get("blackMagicMaximum"))
+        compare_equal(errors, f"player.{player_id}.blackMagicMaxBonus", lp.get("blackMagicMaxBonus"), rp.get("blackMagicMaxBonus"))
+        compare_equal(errors, f"player.{player_id}.blackMagicRevision", lp.get("blackMagicRevision"), rp.get("blackMagicRevision"))
+        compare_equal(errors, f"player.{player_id}.blackMagicSequenceId", lp.get("blackMagicSequenceId"), rp.get("blackMagicSequenceId"))
+        compare_equal(errors, f"player.{player_id}.selectedMapThemeId", lp.get("selectedMapThemeId"), rp.get("selectedMapThemeId"))
+        compare_equal(errors, f"player.{player_id}.mapThemePresentationReady", lp.get("mapThemePresentationReady"), rp.get("mapThemePresentationReady"))
+        if lp.get("mapThemePresentationReady") and rp.get("mapThemePresentationReady"):
+            compare_equal(errors, f"player.{player_id}.appliedMapThemeId", lp.get("appliedMapThemeId"), rp.get("appliedMapThemeId"))
         compare_known_or_missing(errors, f"player.{player_id}.attackMonsterPoolHash", lp.get("attackMonsterPoolHash"), rp.get("attackMonsterPoolHash"))
         compare_known_or_missing(errors, f"player.{player_id}.ownedScrollsHash", lp.get("ownedScrollsHash"), rp.get("ownedScrollsHash"))
         compare_equal(errors, f"player.{player_id}.ownedScrollRevision", lp.get("ownedScrollRevision"), rp.get("ownedScrollRevision"))
@@ -81,7 +93,22 @@ def compare_snapshots(left: dict[str, Any], right: dict[str, Any]) -> dict[str, 
         compare_equal(errors, f"player.{player_id}.field.deadUnitCount", nested(lp, "field", "deadUnitCount"), nested(rp, "field", "deadUnitCount"))
         compare_known(errors, f"player.{player_id}.field.deadUnitsHash", nested(lp, "field", "deadUnitsHash"), nested(rp, "field", "deadUnitsHash"))
         compare_known(errors, f"player.{player_id}.field.placedUnitsHash", nested(lp, "field", "placedUnitsHash"), nested(rp, "field", "placedUnitsHash"))
+        compare_equal(errors, f"player.{player_id}.field.goalCell", nested(lp, "field", "goalCell"), nested(rp, "field", "goalCell"))
+        compare_equal(
+            errors,
+            f"player.{player_id}.field.regularUnitGoalViolationCount",
+            nested(lp, "field", "regularUnitGoalViolationCount"),
+            nested(rp, "field", "regularUnitGoalViolationCount"),
+        )
         compare_known(errors, f"player.{player_id}.field.wallHash", nested(lp, "field", "wallHash"), nested(rp, "field", "wallHash"))
+        compare_known_or_required(
+            errors,
+            f"player.{player_id}.field.destructibleWallHealthHash",
+            nested(lp, "field", "destructibleWallHealthHash"),
+            nested(rp, "field", "destructibleWallHealthHash"),
+            required=(nested(lp, "field", "destructibleWallCount") or 0) > 0
+            or (nested(rp, "field", "destructibleWallCount") or 0) > 0,
+        )
         compare_equal(errors, f"player.{player_id}.monsters.aliveCount", nested(lp, "monsters", "aliveCount"), nested(rp, "monsters", "aliveCount"))
         compare_known(errors, f"player.{player_id}.monsters.livingHash", nested(lp, "monsters", "livingHash"), nested(rp, "monsters", "livingHash"))
         compare_known_or_missing(errors, f"player.{player_id}.monsters.typeHash", nested(lp, "monsters", "typeHash"), nested(rp, "monsters", "typeHash"))
